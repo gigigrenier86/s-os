@@ -70,7 +70,8 @@ dans l'image.
 | Socle | `ghcr.io/ublue-os/bazzite:stable` — Fedora 44 atomique, KDE Plasma |
 | Construction | GitHub Actions, ~9 min, **plus reconstruction quotidienne automatique** |
 | Installation | `bootc install to-disk --source-imgref docker://…` — 35 min |
-| Mise à jour | **`bootc upgrade`** — 2 couches sur 130, mais **2,3 Go** avant le découpage du 2026-08-20 |
+| Image | **137 couches, 6,95 Go** — 128 de Bazzite, 9 de S |
+| Mise à jour | **`bootc upgrade`** — une retouche de geste coûte **9,6 Mo** depuis le découpage en couches (2,3 Go avant) |
 | Démarrage | **35 s** en régime ; 58 s la première fois après une mise à jour |
 | Compte utilisateur | créé à l'installation par **`plasma-setup`**, natif à l'image de base |
 | Bureau | **KDE Plasma, vu et capturé** — `bureau-2026-08-20.png`. Rendu **logiciel** (`llvmpipe`), faute de GPU au banc |
@@ -213,7 +214,10 @@ tenaient dans un seul `RUN` : un `bootc upgrade` réel a alors annoncé
 `layers needed: 2 (2.3 GB)` pour une retouche de couture, puisque la couche
 unique portait aussi VS Code, Antigravity et Zoom. Et `COPY files/ /` doit
 descendre au plus près du seul script qui en dépend, sinon il invalide tout ce
-qui le suit à chaque virgule corrigée.
+qui le suit à chaque virgule corrigée. **Mesuré après découpage**, sur le
+manifeste de l'image publiée : la couche des coutures pèse **9,6 Mo**, celle du
+`COPY` moins de 0,1 Mo. Une retouche de geste coûte donc 9,6 Mo au lieu de
+2,3 Go.
 
 ### Les deux réserves assumées
 
@@ -1406,4 +1410,27 @@ fichier par fichier :
 
 **Et c'est cette mise à jour qui a révélé le défaut de couches** :
 `layers needed: 2 (2.3 GB)`. Voir la règle 11.
+
+### Ce que pèse chaque couche — relevé du manifeste, 23 h 50
+
+Le manifeste se lit sans rien télécharger : un jeton anonyme sur `ghcr.io`, puis
+`/v2/<dépôt>/manifests/latest`. **137 couches, 6,95 Go** au total, dont 128
+viennent de Bazzite. Les neuf dernières sont les nôtres, et l'ordre du
+`Containerfile` s'y lit directement :
+
+| Couche | Poids | Ce qu'elle porte |
+|---|---|---|
+| 129 | **0,0 Mo** | `20-android` — il ne fait que vérifier, et ça se voit |
+| 130 | 235,0 Mo | Vivaldi |
+| 131 | 773,4 Mo | VS Code, Antigravity, Node, Gemini CLI, Claude Code |
+| 132 | 647,3 Mo | RetroArch et ses cœurs, Zoom |
+| 133 | **468,3 Mo** | l'archive de Proton — le compte tombe juste |
+| 134 | 106,6 Mo | `/etc/skel` et les extensions VS Code |
+| 135 | 0,0 Mo | `COPY files/ /` — les gestes eux-mêmes |
+| 136 | **9,6 Mo** | les coutures, F-Droid compris |
+
+**C'est la preuve du découpage** : retoucher un geste ne touche plus que les
+couches 135 et 136, soit **9,6 Mo au lieu de 2,3 Go**. Et lire un manifeste coûte
+une requête, là où le mesurer par `bootc upgrade` coûtait une demi-heure de
+téléchargement dans le banc.
 
