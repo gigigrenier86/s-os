@@ -420,7 +420,7 @@ sudo bootc switch --enforce-container-sigpolicy=false ghcr.io/gigigrenier86/s-os
 
 ---
 
-## 2026-08-20, 02 h 25 — S s'installe et s'amorce pour de vrai
+## 2026-08-20, 02 h 25 — S s'installe et s'amorce *(diagnostic corrigé plus bas)*
 
 **Premier système installé et démarré.** En machine virtuelle, donc ce n'est pas
 la preuve finale — mais c'est la première fois que l'image existe autrement que
@@ -476,3 +476,69 @@ cause — et c'est écrit ici pour que personne ne croie l'inverse.
   d'image à tirer, puis 129 couches à écrire.
 - **La reconstruction quotidienne programmée fonctionne** — déclenchée par
   l'horloge à 05:57, verte en 4 min 51 s, sans intervention.
+
+---
+
+## 2026-08-20, 04 h 20 — S démarre, et le diagnostic précédent était faux
+
+**Le jalon 2 est atteint.** Console série capturée **depuis le premier octet** —
+ce qui n'avait jamais été fait, et qui explique tout ce qui précède.
+
+```
+[  OK  ] Finished bazzite-hardware-setup.service - Configure Bazzite…
+[  OK  ] Finished systemd-user-sessions.service - Permit User Sessions.
+
+Bazzite
+Kernel 7.1.5-ogc5.1.fc44.x86_64 on x86_64 (ttyS0)
+bazzite login:
+```
+
+| Mesure | Valeur |
+|---|---|
+| Durée du démarrage | **25 secondes** |
+| Services en échec | **aucun** |
+| Cibles atteintes | toutes, dont `boot-complete` et `greenboot-success` |
+| Invite de connexion | ouverte sur la console série |
+
+### Ce que j'avais mal lu, et pourquoi
+
+`bazzite-hardware-setup.service` **ne fige rien**. Au **premier** démarrage après
+installation il lit le matériel, applique un argument noyau — ici
+`bluetooth.disable_ertm=1` — puis **redémarre la machine, à dessein** :
+
+```
+Found needed karg changes, applying: --append-if-missing=bluetooth.disable_ertm=1
+Staging deployment...done
+Rebooting to apply karg changes
+```
+
+Cela lui prend **1 min 52 s**, mesuré. Aux démarrages suivants il trouve ses
+marqueurs dans `/etc/bazzite/` et rend la main aussitôt.
+
+**La limite de 120 s posée quelques heures plus tôt aurait donc interrompu un
+travail légitime à huit secondes de sa fin.** C'était un piège, pas un filet.
+Elle est portée à **quinze minutes** : assez large pour ne jamais gêner, assez
+ferme pour qu'un vrai blocage — le défaut rapporté en amont — ne rende pas la
+machine inaccessible.
+
+**La leçon de méthode, et elle vaut pour tout ce dépôt :** j'ai conclu au
+blocage parce que je regardais la console *après coup*, en m'y connectant trop
+tard pour voir ce qui avait déjà défilé. Un écran noir et un port muet ont été
+lus comme une panne, alors que la machine attendait tranquillement qu'on se
+connecte. **Capturer depuis l'instant zéro, dans un fichier, aurait donné la
+réponse en deux minutes au lieu de deux heures.**
+
+### La vraie raison de l'absence de session
+
+**L'image n'active pas OpenSSH sur TCP.** Seuls `sshd-unix-local.socket` et
+`sshd-vsock.socket` écoutent, posés par `systemd-ssh-generator` — le port 22 ne
+répond à personne.
+
+Or `bootc install --root-ssh-authorized-keys` dépose bien une clé pour `root` :
+**la clé est là, et rien ne l'écoute.**
+
+`10-base.sh` active donc `sshd.socket` — la socket plutôt que le service, pour ne
+rien coûter au repos. Et la raison de fond n'est pas le banc : **une machine dont
+le bureau ne démarre pas devient irréparable si l'on ne peut pas l'atteindre
+autrement.** C'est exactement ce qui vient d'arriver ici, l'accélération 3D
+manquant en machine virtuelle.
