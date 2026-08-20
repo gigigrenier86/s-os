@@ -1,37 +1,56 @@
 #!/usr/bin/bash
 set -euxo pipefail
 
-# La langue de l'interface est le francais, partout. Les paquets de langue ne
-# sont pas dans l'image de base : sans eux, les applications retombent en anglais
-# meme quand la locale est correctement posee.
+# --------------------------------------------------------------------------
+# La langue
+# --------------------------------------------------------------------------
+# Les paquets de langue ne sont pas dans l'image de base : sans eux, les
+# applications retombent en anglais meme quand la locale est correctement posee.
 dnf5 install -y glibc-langpack-fr hunspell-fr
 
-# Le reste de l'identite — nom affiche, theme, ecran d'amorcage — attend le
-# jalon 6. Ce jalon-ci ne prouve qu'une chose, et c'est deja beaucoup : la
-# chaine de fabrication tourne de bout en bout.
+# --------------------------------------------------------------------------
+# Pouvoir joindre la machine quand l'ecran ne repond plus
+# --------------------------------------------------------------------------
+# L'image de base n'active PAS OpenSSH sur TCP : mesure le 2026-08-20 sur un
+# systeme installe, seuls « sshd-unix-local.socket » et « sshd-vsock.socket »
+# ecoutent, tous deux poses par systemd-ssh-generator. Le port 22 ne repond a
+# personne.
+#
+# Or « bootc install --root-ssh-authorized-keys » depose une cle pour root :
+# la cle est la, et rien ne l'ecoute. Et surtout, une machine dont le bureau
+# ne demarre pas — ce qui arrive des que l'accelaration 3D manque — devient
+# irreparable si l'on ne peut pas l'atteindre autrement.
+#
+# On active donc la socket plutot que le service : sshd n'est lance qu'a la
+# premiere connexion, ce qui ne coute rien au repos.
+systemctl enable sshd.socket
 
 # --------------------------------------------------------------------------
-# Empecher un service de figer le demarrage indefiniment
+# Un filet, et non un piege, sur le service de configuration materielle
 # --------------------------------------------------------------------------
-# « bazzite-hardware-setup.service » se place AVANT
-# systemd-user-sessions.service et n'a aucune limite de temps. S'il ne rend
-# jamais la main, aucune session ne s'ouvre — ni console, ni SSH — et la
-# machine reste inutilisable sans qu'aucune erreur ne s'affiche : systemd
-# annonce simplement « no limit » et compte les minutes.
+# CORRECTION d'un diagnostic errone pose plus tot dans la meme nuit.
 #
-# Constate le 2026-08-20 sur cette image, installee par « bootc install
-# to-disk » : bloque au-dela de dix minutes. Le script appelle
-# « rpm-ostree kargs », et l'unite se declare After=rpm-ostreed.service — ce
-# qui rend l'interaction avec une installation bootc suspecte. C'est aussi un
-# defaut connu en amont (ublue-os/bazzite, issue 434).
+# « bazzite-hardware-setup.service » avait ete pris pour un service qui fige le
+# demarrage. Il n'en est rien : au PREMIER demarrage apres installation, il
+# lit le materiel, applique s'il y a lieu un argument noyau — ici
+# « bluetooth.disable_ertm=1 » —, puis REDEMARRE LA MACHINE, a dessein. Cela
+# lui prend 1 min 52 s, mesure. Aux demarrages suivants il trouve ses marqueurs
+# dans /etc/bazzite/ et rend la main immediatement : le second demarrage prend
+# 25 secondes en tout.
 #
-# On ne desactive pas le service : il configure de vraies choses sur du vrai
-# materiel. On lui refuse seulement le droit de bloquer le demarrage sans fin.
-# Un echec au bout de deux minutes est infiniment preferable a une machine qui
-# ne s'ouvre jamais.
+# Une limite a 120 s, telle qu'elle avait ete posee, aurait donc INTERROMPU un
+# travail legitime a quelques secondes de sa fin. C'etait un piege, pas un
+# filet.
+#
+# La limite est portee a quinze minutes : assez large pour ne jamais gener le
+# fonctionnement normal, assez ferme pour qu'un vrai blocage — le defaut
+# rapporte en amont sous ublue-os/bazzite#434 — ne rende pas la machine
+# definitivement inaccessible.
 install -d /usr/lib/systemd/system/bazzite-hardware-setup.service.d
 cat > /usr/lib/systemd/system/bazzite-hardware-setup.service.d/10-s-limite.conf <<'CONF'
 [Service]
-TimeoutStartSec=120
+TimeoutStartSec=900
 CONF
-echo "bazzite-hardware-setup : limite de demarrage posee a 120 s."
+
+# Le reste de l'identite — nom affiche, theme, ecran d'amorcage — attend le
+# jalon 6.
