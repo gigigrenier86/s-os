@@ -36,7 +36,9 @@ fi
 s_dire "$NOM" "Installation…" package-x-generic
 
 if [ "$BOITE" = s-debian ]; then
-    PAQUET="$(dpkg-deb -f "$CIBLE" Package 2>/dev/null || true)"
+    # dpkg-deb n existe pas sur une Fedora : le nom du paquet se lit DANS le
+    # conteneur, sans quoi il reste vide et aucune icone n est exportee.
+    PAQUET="$(distrobox enter --name "$BOITE" -- dpkg-deb -f "$DEPOT/$NOM" Package 2>/dev/null | head -n1 | tr -dc '[:alnum:]._+-')"
     POSE="sudo apt-get update -qq && sudo apt-get install -y -qq \"\$1\""
     LISTE="dpkg -L"
 else
