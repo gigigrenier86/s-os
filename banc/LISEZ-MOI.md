@@ -184,3 +184,56 @@ Deux options changent tout pour la suite :
 - **`--karg console=ttyS0,115200`** — le système installé parle alors sur la
   console série, donc son démarrage se lit en texte au lieu de se deviner sur
   des captures d'écran.
+
+---
+
+## Plus simple encore : `bootc` en natif, sans podman du tout
+
+Découvert le 2026-08-20 vers 03 h, après que le stockage podman d'une session
+live remontée d'un démarrage précédent eut cessé de fonctionner
+(`podman images` répondait, `podman run` rendait
+`readlink /var/lib/containers/storage/overlay: invalid argument`).
+
+**La session live de Bazzite embarque `bootc` nativement** — 1.15.2. Et
+l'option `--source-imgref` permet de lui désigner le registre directement, au
+lieu de le faire tourner dans un conteneur :
+
+```bash
+bootc install to-disk --wipe --filesystem btrfs \
+  --source-imgref docker://ghcr.io/gigigrenier86/s-os:latest \
+  --target-imgref ghcr.io/gigigrenier86/s-os:latest \
+  --root-ssh-authorized-keys /root/cles \
+  --karg console=tty0 --karg console=ttyS0,115200 \
+  /dev/vda
+```
+
+**Ce que ça supprime, et c'est beaucoup :**
+
+- plus de `podman pull`, donc plus de stockage local à gérer ;
+- **plus besoin du second disque** — c'était sa seule raison d'être ;
+- plus de `/var/tmp` en tmpfs à contourner ;
+- plus de fichier monté dans un conteneur, donc plus la question de savoir où
+  il est visible.
+
+`--target-imgref` mérite d'être posé explicitement : c'est la référence que le
+système installé utilisera pour ses **mises à jour ultérieures**. Sans elle,
+`bootc upgrade` ne saurait pas où chercher.
+
+**La méthode par podman reste consignée plus haut**, parce qu'elle a fonctionné
+et qu'elle éclaire ce que fait `bootc` — mais celle-ci est la bonne.
+
+## Deux chaînes concurrentes valent une soirée perdue
+
+Une leçon de conduite, pas de technique. Deux exemplaires du même script
+d'automatisation ont tourné en parallèle sans que je m'en aperçoive : l'un
+effaçait le disque que l'autre installait, l'un éteignait la machine que l'autre
+attendait. Le journal est illisible et deux heures y sont passées.
+
+Deux règles en découlent, pour ce dépôt :
+
+1. **Un script détaché par `nohup` depuis l'outil ne survit pas toujours** — et
+   quand on croit qu'il est mort, il ne l'est pas forcément. Vérifier par
+   `ps` avant de relancer.
+2. **Avant toute opération destructrice, compter les processus.** `taskkill` sur
+   QEMU sans regarder ce qui tourne a coûté, plus tôt dans la nuit, une
+   installation de 6,63 Gio lancée par l'utilisateur.
