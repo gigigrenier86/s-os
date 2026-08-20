@@ -246,3 +246,27 @@ correct.
 
 Ces deux vérifications coûtent une seconde et évitent chacune un aller-retour
 complet de CI.
+
+---
+
+## Vérifié sur documents — 2026-08-19
+
+Ce qui a été confirmé à la source, et qui reste à confirmer sur une machine.
+
+| Point | Source | Verdict |
+|---|---|---|
+| `ghcr.io/ublue-os/bazzite:stable` = bureau **KDE**, pilotes libres, sans NVIDIA | README de `ublue-os/bazzite` | **confirmé** — c'est bien la base du `Containerfile` |
+| Waydroid est fourni par Bazzite via `ujust configure-waydroid` | doc officielle Bazzite | **confirmé** |
+| `/usr/bin/waydroid-launcher` est le point d'entrée | doc officielle Bazzite | **confirmé** — c'est sur ce chemin que porte l'assertion de `20-android.sh` |
+| La traduction ARM se pose par la même recette, libhoudini **ou** libndk, jamais les deux | doc officielle Bazzite | **confirmé** |
+| Waydroid ne fonctionne pas sur NVIDIA | doc officielle Bazzite | **confirmé** — sans objet ici |
+
+**Un point nouveau, et il concerne le jalon 3 :** Bazzite publie des instructions
+particulières **pour les machines dont Secure Boot est actif**, à suivre *avant*
+la bascule. La M720q est en Windows 11, donc Secure Boot est très probablement
+activé — il n'a pas pu être lu depuis une session non élevée. À trancher avant
+d'installer quoi que ce soit sur le SSD : soit enrôler la clé de Bazzite, soit
+désactiver Secure Boot dans le firmware. Les deux sont réversibles.
+
+**Une documentation n'est pas une machine.** Rien de cette table ne remplace le
+jalon 3.
