@@ -16,18 +16,69 @@ COPY build_files /build_files
 
 FROM ghcr.io/ublue-os/bazzite:stable
 
-# Ce qui se depose tel quel, sans logique : lanceurs, reglages, identite.
-COPY files/ /
+# UNE COUCHE PAR ETAPE, et l ordre n est pas indifferent.
+#
+# Tout tenait dans un seul RUN jusqu au 2026-08-20. Consequence mesuree par un
+# « bootc upgrade » reel : changer une ligne d une couture reinvalidait la couche
+# entiere, VS Code et Zoom compris, et la mise a jour annoncait
+# « layers needed: 2 (2.3 GB) ». Decoupe ainsi, une retouche des coutures ne
+# coute plus que sa propre couche.
+#
+# L ordre va donc du plus stable et du plus lourd vers le plus volatil.
 
+# Langue francaise et acces distant
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
     --mount=type=tmpfs,dst=/tmp \
-    bash /ctx/build_files/10-base.sh && \
-    bash /ctx/build_files/20-android.sh && \
-    bash /ctx/build_files/25-navigateur.sh && \
-    bash /ctx/build_files/26-outils.sh && \
-    bash /ctx/build_files/27-applications.sh && \
-    bash /ctx/build_files/30-premiere-connexion.sh && \
+    bash /ctx/build_files/10-base.sh
+
+# Waydroid : verifie binder, ne pose rien de lourd
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/20-android.sh
+
+# Vivaldi (438 Mo)
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/25-navigateur.sh
+
+# VS Code, Node, Gemini, Claude Code, Antigravity (~2 Go)
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/26-outils.sh
+
+# RetroArch et ses coeurs, Zoom (918 Mo)
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/27-applications.sh
+
+# L archive de Proton (468 Mo) — gros et stable
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/41-windows.sh
+
+# /etc/skel : ce qui attend a la premiere connexion
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/30-premiere-connexion.sh
+
+# Ce qui se depose tel quel, sans logique : gestes, lanceurs, associations.
+#
+# Ce COPY est ICI, et pas en tete, parce qu'il porte les fichiers qui changent le
+# plus souvent. Place au debut, il invaliderait toutes les couches qui suivent —
+# soit VS Code, Antigravity, Zoom et Proton — a chaque virgule corrigee dans un
+# geste. Seul 40-coutures.sh en a besoin, donc il descend jusqu'a lui.
+COPY files/ /
+
+# Les coutures — la partie qui bouge le plus
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/40-coutures.sh && \
-    bash /ctx/build_files/41-windows.sh && \
     ostree container commit

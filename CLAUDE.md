@@ -747,8 +747,45 @@ Or `bootc install --root-ssh-authorized-keys` dépose bien une clé pour `root` 
 `10-base.sh` active donc `sshd.socket` — la socket plutôt que le service, pour ne
 rien coûter au repos. Et la raison de fond n'est pas le banc : **une machine dont
 le bureau ne démarre pas devient irréparable si l'on ne peut pas l'atteindre
-autrement.** C'est exactement ce qui vient d'arriver ici, l'accélération 3D
-manquant en machine virtuelle.
+autrement.**
+
+**Ce qui est arrivé ici, en revanche, était mal diagnostiqué — et le journal l'a
+tranché le 2026-08-20 à 22 h 30.** J'avais écrit que le bureau ne démarrait pas,
+faute d'accélération 3D, sur la seule foi d'une capture noire
+(`S-vm/ecran-s.png`, 03 h 55). **C'est faux, et dans les deux moitiés de la
+phrase.**
+
+Le bureau démarre et tourne : `display-manager` est `active`,
+`plasma-login-kwin_wayland` a passé la main normalement, **`plasmashell` tourne**,
+et Steam s'est lancé par-dessus. La capture noire datait d'avant la création du
+compte, à une heure où il n'y avait effectivement personne à afficher.
+
+Ce qui manque n'est pas le bureau mais **l'accélération matérielle**, et le
+journal le nomme sans ambiguïté :
+
+```
+plasmashell: MESA-EGL: warning: egl: failed to create dri2 screen
+steam:       name: "llvmpipe (LLVM 22.1.8, 128 bits)"
+             driver_id: k_EGpuDriverId_MesaLLVMPipe
+```
+
+`llvmpipe` est le rendu **logiciel** de Mesa : tout s'affiche, tout est lent.
+C'est exactement ce qu'il faut savoir pour la suite — **le blocage de Waydroid
+n'est pas « pas de bureau », c'est « pas de GPU »**, et cela ne se lève qu'au
+jalon 3, sur du vrai matériel.
+
+**Et le bureau a été regardé, à 19 h 31.** `bureau-2026-08-20.png`, versionnée
+au dépôt : Plasma affiché, fond d'écran de Bazzite, barre des tâches portant
+Vivaldi et Steam, et Steam ayant ouvert sa fenêtre de connexion par-dessus.
+C'est la première image de S en fonctionnement, et elle dit exactement le
+contraire de ce que le carnet affirmait la veille.
+
+**La leçon de méthode est plus large que le cas.** Une capture d'écran est une
+observation, pas un diagnostic ; j'en avais tiré une cause, qui est restée
+écrite quinze heures et a essaimé dans deux autres sections. Trois commandes de
+journal suffisaient — c'est la règle 7, et je l'ai enfreinte sur mon propre
+carnet. Le correctif tient en une phrase : **une capture noire prouve qu'on n'a
+rien vu, jamais qu'il n'y a rien.**
 
 ### `paths-ignore` surprend deux fois plutôt qu'une
 
