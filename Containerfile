@@ -14,8 +14,14 @@ COPY build_files /build_files
 
 FROM ghcr.io/ublue-os/bazzite:stable
 
-# Ce qui se depose tel quel, sans logique.
-COPY files/ /
+# Rien a deposer tel quel au jalon 1. « files/ » est vide, et git ne suit pas
+# les dossiers vides : un COPY vers un chemin absent du depot fait echouer la
+# construction APRES le telechargement complet de l'image de base — donc tard,
+# et pour une raison sans rapport avec ce qu'on essayait de faire.
+# La ligne revient au jalon 5, quand les coutures auront quelque chose a y
+# mettre :
+#
+#     COPY files/ /
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \

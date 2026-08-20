@@ -270,3 +270,27 @@ désactiver Secure Boot dans le firmware. Les deux sont réversibles.
 
 **Une documentation n'est pas une machine.** Rien de cette table ne remplace le
 jalon 3.
+
+### Git ne suit pas les dossiers vides
+
+Première construction, 2026-08-20 : échec sur
+`COPY files/ /: copier: stat: "/files": no such file or directory`.
+
+`files/usr/share/applications` et ses voisins avaient été créés localement, mais
+**vides** — ils ne sont donc jamais entrés dans le dépôt, et le `COPY` visait un
+chemin qui n'existe pas côté serveur.
+
+Ce qui rend la faute coûteuse n'est pas sa nature, c'est **son moment** : une
+source de `COPY` absente ne se découvre qu'au moment du `COPY`, donc **après** le
+téléchargement complet de l'image de base. Quatre minutes pour une erreur qui se
+lit en une seconde.
+
+D'où l'étape **« Contrôler le contexte avant de télécharger dix gigaoctets »**,
+posée en tête du workflow : elle vérifie que chaque source de `COPY` existe, que
+chaque script porte un shebang et passe `bash -n`. Elle coûte une seconde et
+rend son verdict avant le moindre octet téléchargé.
+
+**Ce que ce premier échec a prouvé au passage**, et qui valait d'être su : l'image
+Bazzite se télécharge entièrement sur un runner GitHub, `--mount=type=bind,from=ctx`
+est accepté par le podman du runner, et l'espace disque suffit après nettoyage.
+Les trois causes d'échec que l'on redoutait n'étaient pas les bonnes.

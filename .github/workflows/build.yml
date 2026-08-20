@@ -36,6 +36,32 @@ jobs:
       - name: Recuperer le depot
         uses: actions/checkout@v4
 
+      - name: Controler le contexte avant de telecharger dix gigaoctets
+        # Une source de COPY absente ne se voit qu'au moment du COPY, c'est-a-dire
+        # APRES le telechargement complet de l'image de base : quatre minutes
+        # perdues pour une faute qui se lit en une seconde. Le cas s'est produit
+        # des la premiere construction — git ne suit pas les dossiers vides, et
+        # « files/ » n'etait jamais entre dans le depot.
+        run: |
+          manque=0
+          for src in $(grep -E '^[[:space:]]*COPY[[:space:]]' Containerfile | awk '{print $2}'); do
+            if [ -e "$src" ]; then
+              echo "  present : $src"
+            else
+              echo "  ABSENT DU CONTEXTE : $src"
+              manque=1
+            fi
+          done
+          for f in build_files/*.sh; do
+            head -c2 "$f" | grep -q '#!' || { echo "  SANS SHEBANG : $f"; manque=1; }
+            bash -n "$f" || { echo "  SYNTAXE CASSEE : $f"; manque=1; }
+          done
+          if [ "$manque" -ne 0 ]; then
+            echo "Contexte incomplet — on n'engage pas le telechargement." >&2
+            exit 1
+          fi
+          echo "OK : contexte complet, scripts syntaxiquement valides."
+
       - name: Faire de la place
         # Bazzite est une image volumineuse et un runner GitHub est etroit.
         # Sans cette etape, la construction meurt sur « no space left on device »
