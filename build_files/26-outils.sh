@@ -122,9 +122,23 @@ done
 [[ -d /usr/lib/node_modules/@google/gemini-cli ]] || { echo "ABSENT : le module gemini-cli" >&2; manque=1; }
 [[ "$manque" -eq 0 ]] || exit 1
 
+# --------------------------------------------------------------------------
+# Le rapport, et pourquoi il ne peut plus rien casser
+# --------------------------------------------------------------------------
+# La construction precedente a echoue ICI, alors que TOUT s'etait correctement
+# installe : « code --version » lance en root sans --user-data-dir heurte le
+# garde-fou de VS Code et sort en 1, ce que « set -e » a transforme en echec
+# de construction.
+#
+# Deux corrections. Le drapeau est ajoute — c'est le seul qui leve ce
+# garde-fou, l'enquete l'avait dit et je ne l'avais applique qu'a
+# --install-extension. Et surtout, chaque ligne de rapport se termine
+# desormais par « || true » : une ligne cosmetique ne doit JAMAIS pouvoir
+# faire tomber une image qui, par ailleurs, est bonne.
 echo "Outils poses :"
-/usr/bin/code   --version 2>/dev/null | head -1 | sed 's/^/  VS Code      /'
-/usr/bin/node   --version                        | sed 's/^/  Node         /'
-/usr/bin/claude --version 2>/dev/null | head -1 | sed 's/^/  Claude Code  /' || echo "  Claude Code  version non lue"
-echo "  Gemini CLI   $(ls -d /usr/lib/node_modules/@google/gemini-cli >/dev/null && echo present)"
-echo "  Antigravity  $([[ "${ANTIGRAVITY_POSE}" -eq 1 ]] && echo 'pose (depot non signe)' || echo 'absent')"
+/usr/bin/code --user-data-dir /tmp/version-vscode --version 2>/dev/null | head -1 | sed 's/^/  VS Code      /' || true
+rm -rf /tmp/version-vscode
+/usr/bin/node   --version 2>/dev/null | sed 's/^/  Node         /' || true
+/usr/bin/claude --version 2>/dev/null | head -1 | sed 's/^/  Claude Code  /' || true
+/usr/bin/gemini --version 2>/dev/null | head -1 | sed 's/^/  Gemini CLI   /' || true
+echo "  Antigravity  $([[ "${ANTIGRAVITY_POSE}" -eq 1 ]] && echo 'pose (depot non signe)' || echo 'absent')" || true

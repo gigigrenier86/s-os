@@ -78,7 +78,8 @@ manque=0
 [[ -f /usr/lib/tmpfiles.d/s-opt-zoom.conf ]] || { echo "ABSENT : le pont tmpfiles de Zoom" >&2; manque=1; }
 [[ "$manque" -eq 0 ]] || exit 1
 
+# Rapport non bloquant : voir la note de 26-outils.sh.
 echo "Applications posees :"
-/usr/bin/retroarch --version 2>&1 | head -1 | sed 's/^/  RetroArch  /'
-echo "  coeurs     $(ls /usr/lib64/libretro/*.so 2>/dev/null | wc -l) fichiers dans /usr/lib64/libretro"
-echo "  Zoom       $(du -sh /usr/lib/opt/zoom 2>/dev/null | cut -f1) dans /usr/lib/opt/zoom"
+/usr/bin/retroarch --version 2>&1 | head -1 | sed 's/^/  RetroArch  /' || true
+echo "  coeurs     $(ls /usr/lib64/libretro/*.so 2>/dev/null | wc -l) fichiers" || true
+echo "  Zoom       $(du -sh /usr/lib/opt/zoom 2>/dev/null | cut -f1) dans /usr/lib/opt/zoom" || true
