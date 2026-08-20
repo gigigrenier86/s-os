@@ -561,3 +561,60 @@ produit deux effets qu'on ne prévoit pas :
 
 **Chercher l'exécution par le SHA du dernier commit qui touche le code**, pas
 par celui de `HEAD`.
+
+---
+
+## 2026-08-20, 05 h 40 — le jalon 2 est atteint, et prouvé de l'intérieur
+
+**S installé depuis le registre, démarré, joint par SSH, et interrogé.** Voici ce
+qu'il répond.
+
+```
+systeme : Bazzite            noyau : 7.1.5-ogc5.1.fc44.x86_64
+
+bootc status
+  spec.image.image     : ghcr.io/gigigrenier86/s-os:latest
+  spec.image.transport : registry
+
+CONFIG_ANDROID_BINDER_IPC=y
+CONFIG_ANDROID_BINDERFS=y
+CONFIG_ANDROID_BINDER_DEVICES="binder,hwbinder,vndbinder"
+
+/usr/bin/waydroid-launcher              present
+glibc-langpack-fr, hunspell-fr          installes
+bazzite-hardware-setup  TimeoutStartUSec=15min  Result=success
+
+Startup finished in 4.495s (kernel) + 4.570s (initrd) + 20.233s (userspace)
+                  = 29.299s ; graphical.target reached after 20.233s
+0 unites en echec
+```
+
+**`bootc status` est la ligne qui compte le plus** : le système installé sait
+qu'il est `s-os` et sait où chercher ses mises à jour. `bootc upgrade` fonctionnera.
+
+### Une limite du banc, à ne pas confondre avec un défaut de S
+
+**Le redémarrage à chaud dans QEMU ne repart pas.** Après l'unique redémarrage
+que `bazzite-hardware-setup` provoque au premier démarrage, la machine virtuelle
+n'écrit plus rien : `reboot: Restarting system` est la dernière ligne, et la
+suite ne vient jamais.
+
+**Un démarrage à froid, lui, aboutit toujours** — vérifié deux fois, 25 à 29
+secondes jusqu'à l'invite de connexion.
+
+La cause probable est le montage `-bios`, dont les variables UEFI ne survivent
+pas : c'est la contrepartie connue du contournement de WHPX, consignée dans
+`banc/`. **Ce n'est pas un défaut de S**, et il faut le dire clairement, parce
+que le symptôme — machine muette après un redémarrage — ressemble exactement à
+une panne du système.
+
+*Conséquence pratique pour le banc :* après une installation, **éteindre et
+relancer QEMU** plutôt qu'attendre que la machine revienne d'elle-même.
+
+### Les trois mesures qui valent d'être retenues
+
+| | |
+|---|---|
+| Installation complète, par `bootc install` depuis le registre | **35 minutes** |
+| Premier démarrage — lit le matériel, pose un karg, redémarre | **2 min 43 s** |
+| Démarrages suivants | **29 secondes**, dont 20 en espace utilisateur |
