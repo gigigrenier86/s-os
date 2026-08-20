@@ -4,8 +4,8 @@
 # la pile de jeu reglee (Steam, Proton, GE-Proton, gamescope) et la recette
 # Waydroid. Refaire ce travail serait le refaire moins bien.
 #
-# Ce qui suit n'ajoute que ce qui manque vraiment : l'identite, et les coutures
-# entre les trois mondes.
+# Ce qui suit n'ajoute que ce qui manque vraiment : de quoi naviguer, l'identite,
+# et les coutures entre les trois mondes.
 
 # Le contexte de construction, isole dans son propre etage pour ne rien laisser
 # dans l'image finale.
@@ -14,19 +14,16 @@ COPY build_files /build_files
 
 FROM ghcr.io/ublue-os/bazzite:stable
 
-# Rien a deposer tel quel au jalon 1. « files/ » est vide, et git ne suit pas
-# les dossiers vides : un COPY vers un chemin absent du depot fait echouer la
-# construction APRES le telechargement complet de l'image de base — donc tard,
-# et pour une raison sans rapport avec ce qu'on essayait de faire.
-# La ligne revient au jalon 5, quand les coutures auront quelque chose a y
-# mettre :
-#
-#     COPY files/ /
+# Ce qui se depose tel quel, sans logique : lanceurs, reglages, identite.
+# La ligne avait ete retiree au jalon 1, « files/ » etant vide et git ne suivant
+# pas les dossiers vides. Elle revient avec le lanceur de RapidO.
+COPY files/ /
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/10-base.sh && \
+    bash /ctx/build_files/25-navigateur.sh && \
     bash /ctx/build_files/20-android.sh && \
     bash /ctx/build_files/30-coutures.sh && \
     ostree container commit
