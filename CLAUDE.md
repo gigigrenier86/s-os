@@ -618,3 +618,122 @@ relancer QEMU** plutôt qu'attendre que la machine revienne d'elle-même.
 | Installation complète, par `bootc install` depuis le registre | **35 minutes** |
 | Premier démarrage — lit le matériel, pose un karg, redémarre | **2 min 43 s** |
 | Démarrages suivants | **29 secondes**, dont 20 en espace utilisateur |
+
+---
+
+## 2026-08-20, 15 h 45 — un navigateur, RapidO, et `bootc upgrade` éprouvé
+
+Trois choses en une passe, à la demande de l'utilisateur.
+
+### `bootc upgrade` fonctionne, et c'est le résultat le plus important
+
+Jamais exercé jusqu'ici. Sur un S installé, vers l'image reconstruite :
+
+```
+layers already present: 128; layers needed: 2 (342.5 MB)
+Deploying...done (55 seconds)
+Queued for next boot
+Added layers: 2  (342.5 MB)   Removed layers: 1  (145.5 MB)
+```
+
+**Deux couches sur cent trente.** 342 Mo au lieu des 5,4 Go de l'image entière,
+et 55 secondes de déploiement. À partir de maintenant, **chaque commit devient
+une version installable sans réinstallation** — c'est ce qui rend le projet
+tenable dans la durée.
+
+*Rappel du banc :* il faut ensuite **éteindre et relancer QEMU à froid**, le
+redémarrage à chaud ne repartant pas.
+
+### S n'avait aucun navigateur, et le mécanisme prévu ne délivre pas
+
+Bazzite prévoit Firefox — il est dans `/usr/share/ublue-os/bazzite/flatpak/install`.
+Mais son gestionnaire a tourné **5,6 s sans rien poser**, puis a écrit ses
+marqueurs dans `/etc/bazzite/`. Sa condition `[[ -f $VER_FILE && $VER = $VER_RAN ]]`
+sera donc vraie à tous les démarrages suivants : **il ne réessaiera jamais.**
+
+Troisième script Bazzite pris en défaut de la même manière — `hardware-setup`,
+`flatpak-manager` — parce qu'ils supposent un premier démarrage fabriqué
+autrement que par `bootc install`. **La règle qui s'en dégage : ce dont S a
+besoin entre dans l'image, jamais dans un mécanisme de premier démarrage.**
+
+### Vivaldi, et le détour obligé par `/opt`
+
+Première tentative, échouée :
+
+```
+[RPM] failed to open dir opt of /opt/: cpio: mkdir failed - File exists
+[RPM] unpacking of archive failed on file /opt/vivaldi
+```
+
+Deux contraintes se croisent, et aucune n'est un bogue :
+
+1. **`/opt` est un lien vers `var/opt`** sur un système ostree, et **RPM refuse
+   de dépaqueter à travers un lien symbolique** — durcissement délibéré contre
+   une classe de failles.
+2. **`/var` n'entre pas dans une image `bootc`** : il est propre à la machine et
+   recréé à l'installation. Même en forçant, les fichiers n'y seraient pas.
+
+Le détour, en quatre temps, dans `25-navigateur.sh` :
+
+```bash
+OPT_CIBLE="$(readlink /opt || echo var/opt)"   # relire, ne pas supposer
+rm -rf /opt && mkdir -p /opt                   # un vrai dossier
+dnf5 install -y vivaldi-stable
+mv /opt/vivaldi /usr/lib/opt/vivaldi           # /usr, lui, EST l'image
+rm -rf /opt && ln -s "${OPT_CIBLE}" /opt       # remettre comme ostree l'attend
+# puis un tmpfiles.d qui refait le pont a chaque demarrage :
+#   L  /var/opt/vivaldi  -  -  -  -  /usr/lib/opt/vivaldi
+```
+
+**Vérifié sur le système installé**, après redémarrage :
+
+```
+/var/opt/vivaldi        -> /usr/lib/opt/vivaldi        (cree au demarrage)
+/usr/bin/vivaldi-stable -> /usr/lib/opt/vivaldi/vivaldi   et executable
+Vivaldi 8.1.4087.68 stable
+```
+
+**Les codecs propriétaires se posent chez l'utilisateur**, pas dans l'image :
+`/root/.local/lib/vivaldi/media-codecs-8.1`. C'est le bon comportement sur un
+système en lecture seule, et il n'a rien demandé pour l'obtenir.
+
+*Note de licence, ce dépôt étant public :* la page Vivaldi destinée aux
+distributions Linux dit qu'aucun accord n'est nécessaire pour l'intégrer — Manjaro
+et FerenOS le livrent par défaut — tandis que son CLUF interdit la
+redistribution. Les deux textes se contredisent ; c'est consigné dans le script,
+et une seule ligne suffirait à passer à une pose au premier démarrage.
+
+### RapidO : 396 lignes de WPF deviennent neuf lignes de `.desktop`
+
+RapidO est l'application de l'utilisateur, dans le dépôt PC Boost : une fenêtre
+WebView2 épinglée sur `https://app.mews.com/`, avec une barre d'état qui mesure
+les temps de chargement.
+
+**Le code ne peut pas être porté.** Son `.csproj` cible `net8.0-windows` avec
+`<UseWPF>true</UseWPF>` : **WPF n'existe pas sous Linux et n'y existera pas.**
+WebView2 non plus, n'étant qu'une enveloppe autour du moteur Edge du système.
+
+**Mais sa raison d'être est satisfaite sans écrire une ligne**, et c'est son
+propre commentaire de `.csproj` qui la formule :
+
+> « le moteur, lui, est le runtime WebView2 déjà installé par Windows. C'est
+> toute la différence avec Electron, qui embarque son Chromium et pèse 225 Mo. »
+
+C'est exactement ce que fait `vivaldi --app=` : une fenêtre sans chrome, servie
+par le moteur **déjà présent**. `--class=RapidO` et `StartupWMClass=RapidO` lui
+donnent son identité propre dans la barre des tâches — elle reste *une
+application*, pas un onglet déguisé.
+
+**Ce qui est perdu, et qui est nommé plutôt que tu :** `Perf.cs` et ses mesures —
+temps de navigation, mémoire par processus, version du moteur en barre d'état.
+
+### Une remarque sur les pilotes, et pourquoi elle était un faux problème
+
+L'utilisateur a constaté des pilotes manquants **en regardant la machine
+virtuelle**. Relevé : **7 périphériques PCI sur 8 ont un pilote chargé**, et le
+huitième est le pont hôte — le contrôleur mémoire, qui n'en a pas besoin.
+
+Ce qui manquait n'était pas des pilotes mais du matériel : QEMU expose une carte
+Bochs, des disques virtio et un chipset ICH9 émulé. **Une machine virtuelle ne
+peut rien dire des pilotes de la machine réelle**, et c'est encore une raison
+pour laquelle le jalon 3 attend un vrai disque.
