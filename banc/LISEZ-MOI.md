@@ -63,3 +63,124 @@ lequel ils se présentent.
 
 **`info blockstats` reste l'arbitre** entre « lent » et « planté » : un écran figé
 dont `rd_bytes` progresse n'est pas une panne.
+
+---
+
+# Installer S sans installateur — la nuit du 2026-08-20
+
+La voie « installer Bazzite puis basculer » a été abandonnée en cours de route
+au profit d'une meilleure : **`bootc install to-disk` pose l'image directement**.
+Un téléchargement au lieu de deux, et cela éprouve le vrai chemin d'installation
+d'une image `bootc` plutôt qu'un détour.
+
+Ce qui suit est la route effectivement praticable, et les six impasses qui l'ont
+précédée.
+
+## Ce qui ne marche pas, et pourquoi
+
+### 1. `inst.ks=` est ignoré par l'ISO live de Bazzite
+
+Le kickstart **est bien téléchargé** — le journal du serveur HTTP le prouve,
+`GET /ks.cfg → 200` — mais Anaconda ne démarre jamais : la session live ouvre
+`gdm` et le bureau. Sur une ISO live, l'installateur est une application qu'on
+lance, pas un service qui s'arme sur la ligne de commande du noyau.
+
+Ne pas conclure trop vite d'un `inst.ks` sans effet que le fichier n'a pas été lu :
+**servir le kickstart par HTTP depuis l'hôte donne la preuve du contraire**, dans
+le journal du serveur.
+
+### 2. Anaconda se fige sans terminal
+
+Lancé par `setsid nohup … < /dev/null`, Anaconda s'arrête net après
+`INF screensaver: Inhibiting screensaver.` et n'écrit plus une ligne. Le
+processus vit, le journal est gelé. Il lui faut un pseudo-terminal — et
+`--noninteractive` n'y change rien.
+
+### 3. `q35` ne permet pas le branchement à chaud
+
+`device_add virtio-blk-pci` rend `Bus 'pcie.0' does not support hotplugging`. Il
+faut prévoir tous les disques au lancement, ou déclarer des `pcie-root-port`.
+
+### 4. `/var/tmp` d'une session live est un tmpfs de 3,9 Gio
+
+C'est **la** cause du `no space left on device` qui interrompt `podman pull`
+alors que le disque de travail est aux trois quarts vide : podman y écrit ses
+blobs temporaires. Remède : `export TMPDIR=/var/lib/containers/tmp`, sur un vrai
+disque.
+
+Le message d'erreur nomme d'ailleurs le bon chemin —
+`/var/tmp/container_images_storage…` — et il suffit de le lire au lieu de
+regarder l'espace du disque qu'on croyait concerné.
+
+### 5. La session live ne peut pas héberger l'image en mémoire
+
+Le système de fichiers d'une session live est une surcouche en RAM. Une image
+`bootc` pèse une quinzaine de gigaoctets décompressée : **il faut un second
+disque**, monté sur `/var/lib/containers`, sinon `podman pull` ne peut pas
+aboutir.
+
+## Ce qui marche : piloter la machine sans jamais toucher la souris
+
+Une session live n'a ni compte connu, ni SSH ouvert. Mais elle a une console
+série, et c'est par là que tout se prend.
+
+### La console série devient un vrai terminal
+
+    -serial tcp:127.0.0.1:4446,server,nowait
+
+Au lieu de `-serial file:…`, qui ne fait que lire. On y écrit alors, et
+`localhost-live login:` répond.
+
+**Une reconnexion réinitialise l'invite de connexion.** Une séquence de login
+doit donc tenir dans **une seule connexion**, avec des pauses entre les lignes —
+c'est tout l'objet de `serie-multi.sh`. La session, elle, survit côté invité une
+fois ouverte.
+
+Le compte est **`liveuser`**, sans mot de passe, et son `sudo` ne demande rien.
+
+### Puis on bascule sur SSH, par une clé
+
+La console série vomit des séquences d'échappement OSC 3008 à chaque commande —
+illisible pour un usage prolongé. On pose donc une clé et on passe à SSH :
+
+    ssh-keygen -t ed25519 -N "" -f ./cle-banc
+    # puis, par la console serie, en une ligne :
+    #   mkdir -p ~/.ssh && echo '<cle publique>' > ~/.ssh/authorized_keys
+    #   chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
+    #   sudo systemctl start sshd
+
+Le port est redirigé au lancement : `hostfwd=tcp:127.0.0.1:2222-:22`.
+
+**`sudo` réclame un mot de passe par SSH** alors qu'il n'en demandait pas sur la
+console série — faute de terminal. `echo '<mdp>' | sudo -S -p ''` règle la
+question sans allouer de tty.
+
+### L'installation elle-même
+
+```bash
+# Un disque de travail, sinon l'image n'a nulle part ou tenir.
+mkfs.ext4 -F -L travail /dev/vdb
+mount /dev/vdb /var/lib/containers
+export TMPDIR=/var/lib/containers/tmp && mkdir -p "$TMPDIR"
+
+podman pull ghcr.io/gigigrenier86/s-os:latest
+
+podman run --rm --privileged --pid=host \
+  -v /dev:/dev -v /var/lib/containers:/var/lib/containers \
+  -v /tmp/cles:/tmp/cles:ro \
+  --security-opt label=type:unconfined_t \
+  ghcr.io/gigigrenier86/s-os:latest \
+  bootc install to-disk --wipe --filesystem btrfs \
+    --root-ssh-authorized-keys /tmp/cles \
+    --karg console=tty0 --karg console=ttyS0,115200 \
+    /dev/vda
+```
+
+Deux options changent tout pour la suite :
+
+- **`--root-ssh-authorized-keys`** — `bootc install` **ne crée aucun compte**.
+  Sans cette option, le système installé démarrerait sans qu'on puisse s'y
+  connecter. C'est le seul moyen d'y entrer sans repasser par une session live.
+- **`--karg console=ttyS0,115200`** — le système installé parle alors sur la
+  console série, donc son démarrage se lit en texte au lieu de se deviner sur
+  des captures d'écran.
