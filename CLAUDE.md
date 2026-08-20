@@ -357,3 +357,42 @@ n'existe pas d'API REST pour la visibilité d'un paquet conteneur :
     → Danger Zone → Change visibility → Public
 
 À vérifier ensuite par le même `curl` : un `HTTP 200` anonyme est la preuve.
+
+---
+
+## L'hyperviseur Windows, activé le 2026-08-20
+
+QEMU tournait en **TCG** — émulation pure, « facteur vingt » — parce qu'aucun
+hyperviseur ne tournait sur la machine. Sans accélération, installer un bureau
+Fedora dans une machine virtuelle aurait pris des heures, et le jalon 2 était
+inatteignable tant que le SSD n'était pas acheté.
+
+`HypervisorPlatform` a donc été activé :
+
+    dism /Online /Enable-Feature /FeatureName:HypervisorPlatform /All /NoRestart
+
+**Redémarrage requis**, et confirmé en attente par la clé
+`HKLM\...\Component Based Servicing\RebootPending`. Tant qu'il n'a pas eu lieu,
+`Win32_ComputerSystem.HypervisorPresent` reste à `False`.
+
+Après redémarrage, QEMU accepte `-accel whpx`. Version installée : **9.1.91**.
+
+### Le prix à payer, et comment ne pas le payer tout le temps
+
+Activer cette fonctionnalité met **Windows lui-même au-dessus d'un hyperviseur**.
+Certains anti-triche noyau le détectent et refusent alors de démarrer —
+« A Hypervisor Is Already Running ». C'est un risque réel pour Lineage 2 sur
+serveur officiel, où GameGuard est actif.
+
+**Mais ce n'est pas un aller sans retour, et c'est ce qui rend l'arbitrage
+facile.** L'hyperviseur se coupe au démarrage sans rien désinstaller, depuis une
+invite élevée :
+
+    bcdedit /set hypervisorlaunchtype off    # puis redemarrer — pour jouer
+    bcdedit /set hypervisorlaunchtype auto   # puis redemarrer — pour QEMU
+
+Un redémarrage dans chaque sens. La fonctionnalité reste installée dans les deux
+cas ; seul son chargement au démarrage change.
+
+*Note : la sécurité basée sur la virtualisation (VBS) était à `0` avant
+l'activation — aucun conflit avec un dispositif déjà en place.*
