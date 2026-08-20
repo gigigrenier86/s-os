@@ -255,6 +255,13 @@ L'ISO installable n'a d'objet qu'au jalon 6, si S doit être distribué.
 
 ## Règles de conception à ne pas casser
 
+**Aucun secret dans le dépôt — il est public.** Mot de passe, clé privée, jeton :
+rien de cela n'entre, pas même dans un script de banc. Ce dont le banc a besoin
+passe par une variable d'environnement, et la clé SSH reste dans `S-vm/`, hors dépôt.
+La règle a été écrite après coup : le mot de passe du banc a vécu en clair dans
+`banc/invite.sh` du 2026-08-20 au soir, poussé sur une branche publique. **Un secret
+poussé une fois reste dans l'historique** — il se change, il ne s'efface pas.
+
 **Ce qui est fait à la main après installation ne survit pas.** Sur une base
 atomique, un réglage tapé dans un terminal disparaît ou dérive à la prochaine
 mise à jour. Tout ce qui doit tenir va **dans l'image**. C'est toute la
@@ -1091,3 +1098,105 @@ Recopiées à la main sur ce compte — `anthropic.claude-code`,
 compte existant. Soit on l'applique à la main, soit on écrit un service qui
 réconcilie — et ce service devra être idempotent, sans marqueur qui l'empêche de
 rejouer, contrairement à ceux de Bazzite.
+
+## 2026-08-20, 21 h — le jalon 5 : un double-clic suffit
+
+Demande de l'utilisateur, et c'est le cœur du projet : *« je veux une OS où c'est simple
+d'installer un .exe et l'utiliser, sans passer par des applis tierces — ça peut être fait
+en tâche de fond sans qu'on le voie. Qu'il y ait une solution ou pas, faut en trouver
+une. »*
+
+**La solution existait déjà, en pièces détachées.** Le relevé de la machine installée l'a
+montré avant qu'une ligne soit écrite : les quatre moteurs sont dans la base — `umu-run`
+(lance un `.exe` sous Proton **sans Steam ni Lutris**), `distrobox` + `podman`, `flatpak`,
+`waydroid`. Ce qui manquait n'était pas un moteur, c'était la **couture** entre le geste
+et lui.
+
+### Ce que la machine disait, avant
+
+| Double-clic sur… | Ce qui se passait | Verdict |
+|---|---|---|
+| `.exe` `.msi` | **rien du tout** | aucun gestionnaire déclaré |
+| `.deb` | s'ouvrait dans **l'archiveur** | pire que rien : ça *semble* marcher |
+| `.AppImage` | rien | type MIME même pas déclaré sur Fedora |
+| `.flatpak` | ouvrait un magasin graphique | fonctionnel, mais c'est un tiers qui s'affiche |
+| `.apk` | installait dans Waydroid | **déjà bon**, hérité de la base |
+
+### Ce qui a été écrit
+
+Neuf fichiers, tous dans `/usr` et `/etc` — rien dans `/var`, que l'image ne transporte pas.
+
+| Fichier | Rôle |
+|---|---|
+| `s-monde` | Le socle : chemins, verrou, notifications. Une couture ne montre **jamais** son moteur |
+| `s-ouvrir-exe` | `.exe` et `.msi` par `umu-run`, dans un préfixe unique — « le Windows de S » |
+| `s-menu-windows` | Moissonne les raccourcis de Wine et les **répare** — voir plus bas |
+| `s-ouvrir-paquet` | `.deb` et `.rpm` dans un conteneur invisible, puis `distrobox-export` |
+| `s-ouvrir-appimage` | Range, rend exécutable, extrait l'icône enfermée dedans |
+| `s-ouvrir-flatpak` | Installe en silence, sans ouvrir de magasin |
+| `s-android` | Initialise Waydroid en **GAPPS**, démarre la session, pose F-Droid |
+| `s-play-store` | Lit l'identifiant Google, le copie, ouvre la page d'enregistrement |
+| `40-coutures.sh` | Repose les bits d'exécution, pose F-Droid, reconstruit les index MIME |
+
+### Le piège que personne ne mentionne
+
+**Wine pose bien les raccourcis du menu Démarrer tout seul** — `winemenubuilder` écrit de
+vrais `.desktop` dans `applications/wine/`. Mais leur ligne `Exec` appelle **`wine`, qui
+n'existe pas sur ce système** : Proton est fourni par umu, pas par un paquet Fedora.
+L'utilisateur verrait donc des icônes apparaître dans son menu et **ne rien lancer** —
+le pire des échecs, celui qui a l'air d'une réussite.
+
+`s-menu-windows` les réécrit pour qu'elles repassent par `s-ouvrir-exe`. Il ne
+reconstitue pas le chemin Windows depuis `Exec`, dont les échappements de Wine sont
+retors : il prend le dossier dans `Path=`, déjà côté Linux, et n'y ajoute que le nom du
+binaire. Plus court et plus sûr.
+
+### Le Play Store, et ce qui ne s'automatise pas
+
+**Il est déjà là** : le Play Store vit dans l'image système Android, variante GAPPS, que
+`waydroid init -s GAPPS` télécharge. Aucun dépôt RPM n'y donne accès — le dépôt Google du
+projet sert à Antigravity et n'a rien à voir.
+
+Ce qui reste est une exigence de **Google, pas de S** : le Play Store refuse de servir un
+appareil non certifié, et l'identifiant doit lui être déclaré une fois, par un humain
+connecté à son compte. **Aucun contournement n'existe**, et en inventer un serait mentir.
+`s-play-store` fait les quatre cinquièmes : il lit l'identifiant dans la base de Google
+Services Framework, le met dans le presse-papiers et ouvre la page. Il reste un collage et
+un clic, **une fois dans la vie de la machine**.
+
+**F-Droid est posé en plus**, et pas par préférence : c'est la seule boutique Android dont
+l'APK ait une URL stable et vérifiable (`f-droid.org/F-Droid.apk`, HTTP 200 vérifié).
+Aurora Store, qui aurait donné le catalogue Play sans compte Google, **a été écarté faute
+de provenance** — leur site est une application JavaScript sans lien direct, aucun dépôt
+GitHub, et leur dépôt F-Droid ne répond plus. Deviner l'URL d'un binaire est précisément
+ce que ce projet s'interdit.
+
+### Deux défauts trouvés en relevant la machine, pas en supposant
+
+- **`sudo -n` échoue toujours en session graphique.** Il refuse par construction de
+  demander un mot de passe, et il n'y a pas de terminal pour le taper. C'est `pkexec` qu'il
+  faut — il ouvre une fenêtre, ce qui est le comportement normal sous Linux pour un geste
+  système.
+- **`dpkg-deb` n'existe pas sur une Fedora.** Le script lisait le nom du paquet avec, sur
+  l'hôte, pour savoir quelles icônes exporter. Il aurait rendu une chaîne vide : le `.deb`
+  se serait installé correctement et **aucune icône ne serait apparue**, sans le moindre
+  message. Le nom se lit désormais dans le conteneur, où `dpkg-deb` est chez lui.
+
+### Ce qui n'a PAS été prouvé, et c'est presque tout
+
+**Aucun de ces neuf fichiers n'a jamais été exécuté.** Ils sont écrits, leur syntaxe est
+vérifiée, leurs dépendances sont relevées une à une sur la machine installée — et c'est
+tout. Aucun `.exe` n'a été ouvert, aucun `.deb` installé, Waydroid n'a jamais démarré, le
+Play Store n'a jamais servi.
+
+Trois inconnues qu'aucune relecture ne lèvera :
+
+1. **Waydroid n'a jamais tourné**, ici ni ailleurs. Le banc n'a pas d'accélération
+   graphique, et Android en a besoin. C'est le jalon 3, donc le SSD.
+2. **Le premier usage de chaque monde télécharge** : Proton (~400 Mo), Debian (~150 Mo),
+   Android (~1 Go). Tout cela vit dans `/var`, que l'image ne transporte pas — c'est une
+   contrainte d'ostree, pas un oubli. Ça se **pré-cuit** (`PROTONPATH`, les magasins
+   d'images additionnels de podman, `waydroid init -i`), et les trois voies sont vérifiées
+   comme possibles. Non fait.
+3. **L'écran de S est resté noir** au banc. Tant que ce point n'est pas tranché, aucune de
+   ces coutures ne peut être vue fonctionner.
