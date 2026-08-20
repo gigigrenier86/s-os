@@ -724,7 +724,7 @@ par le moteur **déjà présent**. `--class=RapidO` et `StartupWMClass=RapidO` l
 donnent son identité propre dans la barre des tâches — elle reste *une
 application*, pas un onglet déguisé.
 
-**Ce qui est perdu, et qui est nommé plutôt que tu :** `Perf.cs` et ses mesures —
+**Ce qui est perdu, et qui est nommé plutôt que passé sous silence :** `Perf.cs` et ses mesures —
 temps de navigation, mémoire par processus, version du moteur en barre d'état.
 
 ### Une remarque sur les pilotes, et pourquoi elle était un faux problème
