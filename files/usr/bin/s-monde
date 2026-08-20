@@ -11,9 +11,12 @@ S_PREFIXE="$S_DATA/windows"          # le prefixe Wine unique, vu comme « le Wi
 S_LANCEURS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 S_ETAT="${XDG_STATE_HOME:-$HOME/.local/state}/S"
 
-# Proton pose dans l'image : sans cela umu telecharge 400 Mo au premier lancement.
-# Le repli sur le telechargement reste possible et n'est pas une erreur.
-[ -d /usr/lib/s/proton ] && export PROTONPATH=/usr/lib/s/proton
+# Proton vit dans le dossier personnel, JAMAIS dans /usr : pressure-vessel, le
+# bac a sable qu'umu utilise, reserve /usr et refuse de le partager dans son
+# conteneur. Un Proton pose sous /usr y est litteralement introuvable.
+# L'image porte l'archive ; s-ouvrir-exe la deplie ici au premier usage.
+S_PROTON_ARCHIVE=/usr/lib/s/windows/proton.tar.gz
+S_PROTON_RACINE="${XDG_DATA_HOME:-$HOME/.local/share}/Steam/compatibilitytools.d"
 
 mkdir -p "$S_DATA" "$S_LANCEURS" "$S_ETAT"
 

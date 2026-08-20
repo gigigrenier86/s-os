@@ -29,4 +29,5 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     bash /ctx/build_files/27-applications.sh && \
     bash /ctx/build_files/30-premiere-connexion.sh && \
     bash /ctx/build_files/40-coutures.sh && \
+    bash /ctx/build_files/41-windows.sh && \
     ostree container commit

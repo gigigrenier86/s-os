@@ -18,6 +18,20 @@ NOM="$(basename "$CIBLE")"
 s_verrou windows
 
 # --- Premiere utilisation : le Windows de S n'existe pas encore -------------
+# L'archive de Proton est dans l'image : la deplier localement evite les
+# 468 Mo de telechargement qu'umu ferait sinon, et le reseau disparait du
+# chemin critique. La version deja depliee est reutilisee telle quelle.
+if [ -f "$S_PROTON_ARCHIVE" ]; then
+    VERSION="$(cat /usr/lib/s/windows/proton.version 2>/dev/null || echo inconnue)"
+    if [ ! -d "$S_PROTON_RACINE/$VERSION" ]; then
+        s_dire "Premiere utilisation" "Preparation de Proton depuis l'image, sans telechargement."
+        mkdir -p "$S_PROTON_RACINE"
+        tar xzf "$S_PROTON_ARCHIVE" -C "$S_PROTON_RACINE" || \
+            s_dire "Proton n'a pas pu etre deplie" "umu le telechargera lui-meme." dialog-warning
+    fi
+    [ -d "$S_PROTON_RACINE/$VERSION" ] && export PROTONPATH="$S_PROTON_RACINE/$VERSION"
+fi
+
 if [ ! -d "$WINEPREFIX/drive_c" ]; then
     if [ -n "${PROTONPATH:-}" ]; then
         s_dire "Premiere utilisation" "Preparation de l'environnement Windows, une minute."
