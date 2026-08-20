@@ -340,23 +340,6 @@ Noyau de la base : **7.1.5-ogc5.1.fc44** — Fedora 44, noyau Bazzite.
 Les trois causes d'échec que l'on redoutait n'étaient aucune la bonne.
 **La seule vraie faute était un dossier vide.**
 
-### Un paquet ghcr.io est privé par défaut, même depuis un dépôt public
-
-`curl` anonyme sur le manifeste rend **HTTP 401**. La visibilité du dépôt ne se
-propage pas au paquet conteneur : ce sont deux réglages distincts, et le second
-vaut « privé » tant qu'on n'y a pas touché.
-
-Conséquence concrète, et elle tombe pile au jalon 3 : `bootc switch` sur le SSD
-**échouerait** faute d'authentification, alors que le dépôt est public et que rien
-dans l'image n'est secret.
-
-Le basculement se fait **une seule fois**, à la main, dans l'interface web — il
-n'existe pas d'API REST pour la visibilité d'un paquet conteneur :
-
-    https://github.com/users/gigigrenier86/packages/container/s-os/settings
-    → Danger Zone → Change visibility → Public
-
-À vérifier ensuite par le même `curl` : un `HTTP 200` anonyme est la preuve.
 
 ---
 
@@ -396,3 +379,41 @@ cas ; seul son chargement au démarrage change.
 
 *Note : la sécurité basée sur la virtualisation (VBS) était à `0` avant
 l'activation — aucun conflit avec un dispositif déjà en place.*
+
+---
+
+## Le paquet est public — et le test que j'avais écrit était faux
+
+Corrigé le 2026-08-20, après vérification.
+
+**`ghcr.io` renvoie `HTTP 401` à toute requête sans jeton, publique ou privée.**
+Un `curl` anonyme direct sur le manifeste ne prouve donc **rien** : c'est le
+comportement normal du registre, qui exige un jeton porteur dans tous les cas.
+La conclusion « 401 donc privé » consignée ici plus tôt reposait sur un test
+insuffisant.
+
+**Le vrai test est de savoir si le registre délivre un jeton à un anonyme**, et si
+ce jeton ouvre le manifeste :
+
+```bash
+IMG=gigigrenier86/s-os
+TOK=$(curl -s "https://ghcr.io/token?scope=repository:$IMG:pull&service=ghcr.io" \
+      | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -H "Accept: application/vnd.oci.image.index.v1+json" \
+  -H "Authorization: Bearer $TOK" \
+  "https://ghcr.io/v2/$IMG/manifests/latest"
+```
+
+`200` = public. Pas de jeton délivré, ou `401`/`403` avec lui = privé.
+
+**Relevé du 2026-08-20 : `200`, 130 couches.** Le paquet a été basculé en public
+à la main dans l'interface web — il n'existe toujours pas d'API REST pour la
+visibilité d'un paquet conteneur, et la visibilité du dépôt ne s'y propage pas.
+
+Conséquence pour le jalon 3 : **`bootc switch` fonctionnera sans
+authentification**, sur cette machine comme sur n'importe quelle autre.
+
+```bash
+sudo bootc switch --enforce-container-sigpolicy=false ghcr.io/gigigrenier86/s-os:latest
+```
