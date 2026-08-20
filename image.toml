@@ -1,0 +1,10 @@
+# Configuration de bootc-image-builder, pour le jour ou S devra se distribuer
+# sous forme d'ISO installable — c'est-a-dire le jalon 6, pas avant.
+#
+# Jusque-la, la voie normale est « bootc switch » depuis une installation
+# Bazzite ordinaire : pas d'ISO a fabriquer, a heberger, ni a retelecharger a
+# chaque changement.
+
+[[customizations.user]]
+name = "ghis"
+groups = ["wheel"]

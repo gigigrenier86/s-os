@@ -1,0 +1,9 @@
+# Les scripts partent tourner dans un conteneur Linux : un CRLF y donne
+# « bad interpreter: /bin/bash^M ». Rien ne doit convertir ces fichiers.
+* text=auto eol=lf
+*.sh text eol=lf
+Containerfile text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.conf text eol=lf
+*.desktop text eol=lf

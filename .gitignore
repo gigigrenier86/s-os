@@ -1,0 +1,10 @@
+# Produits de construction locaux
+/output/
+*.iso
+*.qcow2
+*.raw
+
+# Bruit d'editeur
+.vscode/
+.idea/
+*~
