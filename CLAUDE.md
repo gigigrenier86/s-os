@@ -44,7 +44,137 @@ lancement).
 
 ---
 
-## 2026-08-19 — le dépôt est créé *(dépassé, voir la section suivante)*
+---
+
+## Où on en est — 2026-08-20
+
+**Le jalon 2 est atteint et prouvé.** S s'installe, démarre, ouvre une session,
+se met à jour, et porte huit logiciels prêts à l'emploi. 26 commits, CI vert,
+image publique.
+
+Tout ce qui suit a été **vérifié dans le système installé**, pas seulement dans
+l'image.
+
+### Ce qui existe et fonctionne
+
+| | |
+|---|---|
+| Dépôt | https://github.com/gigigrenier86/s-os — public |
+| Image | `ghcr.io/gigigrenier86/s-os:latest` — **publique**, tirable sans authentification |
+| Socle | `ghcr.io/ublue-os/bazzite:stable` — Fedora 44 atomique, KDE Plasma |
+| Construction | GitHub Actions, ~9 min, **plus reconstruction quotidienne automatique** |
+| Installation | `bootc install to-disk --source-imgref docker://…` — 35 min |
+| Mise à jour | **`bootc upgrade`** — 2 couches sur 130 quand seule l'image de S change |
+| Démarrage | **35 s** en régime ; 58 s la première fois après une mise à jour |
+| Compte utilisateur | créé à l'installation par **`plasma-setup`**, natif à l'image de base |
+
+### Les huit logiciels posés
+
+| Logiciel | Version | Où | Signature |
+|---|---|---|---|
+| Vivaldi | 8.1.4087.68 | `/usr/lib/opt/vivaldi` (438 Mo) | dépôt Vivaldi |
+| VS Code | 1.134.0 | `/usr/share/code` (1,1 Go) | dépôt Microsoft |
+| Node.js | v24.18.0 | `/usr/bin` | Fedora |
+| Gemini CLI | 0.56.0 | `/usr/lib/node_modules` (100 Mo) | npm |
+| Claude Code | 2.1.228 | `/usr/bin/claude` | **dépôt RPM officiel signé** |
+| Antigravity | 1.23.2 | `/usr/share/antigravity` (682 Mo) | **aucune — `gpgcheck=0`** |
+| RetroArch | 1.22.0 + 14 cœurs | `/usr/lib64/libretro` | Fedora |
+| Zoom | — | `/usr/lib/opt/zoom` (918 Mo) | clé Zoom |
+
+Plus deux lanceurs en fenêtre dédiée — **RapidO** vers MEWS, **Gemini** vers son
+application web — et, dans `/etc/skel`, l'extension Claude Code, le pack de
+langue français et un `argv.json` qui ouvre l'éditeur en français.
+
+### Ce qui n'a JAMAIS été exercé
+
+À dire nettement, parce que c'est l'essentiel de ce qui reste :
+
+- **Aucune machine réelle n'a démarré sur S.** Tout ce qui précède s'est passé
+  dans QEMU. Il manque le SSD externe — le seul achat du projet.
+- **Waydroid n'a jamais tourné.** `binder` est compilé dans le noyau, le
+  lanceur est présent, la recette de Bazzite existe — mais aucune application
+  Android n'a jamais démarré. C'est le différenciateur du projet, et il est
+  entièrement non éprouvé.
+- **Lineage 2 n'a jamais été lancé**, ni aucun jeu.
+- **L'iGPU n'a pas été jugé.** Les 266 réinitialisations relevées sous Windows
+  n'ont pas d'équivalent mesuré sous Linux.
+- **Les coutures entre les trois mondes n'existent pas** — menu unique, dossier
+  partagé, presse-papiers commun, associations de fichiers. C'est le jalon 5, et
+  c'est le cœur du projet.
+- **Aucune ISO installable n'a été produite.** La voie est `bootc switch` ou
+  `bootc install` depuis le registre.
+
+### Où on va
+
+| Jalon | État |
+|---|---|
+| 0 · La voie Waydroid | **fait** — `binder` compilé dans le noyau, prouvé à la construction |
+| 1 · Le dépôt et la chaîne | **fait** — CI vert, image publiée, reconstruction quotidienne |
+| 2 · L'image démarre | **fait et prouvé de l'intérieur** — 35 s, zéro service en échec |
+| 3 · Le vrai matériel | **bloqué** — attend un SSD externe (~40 €) |
+| 4 · Les trois mondes côte à côte | pas commencé — exige le jalon 3 |
+| 5 · Les coutures | pas commencé — **c'est le cœur du projet** |
+| 6 · L'identité | pas commencé — S s'annonce encore « Bazzite » |
+| 7 · L'usage quotidien | pas commencé |
+
+**Le jalon 3 est le seul verrou**, et il ne se lève pas par du code : il faut un
+vrai SSD externe, pas une clé — une mémoire flash s'effondre en écriture
+aléatoire. Tout le reste en découle : Waydroid, les jeux, l'iGPU, et le droit de
+dire que S fonctionne.
+
+### Les règles apprises, et qui tiennent tout
+
+**1. Sur ostree, tout ce qui est modifiable est un lien vers `/var` — et `/var`
+n'entre pas dans l'image.** `/opt`, `/usr/local`, `/home`, `/root`, `/srv`,
+`/mnt`. C'est le principe unique derrière l'échec de Vivaldi, celui de npm, et
+le risque qu'aurait couru l'installateur de Claude Code. `/etc` en est
+l'exception salutaire.
+
+**2. Le pire résultat n'est pas l'échec, c'est le succès silencieux.** Forcer
+une installation vers `/var` « marche » et livre une image creuse. D'où un
+contrôle `rpm -ql | grep '^/(var|opt)/'` dans chaque script, qui fait échouer la
+construction plutôt que de livrer du vide.
+
+**3. Vérifier avant de contourner.** Le détour `/opt` n'a servi qu'à deux
+logiciels sur huit. Partout ailleurs un préfixe existait — `npm_config_prefix`,
+`--extensions-dir`, un paquet RPM bien fait.
+
+**4. Ce dont S a besoin entre dans l'image, jamais dans un mécanisme de premier
+démarrage.** Trois scripts de Bazzite ont été pris en défaut, tous parce qu'ils
+différaient leur travail et écrivaient un marqueur les empêchant de réessayer.
+
+**5. Une ligne cosmétique ne doit jamais faire tomber une image saine.** Les
+rapports se terminent par `|| true` ; seules les assertions bloquent.
+
+**6. Capturer depuis l'instant zéro.** Deux heures ont été perdues à réparer une
+machine qui n'avait rien, parce que je me connectais à la console *après* le
+démarrage. Un écran noir et un port muet ont été lus comme une panne.
+
+**7. Regarder la machine avant de chercher une solution.** Une enquête à quatre
+pistes a été lancée sur un problème que l'image résolvait déjà : trois commandes
+suffisaient à le voir.
+
+**8. Le banc n'est pas l'OS.** Le redémarrage à chaud de QEMU ne repart pas, les
+attentes de périphériques `ttyS0` et `vda` coûtent 11 s, et l'absence de GPU
+rend le bureau noir. Rien de tout cela n'est un défaut de S — mais tout cela y
+ressemble.
+
+### Les deux réserves assumées
+
+- **Antigravity entre sans signature.** Son dépôt impose `gpgcheck=0`. Seul
+  binaire de l'image dans ce cas ; décision de l'utilisateur, écrite dans le
+  script.
+- **Vivaldi est proprietaire**, et sa page destinée aux distributions dit
+  qu'aucun accord n'est nécessaire quand son CLUF interdit la redistribution.
+  Les deux textes se contredisent ; le dépôt étant public, c'est consigné.
+
+### Le seul piège qui casserait une installation neuve
+
+**`/etc/plasma-setup-done` ne doit jamais entrer dans l'image.** C'est le
+marqueur qui désarme l'assistant de création de compte. S'il y entrait, toute
+installation neuve démarrerait sans compte utilisateur et sans moyen d'en créer
+un — et cela ne se verrait pas avant la machine suivante.
+## 2026-08-19 — le dépôt est créé *(dépassé, voir « Où on en est » plus haut)*
 
 **Le dépôt vient d'être créé. Rien n'a jamais été construit ni exécuté.**
 
@@ -204,14 +334,12 @@ correct.
 
 ## Ce qui n'a jamais été exercé
 
-À tenir à jour, et à ne jamais vider par optimisme :
+Cette liste vit désormais dans **« Où on en est »**, en tête de ce fichier.
+Elle y est tenue à jour ; la garder en double la ferait diverger, et l’une
+des deux mentirait.
 
-- **Tout.** Voir la table d'état plus haut. Le dépôt a été créé aujourd'hui.
-- Le SSD externe n'est pas acheté. Rien n'a touché de matériel réel.
-- L'état de l'iGPU sous Linux est inconnu. Sous Windows, il accuse 266
-  réinitialisations du moteur d'affichage en 30 jours, conclusion « matériel ».
-  Si c'en est bien une, Linux la rencontrera aussi — et les trois couches
-  s'appuient toutes sur le GPU.
+*Ce qui suivait ici datait de la création du dépôt et disait « tout » —
+c’était vrai le 2026-08-19, et faux depuis.*
 
 ---
 
