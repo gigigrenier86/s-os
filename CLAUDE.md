@@ -417,3 +417,62 @@ authentification**, sur cette machine comme sur n'importe quelle autre.
 ```bash
 sudo bootc switch --enforce-container-sigpolicy=false ghcr.io/gigigrenier86/s-os:latest
 ```
+
+---
+
+## 2026-08-20, 02 h 25 — S s'installe et s'amorce pour de vrai
+
+**Premier système installé et démarré.** En machine virtuelle, donc ce n'est pas
+la preuve finale — mais c'est la première fois que l'image existe autrement que
+comme un objet dans un registre.
+
+| Étape | Résultat |
+|---|---|
+| `bootc install to-disk` | **`Installation complete!`** — GPT, ESP 512 Mio, racine btrfs, 129 couches |
+| Chemin d'amorçage de secours | **`/EFI/BOOT/BOOTX64.EFI` présent** — la crainte du firmware sans mémoire persistante tombe |
+| Amorçage depuis le disque seul | **oui** — GRUB, noyau, racine montée, systemd lancé |
+| Activité disque | 2,55 Gio lus, 1,75 Gio écrits |
+| Ouverture d'une session | **non** — voir ci-dessous |
+
+### Le défaut trouvé, et pourquoi il valait le détour
+
+```
+Job bazzite-hardware-setup.service/start running (2min 13s / no limit)
+```
+
+Ce service se place **avant `systemd-user-sessions.service`** et n'a **aucune
+limite de temps**. Tant qu'il ne rend pas la main, aucune session ne s'ouvre —
+ni console, ni SSH — et **rien n'annonce d'erreur**. `systemd` affiche « no
+limit » et compte les minutes.
+
+**Une machine inutilisable qui a l'air de démarrer est pire qu'une machine qui
+échoue.** C'est exactement le genre de panne que ce projet doit refuser.
+
+Deux pistes se rejoignent. Le script `/usr/libexec/bazzite-hardware-setup`
+appelle **`rpm-ostree kargs`**, et l'unité se déclare
+`After=rpm-ostreed.service` : l'interaction avec un système installé par
+`bootc install to-disk` — donc sans le chemin rpm-ostree habituel — est
+suspecte. Et c'est par ailleurs un **défaut connu en amont**
+(`ublue-os/bazzite`, issue 434), où le remède proposé est exactement celui
+retenu ici.
+
+### Le correctif, et sa limite
+
+`10-base.sh` pose une limite de démarrage de 120 s sur ce service, par un
+fichier de complément dans `/usr/lib/systemd/system/…d/`.
+
+**Le service n'est pas désactivé**, et ce point compte : il configure de vraies
+choses sur du vrai matériel, et la M720q en bénéficiera. On lui retire seulement
+le droit de bloquer sans fin. Un échec au bout de deux minutes vaut mieux qu'une
+machine qui ne s'ouvre jamais.
+
+*Ce qui n'est pas résolu :* on ne sait pas **pourquoi** le script bloque, ni s'il
+bloquerait de même sur du matériel réel. La limite traite le symptôme, pas la
+cause — et c'est écrit ici pour que personne ne croie l'inverse.
+
+### Deux mesures qui orientent la suite
+
+- **Une installation complète prend 33 minutes** en machine virtuelle : 12 Go
+  d'image à tirer, puis 129 couches à écrire.
+- **La reconstruction quotidienne programmée fonctionne** — déclenchée par
+  l'horloge à 05:57, verte en 4 min 51 s, sans intervention.
