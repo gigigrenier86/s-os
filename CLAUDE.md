@@ -488,6 +488,32 @@ désactiver Secure Boot dans le firmware. Les deux sont réversibles.
 **Une documentation n'est pas une machine.** Rien de cette table ne remplace le
 jalon 3.
 
+### Pressure-vessel réserve `/usr`, et Proton ne peut donc pas y vivre
+
+Le réflexe évident, sur un système atomique, est de pré-cuire dans `/usr` tout ce qui
+sinon se téléchargerait. Pour Proton, **c'est structurellement impossible**, et il a fallu
+l'essayer pour le savoir.
+
+`umu-run` n'exécute pas Proton directement : il passe par **pressure-vessel**, le bac à
+sable conteneurisé de Steam. Or celui-ci construit son propre `/usr` et **refuse de
+partager celui de l'hôte** :
+
+```
+pressure-vessel-wrap: W: Not sharing path STEAM_COMPAT_MOUNTS="…:/usr/lib/s/proton:…"
+                         with container because "/usr" is reserved by the container framework
+umu-shim: exec: /usr/lib/s/proton/proton: not found
+```
+
+Le Proton posé sous `/usr` est **littéralement introuvable** depuis l'intérieur, et
+`PROTONPATH` n'y change rien : le chemin est valide sur l'hôte et inexistant dans le
+conteneur. Le message est un simple avertissement — l'échec ne vient qu'ensuite, au
+`exec`, sous une forme qui ne nomme pas la cause.
+
+**Même famille que le piège `/opt` d'ostree, et même leçon** : un chemin qui semble libre
+ne l'est pas, et c'est une couche invisible depuis le code qui en décide. D'où la forme
+retenue — **l'archive** entre dans l'image, et se déplie dans le dossier personnel, que
+pressure-vessel partage volontiers.
+
 ### Git ne suit pas les dossiers vides
 
 Première construction, 2026-08-20 : échec sur
@@ -1337,9 +1363,9 @@ lanceur vers `s-ouvrir-exe`. C'était la pièce la plus risquée, puisque écrit
   chaque passage du moissonneur. La barre est désormais doublée dans l'argument, puisque
   `tr` interprète lui-même les échappements.
 - **`notepad.exe` sort en 1 au banc**, sans une ligne d'erreur de Wine. Ce n'est pas la
-  couture : `cmd.exe` passe, et les codes de sortie sont fidèles. C'est qu'il n'y a pas
-  d'affichage à quoi s'attacher — la session KDE existe pourtant, `loginctl` la voit sur
-  `tty2`. À reprendre quand l'écran sera tranché.
+  couture : `cmd.exe` passe, et les codes de sortie sont fidèles. Le bureau tourne bien
+  (voir 22 h 30) mais **en rendu logiciel `llvmpipe`** ; une fenêtre Wine par-dessus
+  n'aboutit pas. À reprendre sur du vrai matériel.
 
 ### Ce qui reste non prouvé
 
@@ -1349,9 +1375,35 @@ lanceur vers `s-ouvrir-exe`. C'était la pièce la plus risquée, puisque écrit
    association est déclarée et effective ; le geste lui-même, non.
 3. **Aucun installateur Windows réel n'a été posé.** Le moissonneur est éprouvé sur une
    entrée fabriquée fidèle, pas sur ce qu'un vrai `setup.exe` produit.
-4. **Le premier usage de chaque monde télécharge** : Proton 793 Mo (mesuré), Debian
-   ~150 Mo, Android ~1 Go. Tout cela vit dans `/var`, que l'image ne transporte pas —
-   contrainte d'ostree, pas un oubli. Les trois voies de pré-cuisson sont **vérifiées
-   comme possibles** : `PROTONPATH` est bien lu par umu (`umu_proton.py`), podman accepte
-   un magasin d'images en lecture seule (`additionalimagestores`), et `waydroid init -i`
-   prend un chemin d'images. Non fait — c'est le prochain pas.
+4. **Le premier usage du monde Windows coûte encore 793 Mo et quelques minutes.**
+   Le compte exact, mesuré : 1,4 Go de Proton **et** 793 Mo de runtime Steam, soit 2,2 Go
+   en tout. Proton est désormais **dans l'image** — son archive de 468 Mo s'y déplie sans
+   réseau. Le runtime, lui, se télécharge toujours : umu post-traite sa mise en place, et
+   refaire cela à la main serait fragile. Debian (~150 Mo) et Android (~1 Go) restent
+   entiers. Tout cela vit dans `/var`, que l'image ne transporte pas — contrainte
+   d'ostree, pas un oubli.
+
+**Une voie de pré-cuisson a été essayée et ferme définitivement** : poser Proton déplié
+sous `/usr` et y pointer `PROTONPATH`. Pressure-vessel **réserve `/usr`** et refuse de le
+partager dans son conteneur — voir « Pièges rencontrés ». Restent possibles, non faites :
+le magasin d'images en lecture seule de podman pour Debian
+(`additionalimagestores`, présent dans `/usr/share/containers/storage.conf`), et
+`waydroid init -i` pour Android.
+
+### L'image publiée porte bien ce qu'on croit — 23 h
+
+« La CI est verte » n'est pas « l'image le contient ». Un `bootc upgrade` réel a
+donc été mené jusqu'au bout dans la machine, et le déploiement en attente relu
+fichier par fichier :
+
+| Dans le déploiement téléchargé | |
+|---|---|
+| `/usr/lib/s/windows/proton.tar.gz` | **491 237 448 octets** |
+| `/usr/lib/s/windows/proton.version` | `UMU-Proton-10.0-4` |
+| Les huit gestes `s-*` | présents, tous `-rwxr-xr-x` |
+| `/usr/share/s/apk/fdroid.apk` | 12 426 276 octets |
+| `/etc/xdg/mimeapps.list` | les onze types déclarés |
+
+**Et c'est cette mise à jour qui a révélé le défaut de couches** :
+`layers needed: 2 (2.3 GB)`. Voir la règle 11.
+
