@@ -225,3 +225,24 @@ correct.
 - Un script de construction qui découvre quelque chose l'**écrit** dans le
   journal. Un `echo` bien placé est ce qui permettra de remplir la table d'état
   avec des faits plutôt qu'avec des suppositions.
+
+---
+
+## Pièges rencontrés
+
+### Le dépôt est édité sous Windows, l'image se construit sous Linux
+
+- **Le bit d'exécution ne survit pas.** Un script créé sous Windows entre dans
+  git en `100644`. Dans le conteneur, `RUN /ctx/build_files/10-base.sh` rend
+  alors « Permission denied » et la construction meurt au premier `RUN` — après
+  avoir téléchargé toute l'image de base, donc tard et pour rien. Deux parades,
+  posées toutes les deux : `git update-index --chmod=+x` enregistre le mode, et
+  le `Containerfile` appelle **`bash /ctx/...`** plutôt que le script seul, ce
+  qui rend la construction indifférente au mode si un futur checkout le reperd.
+  Vérifier par `git ls-files -s build_files/` : `100755` attendu.
+- **Le CRLF casse tout, en silence apparent.** Un script en fins de ligne Windows
+  donne `bad interpreter: /bin/bash^M`. `.gitattributes` force le LF ;
+  `git ls-files --eol` le confirme (`i/lf w/lf` attendu).
+
+Ces deux vérifications coûtent une seconde et évitent chacune un aller-retour
+complet de CI.

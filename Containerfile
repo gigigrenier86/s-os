@@ -20,7 +20,7 @@ COPY files/ /
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
     --mount=type=tmpfs,dst=/tmp \
-    /ctx/build_files/10-base.sh && \
-    /ctx/build_files/20-android.sh && \
-    /ctx/build_files/30-coutures.sh && \
+    bash /ctx/build_files/10-base.sh && \
+    bash /ctx/build_files/20-android.sh && \
+    bash /ctx/build_files/30-coutures.sh && \
     ostree container commit
