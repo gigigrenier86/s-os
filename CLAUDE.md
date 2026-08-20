@@ -737,3 +737,171 @@ Ce qui manquait n'était pas des pilotes mais du matériel : QEMU expose une car
 Bochs, des disques virtio et un chipset ICH9 émulé. **Une machine virtuelle ne
 peut rien dire des pilotes de la machine réelle**, et c'est encore une raison
 pour laquelle le jalon 3 attend un vrai disque.
+
+---
+
+## 2026-08-20, 17 h 40 — six outils, prêts dès la première connexion
+
+Demande de l'utilisateur : *« du prêt au moment même où je me connecte pour la
+première fois »*. Tout entre dans l'image ; rien n'est différé.
+
+| Outil | Version | Où il vit | Signature |
+|---|---|---|---|
+| VS Code | 1.134.0 | `/usr/share/code` (1,1 Go) | dépôt Microsoft, **signé** |
+| Node.js | v24.18.0 | `/usr/bin` | Fedora |
+| Gemini CLI | 0.56.0 | `/usr/lib/node_modules` (100 Mo) | npm |
+| Claude Code | 2.1.228 | `/usr/bin/claude` | **dépôt RPM officiel signé** |
+| Antigravity | 1.23.2 | `/usr/share/antigravity` (682 Mo) | **aucune — `gpgcheck=0`** |
+| RetroArch | 1.22.0 + 14 cœurs | `/usr/lib64/libretro` | Fedora |
+| Zoom | — | `/usr/lib/opt/zoom` (918 Mo) | clé Zoom |
+| *(Vivaldi)* | 8.1.4087.68 | `/usr/lib/opt/vivaldi` (438 Mo) | dépôt Vivaldi |
+
+**Antigravity est le seul binaire de cette image qui entre sans signature.**
+Le dépôt Google impose `gpgcheck=0` ; le transport est du HTTPS vers `pkg.dev`,
+donc le serveur est authentifié, le contenu ne l'est pas. **Décision prise en
+connaissance de cause par l'utilisateur**, écrite dans le script et ici pour
+que ce soit un choix et non un oubli.
+
+### La clé de voûte : sur ostree, tout ce qui est modifiable est un lien
+
+Relevé sur le système installé :
+
+```
+/opt        -> var/opt          /home  -> var/home
+/usr/local  -> ../var/usrlocal  /srv   -> var/srv
+/root       -> var/roothome     /mnt   -> var/mnt
+```
+
+**Et `/var` n'entre pas dans l'image.** Ce n'est donc pas une collection de
+pièges séparés mais **un seul principe**, qui explique d'un coup l'échec de
+Vivaldi sur `/opt`, celui de npm sur `/usr/local`, et le risque qu'aurait couru
+l'installateur de Claude Code écrivant dans `$HOME` = `/root`.
+
+**`/etc` en est l'exception, et c'est heureux** : ce n'est pas un lien, il est
+stocké dans le commit sous `/usr/etc` et fusionné au déploiement. C'est donc un
+emplacement sûr — d'où `/etc/skel`.
+
+### Le pire résultat n'est pas l'échec, c'est le succès silencieux
+
+Forcer une installation vers `/opt` ou `/var/usrlocal` **marche** : la
+construction réussit et l'image ne contient rien. Le contenu de `/var` présent
+dans une image se comporte comme un volume Docker — déversé à l'installation
+initiale seulement, figé à cette version, et totalement absent pour une machine
+qui se met à jour.
+
+Un échec bruyant se corrige. Celui-là se découvre trois mois plus tard.
+
+**D'où le contrôle ajouté à chaque script**, qui fait échouer la construction
+plutôt que de livrer une image creuse :
+
+```bash
+rpm -ql <paquets> | grep -E '^/(var|opt)/|^/usr/local/' \
+  && { echo "ECHEC: fichier hors /usr et /etc"; exit 1; } || true
+```
+
+### Un préfixe configurable bat toujours un déplacement
+
+Le détour `/opt` — déplier, installer, `mv`, restaurer, poser un `tmpfiles.d` —
+n'a servi qu'à **deux** logiciels sur huit : Vivaldi et Zoom. Partout ailleurs
+un levier existait :
+
+| Outil | Levier |
+|---|---|
+| npm | `npm_config_prefix=/usr` |
+| VS Code CLI | `--extensions-dir` |
+| Claude Code | le paquet RPM, qui vise `/usr/bin` |
+
+**Vérifier avant de contourner.** Le contrôle coûte une commande ; le détour
+appliqué inutilement ajoute du risque pour rien.
+
+Et le réglage doit rester **local au script** : un `npm config set prefix -g`
+écrirait `/etc/npmrc` dans l'image et casserait le `npm i -g` de l'utilisateur
+après le démarrage — lui doit viser `/usr/local`, qui est justement inscriptible
+une fois la machine installée. *Ce qu'on force pour construire ne doit jamais
+devenir la configuration de la machine.*
+
+### `/etc/skel`, et ce qu'il coûte
+
+Les logiciels entrent dans l'image ; les **extensions d'éditeur**, elles, vivent
+dans le dossier personnel. `/etc/skel` est le squelette recopié dans le dossier
+de **chaque compte créé** — le seul mécanisme à la fois durable et personnel.
+
+Y sont posés : l'extension **Claude Code**, le **pack de langue français**, et
+un `argv.json` portant `{"locale":"fr"}` qui ouvre l'éditeur en français sans
+qu'on le lui demande. VS Code n'écrase jamais un `argv.json` existant :
+l'utilisateur garde la main.
+
+**Coût mesuré : 337 Mo, recopiés pour chaque compte créé.** Sans conséquence
+sur une machine à un utilisateur ; à surveiller au-delà. Réductible en posant
+les extensions à l'échelle du système, au prix de ne plus pouvoir les
+désinstaller individuellement.
+
+**`google.geminicodeassist` a été écartée** : environ 178 Mo par compte, et
+Google aurait basculé ses paliers individuels vers Antigravity à la mi-2026 —
+*information rapportée, non vérifiée ici*. Gemini reste servi par sa CLI et par
+son lanceur en fenêtre dédiée.
+
+**Limite à connaître :** `/etc/skel` ne sert que les comptes créés **après** le
+déploiement. Un compte existant ne reçoit rien.
+
+### Ce que le démarrage coûte, et ce qu'il ne coûte pas
+
+| Démarrage | Durée |
+|---|---|
+| Avant les six outils | 26 s |
+| **Juste après une mise à jour d'image** | **58 s** |
+| Suivant, stabilisé | **35 s** |
+
+Les 58 secondes ne sont pas une régression mais un **coût unique** :
+`ldconfig.service` reconstruit le cache de l'éditeur de liens (19,4 s) parce que
+de nouvelles bibliothèques sont apparues, et `bootloader-update.service` met à
+jour le chargeur (16,0 s). `systemd-update-done` les marque faits ; le démarrage
+suivant les saute.
+
+**Ne pas prendre ce coût pour un défaut** — c'est exactement le genre de chiffre
+qui, lu une seule fois, ferait condamner à tort une image saine.
+
+Les trois services les plus lents en régime sont des attentes de périphériques
+`ttyS0` et `vda` à ~10,9 s : du **bruit de QEMU**, pas de S.
+
+### Mes erreurs de cette passe, et comment elles ont été prises
+
+Six enquêtes menées en parallèle, puis **chaque affirmation vérifiée sur le
+système installé** plutôt que crue sur parole — y compris celles des enquêtes,
+qui se terminaient elles-mêmes par « aucune de ces recettes n'a été construite ».
+
+1. **RetroArch n'est pas dans RPM Fusion** mais dans les dépôts Fedora
+   (1.22.0-20.fc44). Ma vérification précédente avait été mal lue, la sortie
+   étant coupée. Toute la dépendance à RPM Fusion disparaît.
+2. **Cinq noms de cœurs sur six étaient inventés** : `libretro-snes9x`,
+   `beetle-psx`, `genesis-plus-gx`, `mupen64plus`, `flycast` n'existent nulle
+   part. Quatorze cœurs existent. Le SNES passe par `bsnes-mercury`, la PS1 par
+   `pcsx-rearmed` ; **Mega Drive, N64 et Dreamcast ne sont couverts par aucun
+   paquet.**
+3. **`retroarch-joypad-autoconfig` n'existe pas** — les profils de manettes sont
+   déjà dans le paquet `retroarch`.
+4. **Fedora 44 versionne Node** : `/usr/bin/node` vient de `nodejs20-bin`.
+   L'installation se fait donc **par le chemin**, ce qui a d'ailleurs résolu en
+   v24 plutôt qu'en v20 — et survivra au prochain changement.
+5. **VS Code exige `--user-data-dir`**, seul drapeau levant son garde-fou root.
+   `--no-sandbox` est inutile : `--install-extension` ne démarre jamais Chromium.
+
+### Une ligne cosmétique ne doit jamais faire tomber une image saine
+
+Une construction a échoué alors que **tout** s'était correctement installé : la
+ligne qui rapportait les versions appelait `code --version` en root sans
+`--user-data-dir`, ce qui sort en 1, ce que `set -e` a transformé en échec.
+
+Toutes les lignes de rapport se terminent désormais par `|| true`. **Les
+assertions, elles, restent bloquantes** — ce sont les seules qui doivent l'être.
+
+### Ce qui manque encore, et que cette demande a révélé
+
+**S n'a aucun compte utilisateur.** `bootc install` n'en crée pas ; seul `root`
+existe, joignable par clé SSH. Personne ne peut donc ouvrir de session — et
+`/etc/skel`, qui ne sert que les comptes créés après le déploiement, **n'a
+encore servi à personne**.
+
+C'est le dernier maillon manquant de « prêt dès la première connexion », et
+c'est un vrai choix : inscrire le compte dans l'image, ou faire poser la question
+au premier démarrage par `systemd-firstboot`.
