@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Gemini
+GenericName=Assistant Google
+Comment=Ouvre Gemini dans une fenêtre dédiée, sans barre d'adresse ni onglets
+Exec=/usr/bin/vivaldi-stable --app=https://gemini.google.com/app --class=Gemini
+Icon=vivaldi
+Terminal=false
+StartupNotify=true
+StartupWMClass=Gemini
+Categories=Network;Utility;Development;
+Keywords=gemini;google;ia;assistant;
