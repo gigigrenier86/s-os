@@ -542,3 +542,22 @@ rien coûter au repos. Et la raison de fond n'est pas le banc : **une machine do
 le bureau ne démarre pas devient irréparable si l'on ne peut pas l'atteindre
 autrement.** C'est exactement ce qui vient d'arriver ici, l'accélération 3D
 manquant en machine virtuelle.
+
+### `paths-ignore` surprend deux fois plutôt qu'une
+
+Le filtre `paths-ignore: '**.md'` du workflow fait exactement ce qu'on lui
+demande — ne pas reconstruire pour une virgule dans la documentation — mais il
+produit deux effets qu'on ne prévoit pas :
+
+1. **Le premier push d'une branche neuve ne déclenche rien.** Il n'y a pas de
+   commit précédent auquel comparer les chemins. Constaté à la création du
+   dépôt ; le `workflow_dispatch` sert de rattrapage.
+2. **Un commit qui ne touche que de la documentation n'a aucune exécution de
+   CI.** Évident après coup, mais une automatisation qui attend « le CI du
+   dernier commit » attend alors indéfiniment. Constaté le 2026-08-20 : une
+   chaîne de vérification a abandonné au bout de quinze minutes, alors que
+   l'image voulue était construite depuis longtemps — sous le **commit
+   précédent**.
+
+**Chercher l'exécution par le SHA du dernier commit qui touche le code**, pas
+par celui de `HEAD`.
