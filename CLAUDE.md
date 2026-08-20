@@ -905,3 +905,61 @@ encore servi à personne**.
 C'est le dernier maillon manquant de « prêt dès la première connexion », et
 c'est un vrai choix : inscrire le compte dans l'image, ou faire poser la question
 au premier démarrage par `systemd-firstboot`.
+
+---
+
+## 2026-08-20, 18 h — la création de compte à l'installation existait déjà
+
+**Rien n'a été construit pour ça, et c'est le bon résultat.** L'image de base
+porte déjà l'assistant, et il a fonctionné : l'utilisateur a créé son compte
+`Ghis` à 14 h 48 en répondant aux questions posées à l'écran — langue, clavier
+`ca`, compte, nom de machine `ThinkCentre720Q`.
+
+Le mécanisme est **`plasma-setup.service`** :
+
+```
+Description=Plasma Setup - Out-of-Box / First-Run setup wizard
+Before=display-manager.service
+ConditionPathExists=!/etc/plasma-setup-done
+ConditionKernelCommandLine=!rd.live.image
+Type=oneshot
+ExecStart=/usr/libexec/plasma-setup-bootutil
+```
+
+Il s'exécute **avant le gestionnaire de session**, une seule fois, et se
+désarme en écrivant `/etc/plasma-setup-done`.
+
+### Le piège à ne jamais créer
+
+**`/etc/plasma-setup-done` ne doit JAMAIS entrer dans l'image.** Vérifié le
+2026-08-20 : `/usr/etc/plasma-setup-done` est absent, donc une installation
+neuve relance bien l'assistant. Si un script de construction venait à créer ce
+fichier — même par mégarde, en copiant un `/etc` complet — **toute installation
+neuve démarrerait sans compte utilisateur et sans moyen d'en créer un.**
+
+C'est le genre de régression qui ne se voit pas avant la machine suivante.
+
+### Ce que la recherche a coûté, et la leçon
+
+Une enquête à quatre pistes avait été lancée sur « comment créer un compte à
+l'installation » avant que l'utilisateur ne signale que le système le lui avait
+déjà demandé. Elle a été arrêtée en cours de route.
+
+**Regarder la machine avant de chercher une solution** : le service était
+`enabled`, le marqueur était daté, et le journal nommait `plasma-setup` en
+clair. Trois commandes suffisaient.
+
+### Ce que /etc/skel ne rattrape pas tout seul
+
+Le compte `Ghis` date de **14 h 48** ; les extensions VS Code sont entrées dans
+l'image à **17 h 38**. `/etc/skel` ne servant que les comptes créés *après* le
+déploiement, le dossier personnel ne les avait pas.
+
+Recopiées à la main sur ce compte — `anthropic.claude-code`,
+`ms-ceintl.vscode-language-pack-fr`, `argv.json` — avec `chown` et `restorecon`.
+336 Mo.
+
+**À retenir pour toute addition future à `/etc/skel` :** elle ne touchera aucun
+compte existant. Soit on l'applique à la main, soit on écrit un service qui
+réconcilie — et ce service devra être idempotent, sans marqueur qui l'empêche de
+rejouer, contrairement à ceux de Bazzite.
