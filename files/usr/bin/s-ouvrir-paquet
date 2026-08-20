@@ -63,6 +63,19 @@ if [ -n "$PAQUET" ]; then
                 "$LISTE \"\$1\" 2>/dev/null | grep '[.]desktop\$'" _ "$PAQUET" 2>/dev/null)
 fi
 
+# --- Effacer les traces du moteur -----------------------------------------
+# distrobox-export ajoute « (on s-debian) » au nom, et pose en plus un lanceur
+# pour le conteneur lui-meme. Les deux montrent le moteur, ce que la couture
+# doit precisement eviter : l utilisateur a installe une calculatrice, pas un
+# conteneur Debian.
+for d in "$S_LANCEURS/$BOITE"-*.desktop; do
+    [ -f "$d" ] || continue
+    sed -i "s/ (on $BOITE)$//" "$d"
+done
+if [ -f "$S_LANCEURS/$BOITE.desktop" ] && ! grep -q '^NoDisplay=true' "$S_LANCEURS/$BOITE.desktop"; then
+    echo 'NoDisplay=true' >> "$S_LANCEURS/$BOITE.desktop"
+fi
+
 s_rafraichir_menu
 if [ "$POSES" -gt 0 ]; then
     s_dire "$NOM" "Installe. $POSES icone(s) ajoutee(s) au menu." package-x-generic

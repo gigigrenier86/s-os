@@ -7,8 +7,8 @@ tournent ensemble, sur le même bureau.
 
 ## Où en est ce projet — 2026-08-20
 
-**S s'installe, démarre et s'utilise.** Mais uniquement en machine virtuelle :
-aucune machine réelle n'a encore démarré dessus.
+**S s'installe, démarre et se met à jour.** Mais uniquement en machine
+virtuelle : aucune machine réelle n'a encore démarré dessus.
 
 | | |
 |---|---|
@@ -17,13 +17,33 @@ aucune machine réelle n'a encore démarré dessus.
 | Mise à jour | `bootc upgrade` — 2 couches sur 130 quand seule l'image change |
 | Compte utilisateur | créé à l'installation, par l'assistant de KDE |
 
-### Ce qui est prêt dès la première connexion
+### Ce qui est posé dans l'image, prêt à servir à la première connexion
 
 Vivaldi · VS Code · Claude Code · Antigravity · Gemini (CLI et web) ·
 Node.js · RetroArch et 14 cœurs · Zoom
 
 Plus deux lanceurs en fenêtre dédiée, et l'éditeur qui s'ouvre en français avec
-l'extension Claude Code déjà posée.
+l'extension Claude Code déjà posée. *Posés et vérifiés à leur chemin ; aucun n'a
+encore été ouvert pour de bon.*
+
+### Un double-clic suffit, dans les trois mondes
+
+| Tu double-cliques | Ce qui se passe | Éprouvé |
+|---|---|---|
+| un `.exe` ou un `.msi` | ça s'installe ou ça se lance, et l'icône arrive au menu | oui — un binaire Windows exécuté |
+| un `.deb` ou un `.rpm` | ça s'installe, et l'icône arrive au menu | oui — paquet Debian réel, 10,5 s |
+| un `.AppImage` | ça se range, et l'icône arrive au menu | associé, jamais exécuté |
+| un `.flatpak` | ça s'installe en silence | associé, jamais exécuté |
+| un `.apk` | ça s'installe dans Android | Waydroid n'a jamais tourné |
+
+**Aucun programme tiers ne s'ouvre pour ça.** Wine, Proton, les conteneurs
+travaillent en dessous et ne se montrent jamais. Le premier usage de chaque monde
+télécharge son moteur une fois — Proton fait 793 Mo, et ça prend trois minutes.
+
+Le **Play Store** est là, dans l'image Android. Google exige que l'appareil lui
+soit déclaré une fois : « Activer le Play Store » lit l'identifiant, le copie et
+ouvre la page. Il reste un collage et un clic, une seule fois. **F-Droid** est
+posé en plus.
 
 ### Ce qui n'a jamais été éprouvé, et c'est l'essentiel
 

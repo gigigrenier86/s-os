@@ -48,12 +48,18 @@ lancement).
 
 ## Où on en est — 2026-08-20
 
-**Le jalon 2 est atteint et prouvé.** S s'installe, démarre, ouvre une session,
-se met à jour, et porte huit logiciels prêts à l'emploi. 26 commits, CI vert,
-image publique.
+**Le jalon 2 est atteint et prouvé.** S s'installe, démarre jusqu'à l'invite de
+connexion, se met à jour par `bootc upgrade`, et **porte huit logiciels installés
+aux bons chemins**. Le jalon 5 s'est ouvert le soir même : un double-clic installe
+désormais dans les trois mondes, et c'est éprouvé. CI vert, image publique.
 
-Tout ce qui suit a été **vérifié dans le système installé**, pas seulement dans
-l'image.
+**La nuance porte tout le reste du carnet** : « installé » n'est pas « éprouvé ».
+Des huit logiciels, un seul a jamais été exécuté — Vivaldi, par un `--version`.
+Les coutures du jalon 5, elles, ont bien tourné : un vrai paquet Debian posé, un
+vrai binaire Windows exécuté.
+
+Tout ce qui suit a été **relevé par SSH dans le système installé**, pas seulement
+dans l'image.
 
 ### Ce qui existe et fonctionne
 
@@ -70,16 +76,21 @@ l'image.
 
 ### Les huit logiciels posés
 
-| Logiciel | Version | Où | Signature |
-|---|---|---|---|
-| Vivaldi | 8.1.4087.68 | `/usr/lib/opt/vivaldi` (438 Mo) | dépôt Vivaldi |
-| VS Code | 1.134.0 | `/usr/share/code` (1,1 Go) | dépôt Microsoft |
-| Node.js | v24.18.0 | `/usr/bin` | Fedora |
-| Gemini CLI | 0.56.0 | `/usr/lib/node_modules` (100 Mo) | npm |
-| Claude Code | 2.1.228 | `/usr/bin/claude` | **dépôt RPM officiel signé** |
-| Antigravity | 1.23.2 | `/usr/share/antigravity` (682 Mo) | **aucune — `gpgcheck=0`** |
-| RetroArch | 1.22.0 + 14 cœurs | `/usr/lib64/libretro` | Fedora |
-| Zoom | — | `/usr/lib/opt/zoom` (918 Mo) | clé Zoom |
+| Logiciel | Version | Où | Provenance | Signature vérifiée |
+|---|---|---|---|---|
+| Vivaldi | 8.1.4087.68 | `/usr/lib/opt/vivaldi` (438 Mo) | dépôt Vivaldi | oui (`gpgcheck=1`) |
+| VS Code | 1.134.0 | `/usr/share/code` (1,1 Go) | dépôt Microsoft | oui (`gpgcheck=1`) |
+| Node.js | v24.18.0 | `/usr/bin` | Fedora | oui |
+| Gemini CLI | 0.56.0 | `/usr/lib/node_modules` (100 Mo) | npm | **non** |
+| Claude Code | 2.1.228 | `/usr/bin/claude` | dépôt RPM officiel | oui |
+| Antigravity | 1.23.2 | `/usr/share/antigravity` (682 Mo) | dépôt Google | **non — `gpgcheck=0`** |
+| RetroArch | 1.22.0 + 14 cœurs | `/usr/lib64/libretro` | Fedora | oui |
+| Zoom | — | `/usr/lib/opt/zoom` (918 Mo) | dépôt Zoom | oui (clé Zoom) |
+| F-Droid (APK) | — | `/usr/share/s/apk` (12 Mo) | f-droid.org | oui (GPG, empreinte en dur) |
+
+**La provenance n'est pas la signature.** Les confondre présenterait un simple
+« ça vient de chez l'éditeur » comme un contrôle, ce qu'il n'est pas. Deux
+colonnes, donc : d'où ça vient, et si quelque chose l'a vérifié.
 
 Plus deux lanceurs en fenêtre dédiée — **RapidO** vers MEWS, **Gemini** vers son
 application web — et, dans `/etc/skel`, l'extension Claude Code, le pack de
@@ -98,11 +109,19 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
 - **Lineage 2 n'a jamais été lancé**, ni aucun jeu.
 - **L'iGPU n'a pas été jugé.** Les 266 réinitialisations relevées sous Windows
   n'ont pas d'équivalent mesuré sous Linux.
-- **Les coutures entre les trois mondes n'existent pas** — menu unique, dossier
-  partagé, presse-papiers commun, associations de fichiers. C'est le jalon 5, et
-  c'est le cœur du projet.
-- **Aucune ISO installable n'a été produite.** La voie est `bootc switch` ou
-  `bootc install` depuis le registre.
+- **Le partage entre les mondes n'existe pas** — dossier personnel commun,
+  presse-papiers commun, associations croisées. L'*installation* dans les trois
+  mondes, elle, est cousue et éprouvée depuis le 2026-08-20 au soir : c'est la
+  première moitié du jalon 5, et la seconde attend le jalon 3.
+- **Aucun des huit logiciels de l'image n'a jamais servi.** Leur présence est
+  prouvée, leur fonctionnement non — seul Vivaldi a été exécuté, par un
+  `--version`. Les sept autres n'ont montré qu'un chemin de fichier.
+- **`bootc rollback` n'a jamais été exercé.** C'est pourtant le filet de sécurité
+  du projet, et il est exerçable dès aujourd'hui dans la machine virtuelle : deux
+  déploiements y coexistent. Cela coûte un redémarrage à froid, et changerait une
+  affirmation en mesure.
+- **Aucune ISO installable n'a été produite.** La voie employée est
+  `bootc install to-disk` depuis le registre.
 
 ### Où on va
 
@@ -113,14 +132,26 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
 | 2 · L'image démarre | **fait et prouvé de l'intérieur** — 35 s, zéro service en échec |
 | 3 · Le vrai matériel | **bloqué** — attend un SSD externe (~40 €) |
 | 4 · Les trois mondes côte à côte | pas commencé — exige le jalon 3 |
-| 5 · Les coutures | pas commencé — **c'est le cœur du projet** |
+| 5 · Les coutures | **commencé** — l'installation des trois mondes est cousue et éprouvée ; le partage entre eux ne l'est pas |
 | 6 · L'identité | pas commencé — S s'annonce encore « Bazzite » |
 | 7 · L'usage quotidien | pas commencé |
 
-**Le jalon 3 est le seul verrou**, et il ne se lève pas par du code : il faut un
-vrai SSD externe, pas une clé — une mémoire flash s'effondre en écriture
-aléatoire. Tout le reste en découle : Waydroid, les jeux, l'iGPU, et le droit de
-dire que S fonctionne.
+**Le jalon 3 est le seul verrou matériel**, et il ne se lève pas par du code : il
+faut un vrai SSD externe, pas une clé — une mémoire flash s'effondre en écriture
+aléatoire. Tout le reste en découle : Waydroid à vitesse réelle, les jeux,
+l'iGPU, et le droit de dire que S fonctionne.
+
+**Un second prérequis n'est pas tranché, et il se règle avant l'achat, pas
+après** : Bazzite publie une procédure particulière pour les machines dont
+Secure Boot est actif. L'état du firmware de la M720q sur ce point n'a jamais
+été relevé. À faire avant de brancher quoi que ce soit.
+
+**Le jalon 5 s'est ouvert le 2026-08-20 au soir**, et il se divise en deux
+moitiés que rien n'obligeait à mener ensemble. La première — *installer* dans
+les trois mondes d'un seul double-clic — ne demande pas de matériel : elle est
+faite et éprouvée. La seconde — *partager* entre les mondes, un dossier
+personnel, un presse-papiers, des associations croisées — attend le jalon 3,
+puisqu'elle suppose que les trois mondes tournent en même temps.
 
 ### Les règles apprises, et qui tiennent tout
 
@@ -140,8 +171,12 @@ logiciels sur huit. Partout ailleurs un préfixe existait — `npm_config_prefix
 `--extensions-dir`, un paquet RPM bien fait.
 
 **4. Ce dont S a besoin entre dans l'image, jamais dans un mécanisme de premier
-démarrage.** Trois scripts de Bazzite ont été pris en défaut, tous parce qu'ils
-différaient leur travail et écrivaient un marqueur les empêchant de réessayer.
+démarrage.** **Un** script de Bazzite a été pris en défaut sur ce point :
+`flatpak-manager`, qui a tourné 5,6 s sans rien poser puis a écrit ses marqueurs.
+Deux autres écrivent aussi des marqueurs et font correctement leur travail —
+`bazzite-hardware-setup`, qui lit le matériel et redémarre à dessein, et
+`plasma-setup`, qui crée le compte utilisateur. **Le marqueur n'est pas le
+défaut : c'est le report du travail qui l'est.**
 
 **5. Une ligne cosmétique ne doit jamais faire tomber une image saine.** Les
 rapports se terminent par `|| true` ; seules les assertions bloquent.
@@ -154,16 +189,30 @@ démarrage. Un écran noir et un port muet ont été lus comme une panne.
 pistes a été lancée sur un problème que l'image résolvait déjà : trois commandes
 suffisaient à le voir.
 
-**8. Le banc n'est pas l'OS.** Le redémarrage à chaud de QEMU ne repart pas, les
-attentes de périphériques `ttyS0` et `vda` coûtent 11 s, et l'absence de GPU
-rend le bureau noir. Rien de tout cela n'est un défaut de S — mais tout cela y
-ressemble.
+**8. Le banc n'est pas l'OS.** Le redémarrage à chaud de QEMU ne repart pas, et
+les attentes de périphériques `ttyS0` et `vda` coûtent 11 s. Rien de tout cela
+n'est un défaut de S — mais tout cela y ressemble.
+
+**9. Une couture ne montre jamais son moteur.** C'est la règle du jalon 5, et
+elle se vérifie au fichier produit, pas au message affiché : `distrobox-export`
+nommait l'application « Galculator (on s-debian) » et posait en plus une icône
+pour le conteneur. L'utilisateur a installé une calculatrice, pas un conteneur
+Debian — les deux traces sont effacées après coup.
+
+**10. Une icône qui apparaît n'est pas une icône qui lance.** `winemenubuilder`
+écrit de vrais `.desktop` pour les raccourcis du menu Démarrer, mais leur `Exec`
+appelle `wine`, absent d'ici puisque Proton vient d'umu. Sans `s-menu-windows`
+pour les réécrire, l'installation d'un `.exe` semble réussir et ne produit que
+des raccourcis morts. Ce défaut ne se voit qu'en cliquant.
 
 ### Les deux réserves assumées
 
-- **Antigravity entre sans signature.** Son dépôt impose `gpgcheck=0`. Seul
-  binaire de l'image dans ce cas ; décision de l'utilisateur, écrite dans le
-  script.
+- **Deux composants entrent sans vérification de signature**, pas un seul.
+  Antigravity, dont le dépôt impose `gpgcheck=0` — décision de l'utilisateur,
+  écrite dans le script. Et **Gemini CLI**, posé par `npm install -g` : npm
+  authentifie le transport, pas le contenu, et le script désactive `audit`.
+  Dans les deux cas la seule garantie est HTTPS vers l'éditeur. Pour Gemini CLI
+  ce n'est pas un choix assumé : c'est sa seule voie de distribution.
 - **Vivaldi est proprietaire**, et sa page destinée aux distributions dit
   qu'aucun accord n'est nécessaire quand son CLUF interdit la redistribution.
   Les deux textes se contredisent ; le dépôt étant public, c'est consigné.
@@ -233,21 +282,44 @@ La machine de développement **n'a ni podman ni WSL**, et il ne lui reste que
 ~61 Go libres. Faire construire par GitHub Actions règle les deux d'un coup : on
 ne télécharge jamais que le résultat.
 
-### On ne fabrique pas d'ISO — on bascule
+### On ne fabrique pas d'ISO — on installe l'image directement
 
-C'est la voie `bootc`, et elle évite de produire, héberger et retélécharger 6 Go
-à chaque changement :
+**Avant toute manipulation, lire `banc/LISEZ-MOI.md`** : il porte la préparation
+du firmware, les cinq pièges de QEMU sous WHPX, la console série, et les six
+impasses qui ont précédé la bonne route.
+
+La route réellement employée, et la seule éprouvée — depuis un support live
+Bazzite, vers le disque cible :
 
 ```bash
-# Depuis une installation Bazzite ordinaire, une seule fois :
-sudo bootc switch --enforce-container-sigpolicy=false ghcr.io/<compte>/s-os:latest
-sudo systemctl reboot
+sudo bootc install to-disk --wipe --filesystem btrfs \
+  --source-imgref docker://ghcr.io/gigigrenier86/s-os:latest \
+  --target-imgref ghcr.io/gigigrenier86/s-os:latest \
+  --root-ssh-authorized-keys /chemin/vers/cle.pub \
+  --karg console=ttyS0,115200 \
+  /dev/<disque cible — vérifier deux fois>
 ```
 
+`--target-imgref` n'est pas facultative : sans elle, `bootc upgrade` ne sait pas
+où aller chercher la suite.
+
+**La voie `bootc switch` depuis une Bazzite déjà installée n'a jamais été
+exercée**, et elle télécharge deux fois. Elle a été abandonnée en cours de route
+au profit de celle ci-dessus ; elle n'est conservée ici que pour mémoire :
+
+```bash
+sudo bootc switch --enforce-container-sigpolicy=false ghcr.io/gigigrenier86/s-os:latest
+```
+
+`--enforce-container-sigpolicy=false` mérite son mot d'explication : l'image
+n'est pas signée par une politique que `bootc` connaisse d'avance, et sans ce
+drapeau il refuse de basculer. Le jour où S sera signé, il disparaîtra.
+
 Les mises à jour suivantes sont atomiques, et `sudo bootc rollback` ramène en
-arrière si une version casse quelque chose. **C'est le filet de sécurité le plus
-important du projet** : contrairement à PC Boost, ici une erreur peut empêcher la
-machine de démarrer.
+arrière si une version casse quelque chose. Ce serait **le filet de sécurité le
+plus important du projet** — contrairement à PC Boost, ici une erreur peut
+empêcher la machine de démarrer. **Il n'a jamais été exercé**, et c'est la seule
+promesse de ce carnet dont l'absence de preuve coûterait aussi cher.
 
 L'ISO installable n'a d'objet qu'au jalon 6, si S doit être distribué.
 
@@ -1182,21 +1254,57 @@ ce que ce projet s'interdit.
   se serait installé correctement et **aucune icône ne serait apparue**, sans le moindre
   message. Le nom se lit désormais dans le conteneur, où `dpkg-deb` est chez lui.
 
-### Ce qui n'a PAS été prouvé, et c'est presque tout
+### Éprouvé pour de vrai, dans la machine installée — 22 h
 
-**Aucun de ces neuf fichiers n'a jamais été exécuté.** Ils sont écrits, leur syntaxe est
-vérifiée, leurs dépendances sont relevées une à une sur la machine installée — et c'est
-tout. Aucun `.exe` n'a été ouvert, aucun `.deb` installé, Waydroid n'a jamais démarré, le
-Play Store n'a jamais servi.
+Le banc a tourné sur la VM elle-même, `/usr` déverrouillé par `ostree admin unlock`.
 
-Trois inconnues qu'aucune relecture ne lèvera :
+**Les six associations sont effectives**, vérifiées une à une par
+`xdg-mime query default` : `.exe`, `.msi`, `.deb`, `.rpm`, `.AppImage` et `.flatpak`
+pointent tous vers leur couture. Le `.apk` reste sur Waydroid, comme voulu.
 
-1. **Waydroid n'a jamais tourné**, ici ni ailleurs. Le banc n'a pas d'accélération
-   graphique, et Android en a besoin. C'est le jalon 3, donc le SSD.
-2. **Le premier usage de chaque monde télécharge** : Proton (~400 Mo), Debian (~150 Mo),
-   Android (~1 Go). Tout cela vit dans `/var`, que l'image ne transporte pas — c'est une
-   contrainte d'ostree, pas un oubli. Ça se **pré-cuit** (`PROTONPATH`, les magasins
-   d'images additionnels de podman, `waydroid init -i`), et les trois voies sont vérifiées
-   comme possibles. Non fait.
-3. **L'écran de S est resté noir** au banc. Tant que ce point n'est pas tranché, aucune de
-   ces coutures ne peut être vue fonctionner.
+**Le chemin `.deb`, de bout en bout.** Conteneur Debian créé en **17 s**, un vrai paquet
+Debian tiré depuis `deb.debian.org` (`galculator 2.1.4-2`, 171 ko), installé par
+`s-ouvrir-paquet` en **10,5 s**, et `s-debian-galculator.desktop` posé dans le menu de
+l'hôte avec son icône, ses catégories et son `StartupWMClass`. Rien de tout cela n'a
+demandé un geste de plus que le double-clic.
+
+**Le chemin `.exe`.** Le préfixe et Proton se posent en **3 min 02** au premier usage —
+**793 Mo** téléchargés, dont umu vérifie lui-même le SHA512. Ensuite `cmd.exe`, un vrai
+binaire PE Windows, **s'exécute et rend la main** : `umu-run` propage les codes de sortie
+exactement, vérifié en demandant 0 puis 7 et en obtenant 0 puis 7. C'est la preuve qui
+compte — un programme Windows tourne, lancé par la couture, sans qu'aucun programme tiers
+ne s'ouvre.
+
+**Le moissonneur.** Éprouvé sur un fichier reproduisant **octet pour octet** ce
+qu'écrit `winemenubuilder` — `Exec` appelant `wine`, chemin Windows à barres inverses
+doublées, `Path` passant par `dosdevices`. Il en a tiré le bon binaire et réécrit le
+lanceur vers `s-ouvrir-exe`. C'était la pièce la plus risquée, puisque écrite ici.
+
+### Trois défauts que seul l'essai pouvait montrer
+
+- **`distrobox-export` montrait le moteur.** L'application arrivait au menu sous le nom
+  « Galculator (on s-debian) », et un lanceur pour le conteneur lui-même s'ajoutait à
+  côté. L'utilisateur a installé une calculatrice, pas un conteneur Debian : les deux
+  traces sont effacées après l'export.
+- **`tr` avertissait sur la sortie visible.** « barre oblique inverse non protégée » à
+  chaque passage du moissonneur. La barre est désormais doublée dans l'argument, puisque
+  `tr` interprète lui-même les échappements.
+- **`notepad.exe` sort en 1 au banc**, sans une ligne d'erreur de Wine. Ce n'est pas la
+  couture : `cmd.exe` passe, et les codes de sortie sont fidèles. C'est qu'il n'y a pas
+  d'affichage à quoi s'attacher — la session KDE existe pourtant, `loginctl` la voit sur
+  `tty2`. À reprendre quand l'écran sera tranché.
+
+### Ce qui reste non prouvé
+
+1. **Waydroid n'a jamais tourné**, ni le Play Store, ni `s-play-store`. Android exige une
+   accélération graphique que le banc n'a pas. C'est le jalon 3, donc le SSD.
+2. **`s-ouvrir-appimage` et `s-ouvrir-flatpak` n'ont jamais été exécutés.** Leur
+   association est déclarée et effective ; le geste lui-même, non.
+3. **Aucun installateur Windows réel n'a été posé.** Le moissonneur est éprouvé sur une
+   entrée fabriquée fidèle, pas sur ce qu'un vrai `setup.exe` produit.
+4. **Le premier usage de chaque monde télécharge** : Proton 793 Mo (mesuré), Debian
+   ~150 Mo, Android ~1 Go. Tout cela vit dans `/var`, que l'image ne transporte pas —
+   contrainte d'ostree, pas un oubli. Les trois voies de pré-cuisson sont **vérifiées
+   comme possibles** : `PROTONPATH` est bien lu par umu (`umu_proton.py`), podman accepte
+   un magasin d'images en lecture seule (`additionalimagestores`), et `waydroid init -i`
+   prend un chemin d'images. Non fait — c'est le prochain pas.

@@ -16,8 +16,10 @@ SOURCE="$S_LANCEURS/wine"
 [ -d "$SOURCE" ] || exit 0
 
 # 134 est le code octal de la barre inverse. L'ecrire ainsi evite toute
-# question d'echappement, qui a deja coute une passe ici.
-BARRE=$(printf '\134')
+# question d'echappement, qui a deja coute une passe ici. Elle est DOUBLEE
+# parce que « tr » interprete lui-meme les echappements : une barre seule le
+# fait avertir sur la sortie que voit l'utilisateur.
+BARRE=$(printf '\134\134')
 
 POSES=0
 while IFS= read -r -d '' fichier; do
