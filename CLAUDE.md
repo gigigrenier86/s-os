@@ -44,7 +44,7 @@ lancement).
 
 ---
 
-## Où on en est — 2026-08-19
+## 2026-08-19 — le dépôt est créé *(dépassé, voir la section suivante)*
 
 **Le dépôt vient d'être créé. Rien n'a jamais été construit ni exécuté.**
 
@@ -294,3 +294,66 @@ rend son verdict avant le moindre octet téléchargé.
 Bazzite se télécharge entièrement sur un runner GitHub, `--mount=type=bind,from=ctx`
 est accepté par le podman du runner, et l'espace disque suffit après nettoyage.
 Les trois causes d'échec que l'on redoutait n'étaient pas les bonnes.
+
+---
+
+## 2026-08-20 — la chaîne de fabrication tourne, et binder est tranché
+
+**Deuxième construction : verte de bout en bout.** L'image est bâtie et publiée.
+
+| Élément | État |
+|---|---|
+| `Containerfile` | **construit avec succès** |
+| Scripts de construction | **exécutés**, les trois |
+| CI GitHub | **vert** — run 32329903510, 4 min 48 s |
+| Image sur `ghcr.io` | **publiée** : `ghcr.io/gigigrenier86/s-os:latest` |
+| Visibilité du paquet | **privée** — à basculer en public, voir plus bas |
+| Démarrage en QEMU | **jamais tenté** |
+| Démarrage sur matériel réel | **jamais tenté** — le SSD n'est pas acheté |
+
+### Le risque principal du projet est levé — par la machine, pas par un document
+
+```
+binder est COMPILE dans le noyau (/usr/lib/modules/7.1.5-ogc5.1.fc44.x86_64/config)
+: rien a charger.
+```
+
+`CONFIG_ANDROID_BINDER_IPC=y`. **Compilé dans le noyau, pas en module.** Ce n'est
+plus la documentation de Bazzite qui l'affirme : c'est la configuration du noyau
+de l'image elle-même, lue pendant sa construction.
+
+Et cela justifie après coup d'avoir écrit `20-android.sh` en conditionnel : un
+`/etc/modules-load.d` posé sans condition aurait fait tenter à systemd, **à chaque
+démarrage**, le chargement d'un module qui n'existe pas.
+
+Noyau de la base : **7.1.5-ogc5.1.fc44** — Fedora 44, noyau Bazzite.
+
+### Ce que la construction a prouvé au passage
+
+| Doute | Verdict |
+|---|---|
+| L'image Bazzite tient-elle sur un runner GitHub ? | **oui**, après l'étape de nettoyage |
+| Le podman du runner accepte-t-il `--mount=type=bind,from=ctx` ? | **oui** |
+| `dnf5` est-il utilisable pendant la construction ? | **oui** — `glibc-langpack-fr` et `hunspell-fr` posés |
+| `/usr/bin/waydroid-launcher` est-il bien là ? | **oui** — l'assertion de `20-android.sh` passe |
+
+Les trois causes d'échec que l'on redoutait n'étaient aucune la bonne.
+**La seule vraie faute était un dossier vide.**
+
+### Un paquet ghcr.io est privé par défaut, même depuis un dépôt public
+
+`curl` anonyme sur le manifeste rend **HTTP 401**. La visibilité du dépôt ne se
+propage pas au paquet conteneur : ce sont deux réglages distincts, et le second
+vaut « privé » tant qu'on n'y a pas touché.
+
+Conséquence concrète, et elle tombe pile au jalon 3 : `bootc switch` sur le SSD
+**échouerait** faute d'authentification, alors que le dépôt est public et que rien
+dans l'image n'est secret.
+
+Le basculement se fait **une seule fois**, à la main, dans l'interface web — il
+n'existe pas d'API REST pour la visibilité d'un paquet conteneur :
+
+    https://github.com/users/gigigrenier86/packages/container/s-os/settings
+    → Danger Zone → Change visibility → Public
+
+À vérifier ensuite par le même `curl` : un `HTTP 200` anonyme est la preuve.
