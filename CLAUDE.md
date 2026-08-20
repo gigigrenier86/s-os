@@ -70,9 +70,10 @@ dans l'image.
 | Socle | `ghcr.io/ublue-os/bazzite:stable` — Fedora 44 atomique, KDE Plasma |
 | Construction | GitHub Actions, ~9 min, **plus reconstruction quotidienne automatique** |
 | Installation | `bootc install to-disk --source-imgref docker://…` — 35 min |
-| Mise à jour | **`bootc upgrade`** — 2 couches sur 130 quand seule l'image de S change |
+| Mise à jour | **`bootc upgrade`** — 2 couches sur 130, mais **2,3 Go** avant le découpage du 2026-08-20 |
 | Démarrage | **35 s** en régime ; 58 s la première fois après une mise à jour |
 | Compte utilisateur | créé à l'installation par **`plasma-setup`**, natif à l'image de base |
+| Bureau | **KDE Plasma, vu et capturé** — `bureau-2026-08-20.png`. Rendu **logiciel** (`llvmpipe`), faute de GPU au banc |
 
 ### Les huit logiciels posés
 
@@ -190,8 +191,10 @@ pistes a été lancée sur un problème que l'image résolvait déjà : trois co
 suffisaient à le voir.
 
 **8. Le banc n'est pas l'OS.** Le redémarrage à chaud de QEMU ne repart pas, et
-les attentes de périphériques `ttyS0` et `vda` coûtent 11 s. Rien de tout cela
-n'est un défaut de S — mais tout cela y ressemble.
+les attentes de périphériques `ttyS0` et `vda` coûtent 11 s. Le bureau, lui,
+**démarre bel et bien** — il tombe seulement sur le rendu logiciel `llvmpipe`,
+faute de GPU. Rien de tout cela n'est un défaut de S — mais tout cela y
+ressemble, et j'ai mis quinze heures à cesser de le confondre.
 
 **9. Une couture ne montre jamais son moteur.** C'est la règle du jalon 5, et
 elle se vérifie au fichier produit, pas au message affiché : `distrobox-export`
@@ -204,6 +207,13 @@ Debian — les deux traces sont effacées après coup.
 appelle `wine`, absent d'ici puisque Proton vient d'umu. Sans `s-menu-windows`
 pour les réécrire, l'installation d'un `.exe` semble réussir et ne produit que
 des raccourcis morts. Ce défaut ne se voit qu'en cliquant.
+
+**11. Une couche par étape, ou la mise à jour coûte tout.** Les huit scripts
+tenaient dans un seul `RUN` : un `bootc upgrade` réel a alors annoncé
+`layers needed: 2 (2.3 GB)` pour une retouche de couture, puisque la couche
+unique portait aussi VS Code, Antigravity et Zoom. Et `COPY files/ /` doit
+descendre au plus près du seul script qui en dépend, sinon il invalide tout ce
+qui le suit à chaque virgule corrigée.
 
 ### Les deux réserves assumées
 
