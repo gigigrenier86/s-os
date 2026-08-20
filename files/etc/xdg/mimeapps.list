@@ -1,0 +1,14 @@
+[Default Applications]
+application/x-ms-dos-executable=s-ouvrir-exe.desktop
+application/x-msdownload=s-ouvrir-exe.desktop
+application/vnd.microsoft.portable-executable=s-ouvrir-exe.desktop
+application/x-msi=s-ouvrir-exe.desktop
+application/vnd.debian.binary-package=s-ouvrir-paquet.desktop
+application/x-deb=s-ouvrir-paquet.desktop
+application/x-rpm=s-ouvrir-paquet.desktop
+application/x-redhat-package-manager=s-ouvrir-paquet.desktop
+application/x-appimage=s-ouvrir-appimage.desktop
+application/vnd.appimage=s-ouvrir-appimage.desktop
+application/vnd.flatpak=s-ouvrir-flatpak.desktop
+application/vnd.flatpak.ref=s-ouvrir-flatpak.desktop
+application/vnd.android.package-archive=waydroid.app.install.desktop

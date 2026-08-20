@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Installer une application portable
+Comment=Range un .AppImage et pose son icone au menu
+Exec=/usr/bin/s-ouvrir-appimage %f
+Icon=package-x-generic
+Terminal=false
+NoDisplay=true
+MimeType=application/x-appimage;application/vnd.appimage;

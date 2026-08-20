@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Les formats que la base ne reconnait pas d'elle-meme. Sans cette
+     declaration, un .AppImage est vu comme un binaire ELF quelconque et
+     aucune association ne peut s'y accrocher. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-appimage">
+    <comment>Application portable Linux</comment>
+    <comment xml:lang="fr">Application portable Linux</comment>
+    <sub-class-of type="application/x-executable"/>
+    <glob pattern="*.AppImage"/>
+    <glob pattern="*.appimage"/>
+  </mime-type>
+</mime-info>

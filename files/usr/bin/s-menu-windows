@@ -1,0 +1,55 @@
+#!/usr/bin/bash
+# Moissonne les raccourcis que Wine pose lui-meme et les rend cliquables.
+#
+# Le probleme qu'il resout, et qu'on ne voit qu'a l'usage : winemenubuilder
+# ecrit de vrais .desktop dans applications/wine/, mais leur ligne Exec appelle
+# « wine », qui n'existe pas ici — Proton est fourni par umu, pas par un paquet
+# systeme. Les icones apparaissent donc dans le menu et ne lancent rien.
+# On les reecrit pour qu'elles repassent par s-ouvrir-exe.
+set -uo pipefail
+source /usr/bin/s-monde
+
+SILENCIEUX=0
+[ "${1:-}" = "--silencieux" ] && SILENCIEUX=1
+
+SOURCE="$S_LANCEURS/wine"
+[ -d "$SOURCE" ] || exit 0
+
+# 134 est le code octal de la barre inverse. L'ecrire ainsi evite toute
+# question d'echappement, qui a deja coute une passe ici.
+BARRE=$(printf '\134')
+
+POSES=0
+while IFS= read -r -d '' fichier; do
+    dossier="$(grep -m1 '^Path=' "$fichier" 2>/dev/null | cut -d= -f2-)"
+    ligne="$(grep -m1 '^Exec=' "$fichier" 2>/dev/null)"
+    [ -n "$dossier" ] && [ -n "$ligne" ] || continue
+
+    # Le nom du binaire est ce qui suit la derniere barre inverse. On ne cherche
+    # pas a reconstituer tout le chemin Windows : « Path » donne deja le dossier
+    # cote Linux, et c'est plus sur que de defaire les echappements de Wine.
+    binaire="$(printf '%s' "$ligne" | tr "$BARRE" '\n' | tail -n1 | sed 's/[[:space:]]*$//')"
+    exe="$dossier/$binaire"
+    [ -f "$exe" ] || continue
+
+    nom="$(grep -m1 '^Name=' "$fichier" | cut -d= -f2-)"
+    icone="$(grep -m1 '^Icon=' "$fichier" | cut -d= -f2-)"
+    cible="$S_LANCEURS/s-windows-$(printf '%s' "$exe" | sha256sum | cut -c1-12).desktop"
+
+    cat > "$cible" <<DESK
+[Desktop Entry]
+Type=Application
+Name=${nom:-$binaire}
+Comment=Programme Windows
+Exec=/usr/bin/s-ouvrir-exe $(printf '%q' "$exe")
+Path=$dossier
+Icon=${icone:-application-x-executable}
+Terminal=false
+Categories=Application;
+X-S-Monde=Windows
+DESK
+    POSES=$((POSES + 1))
+done < <(find "$SOURCE" -name '*.desktop' -print0 2>/dev/null)
+
+s_rafraichir_menu
+[ "$SILENCIEUX" -eq 1 ] || s_dire "Menu Windows" "$POSES raccourci(s) a jour."

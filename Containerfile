@@ -5,9 +5,9 @@
 # Waydroid. Refaire ce travail serait le refaire moins bien.
 #
 # Tout ce qui suit entre DANS l'image, jamais dans un mecanisme de premier
-# demarrage. Trois scripts de Bazzite ont ete pris en defaut sur ce point le
-# 2026-08-20 — ils differaient leur travail et ecrivaient des marqueurs qui les
-# empechaient de reessayer. La regle qui en decoule tient le reste du fichier.
+# demarrage. Un script de Bazzite a ete pris en defaut sur ce point le
+# 2026-08-20 : flatpak-manager, qui a tourne 5,6 s sans rien poser puis a ecrit
+# ses marqueurs. Le marqueur n'est pas le defaut — c'est le report du travail.
 
 # Le contexte de construction, isole dans son propre etage pour ne rien laisser
 # dans l'image finale.
@@ -27,5 +27,6 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     bash /ctx/build_files/25-navigateur.sh && \
     bash /ctx/build_files/26-outils.sh && \
     bash /ctx/build_files/27-applications.sh && \
-    bash /ctx/build_files/30-coutures.sh && \
+    bash /ctx/build_files/30-premiere-connexion.sh && \
+    bash /ctx/build_files/40-coutures.sh && \
     ostree container commit

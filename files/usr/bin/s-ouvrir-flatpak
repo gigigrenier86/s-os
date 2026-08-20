@@ -1,0 +1,20 @@
+#!/usr/bin/bash
+# Double-clic sur un .flatpak ou un .flatpakref : ca s'installe, en silence.
+# La base ouvrait un magasin graphique ; ici rien ne s'ouvre, l'icone arrive.
+set -uo pipefail
+source /usr/bin/s-monde
+
+CIBLE="$(readlink -f "${1:?s-ouvrir-flatpak attend un chemin}")"
+[ -f "$CIBLE" ] || s_echec "Fichier introuvable" "$CIBLE"
+NOM="$(basename "$CIBLE")"
+
+s_verrou flatpak
+s_dire "$NOM" "Installation…" package-x-generic
+
+if flatpak install --user --noninteractive --or-update "$CIBLE" \
+        >"$S_ETAT/flatpak.log" 2>&1; then
+    s_rafraichir_menu
+    s_dire "$NOM" "Installe et ajoute au menu." package-x-generic
+else
+    s_echec "$NOM n'a pas pu etre installe" "Detail dans $S_ETAT/flatpak.log"
+fi

@@ -1,0 +1,46 @@
+#!/usr/bin/bash
+# Le socle commun des coutures : chemins, verrou, et la facon de parler a
+# l'utilisateur. Chaque « s-ouvrir-* » le charge par « source ».
+#
+# Regle qui tient tout le reste : une couture ne montre JAMAIS son moteur.
+# Ce qui doit etre dit se dit par une notification de bureau, jamais par une
+# fenetre de terminal ni par le programme tiers qui travaille en dessous.
+
+S_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/S"
+S_PREFIXE="$S_DATA/windows"          # le prefixe Wine unique, vu comme « le Windows de S »
+S_LANCEURS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+S_ETAT="${XDG_STATE_HOME:-$HOME/.local/state}/S"
+
+# Proton pose dans l'image : sans cela umu telecharge 400 Mo au premier lancement.
+# Le repli sur le telechargement reste possible et n'est pas une erreur.
+[ -d /usr/lib/s/proton ] && export PROTONPATH=/usr/lib/s/proton
+
+mkdir -p "$S_DATA" "$S_LANCEURS" "$S_ETAT"
+
+# Une notification, avec un identifiant stable pour qu'un avancement remplace
+# le precedent au lieu d'empiler les bulles.
+s_dire() {
+    local titre="$1" texte="${2:-}" icone="${3:-dialog-information}"
+    command -v notify-send >/dev/null 2>&1 &&
+        notify-send -a "S" -i "$icone" -h "string:x-canonical-private-synchronous:s-couture" \
+            "$titre" "$texte" 2>/dev/null || true
+    printf '%s — %s\n' "$titre" "$texte" >&2
+}
+
+s_echec() {
+    s_dire "$1" "${2:-}" dialog-error
+    exit 1
+}
+
+# Un verrou par monde : deux double-clics rapides ne doivent pas provisionner
+# deux fois le meme environnement.
+s_verrou() {
+    local nom="$1"
+    exec 9>"$S_ETAT/$nom.verrou"
+    flock -w 600 9 || s_echec "S est deja occupe" "Une autre installation $nom est en cours."
+}
+
+# Rafraichit le menu pour que l'icone posee apparaisse sans attendre.
+s_rafraichir_menu() {
+    update-desktop-database "$S_LANCEURS" 2>/dev/null || true
+}

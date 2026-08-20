@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Android
+Comment=Le monde Android de S
+Exec=/usr/bin/s-android
+Icon=smartphone
+Terminal=false
+Categories=System;

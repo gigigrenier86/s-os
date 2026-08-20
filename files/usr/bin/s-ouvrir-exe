@@ -1,0 +1,58 @@
+#!/usr/bin/bash
+# Double-clic sur un .exe ou un .msi : ca s'installe, ou ca se lance.
+# Aucune fenetre de Lutris, de Bottles ou de Steam n'apparait : umu-run pose
+# Proton en dessous et rend la main au programme Windows lui-meme.
+set -uo pipefail
+source /usr/bin/s-monde
+
+CIBLE="${1:-}"
+[ -n "$CIBLE" ] || s_echec "Rien a ouvrir" "s-ouvrir-exe attend un chemin de fichier."
+CIBLE="$(readlink -f "$CIBLE")"
+[ -f "$CIBLE" ] || s_echec "Fichier introuvable" "$CIBLE"
+
+export WINEPREFIX="$S_PREFIXE"
+export GAMEID="${GAMEID:-umu-0}"
+export UMU_LOG="${UMU_LOG:-warn}"
+NOM="$(basename "$CIBLE")"
+
+s_verrou windows
+
+# --- Premiere utilisation : le Windows de S n'existe pas encore -------------
+if [ ! -d "$WINEPREFIX/drive_c" ]; then
+    if [ -n "${PROTONPATH:-}" ]; then
+        s_dire "Premiere utilisation" "Preparation de l'environnement Windows, une minute."
+    else
+        s_dire "Premiere utilisation" "Telechargement de Proton, puis preparation. Quelques minutes."
+    fi
+    mkdir -p "$WINEPREFIX"
+    if ! umu-run wineboot -u >"$S_ETAT/windows-init.log" 2>&1; then
+        s_echec "L'environnement Windows n'a pas pu etre prepare" \
+                "Detail dans $S_ETAT/windows-init.log"
+    fi
+fi
+
+# --- Lancer ----------------------------------------------------------------
+s_dire "$NOM" "Ouverture…" application-x-executable
+
+AVANT="$(mktemp)"; find "$S_LANCEURS/wine" -name '*.desktop' 2>/dev/null | sort > "$AVANT"
+
+case "${CIBLE,,}" in
+    *.msi) umu-run "$WINEPREFIX/drive_c/windows/system32/msiexec.exe" /i "$CIBLE" ;;
+    *)     umu-run "$CIBLE" ;;
+esac
+CODE=$?
+
+# --- Moisonner les raccourcis que Wine vient de poser ----------------------
+# Sans cette etape, les icones existent mais ne lancent RIEN : winemenubuilder
+# les ecrit avec « Exec=… wine … », et « wine » n'est pas sur ce systeme.
+APRES="$(mktemp)"; find "$S_LANCEURS/wine" -name '*.desktop' 2>/dev/null | sort > "$APRES"
+NOUVEAUX="$(comm -13 "$AVANT" "$APRES" | wc -l)"
+rm -f "$AVANT" "$APRES"
+
+if [ "$NOUVEAUX" -gt 0 ]; then
+    s-menu-windows --silencieux
+    s_dire "$NOM" "Installe. $NOUVEAUX raccourci(s) ajoute(s) au menu." application-x-executable
+elif [ "$CODE" -ne 0 ]; then
+    s_dire "$NOM" "S'est termine sur une erreur (code $CODE)." dialog-warning
+fi
+exit "$CODE"

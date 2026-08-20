@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Activer le Play Store
+Comment=Declare l appareil chez Google, une seule fois
+Exec=/usr/bin/s-play-store --force
+Icon=system-software-install
+Terminal=false
+Categories=System;

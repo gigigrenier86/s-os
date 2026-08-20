@@ -1,0 +1,43 @@
+#!/usr/bin/bash
+# Double-clic sur un .AppImage : il se range, devient executable, et son icone
+# arrive au menu. Un AppImage porte son propre lanceur a l'interieur ; personne
+# ne l'en sort, d'ou les fichiers telecharges qui « ne font rien ».
+set -uo pipefail
+source /usr/bin/s-monde
+
+CIBLE="$(readlink -f "${1:?s-ouvrir-appimage attend un chemin}")"
+[ -f "$CIBLE" ] || s_echec "Fichier introuvable" "$CIBLE"
+NOM="$(basename "$CIBLE" .AppImage)"
+
+DEPOT="$S_DATA/appimages"; mkdir -p "$DEPOT"
+DEST="$DEPOT/$(basename "$CIBLE")"
+[ "$CIBLE" = "$DEST" ] || cp -f "$CIBLE" "$DEST"
+chmod +x "$DEST"
+
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+ICONE=application-x-executable
+if (cd "$TMP" && "$DEST" --appimage-extract >/dev/null 2>&1); then
+    desk="$(find "$TMP/squashfs-root" -maxdepth 1 -name '*.desktop' | head -n1)"
+    img="$(find "$TMP/squashfs-root" -maxdepth 1 \( -name '*.png' -o -name '*.svg' \) | head -n1)"
+    if [ -n "$img" ]; then
+        mkdir -p "$S_DATA/icones"
+        ICONE="$S_DATA/icones/$NOM.${img##*.}"
+        cp -f "$img" "$ICONE"
+    fi
+    [ -n "$desk" ] && NOM="$(grep -m1 '^Name=' "$desk" | cut -d= -f2- || echo "$NOM")"
+fi
+
+cat > "$S_LANCEURS/s-appimage-$(printf '%s' "$DEST" | sha256sum | cut -c1-12).desktop" <<DESK
+[Desktop Entry]
+Type=Application
+Name=$NOM
+Comment=Application portable Linux
+Exec=$(printf '%q' "$DEST")
+Icon=$ICONE
+Terminal=false
+Categories=Application;
+X-S-Monde=Linux
+DESK
+
+s_rafraichir_menu
+s_dire "$NOM" "Range et ajoute au menu." package-x-generic

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Magasin Android
+Comment=Telecharger une application Android
+Exec=/usr/bin/s-android --magasin
+Icon=system-software-install
+Terminal=false
+Categories=System;

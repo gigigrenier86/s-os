@@ -1,0 +1,72 @@
+#!/usr/bin/bash
+# Le monde Android de S : une seule icone qui fait tout.
+#
+# Waydroid n'est pas une machine virtuelle : Android EST Linux, et son espace
+# utilisateur tourne dans un conteneur sur le noyau de la machine. Mais son
+# image systeme (~1 Go) vit dans /var, que le systeme atomique ne transporte
+# pas : elle se pose donc au premier usage, une fois, et jamais plus.
+set -uo pipefail
+source /usr/bin/s-monde
+
+MARQUE="$S_ETAT/android-pret"
+APK_MAISON=/usr/share/s/apk
+
+s_verrou android
+
+# --- Premiere utilisation ---------------------------------------------------
+if [ ! -f /var/lib/waydroid/waydroid.cfg ]; then
+    s_dire "Premiere utilisation d'Android" "Telechargement du systeme Android, environ 1 Go. Une seule fois."
+    # GAPPS plutot que VANILLA : c'est la variante qui porte le Play Store.
+    # Elle exige un enregistrement de l'appareil chez Google, une seule fois ;
+    # la suite du script s'en occupe.
+    if ! pkexec waydroid init -s GAPPS >"$S_ETAT/android-init.log" 2>&1; then
+        s_echec "Android n'a pas pu etre prepare" "Detail dans $S_ETAT/android-init.log"
+    fi
+fi
+
+# --- Demarrer la session, si elle ne tourne pas -----------------------------
+if ! waydroid status 2>/dev/null | grep -qi 'RUNNING'; then
+    s_dire "Android" "Demarrage…" phone
+    systemctl start waydroid-container 2>/dev/null || \
+        pkexec systemctl start waydroid-container >/dev/null 2>&1 || true
+    waydroid session start >"$S_ETAT/android-session.log" 2>&1 &
+    for _ in $(seq 1 60); do
+        waydroid status 2>/dev/null | grep -qi 'RUNNING' && break
+        sleep 2
+    done
+fi
+
+waydroid status 2>/dev/null | grep -qi 'RUNNING' || \
+    s_echec "Android n'a pas demarre" "Detail dans $S_ETAT/android-session.log"
+
+# --- Poser le magasin, une seule fois --------------------------------------
+if [ ! -f "$MARQUE" ]; then
+    if [ -f "$APK_MAISON/fdroid.apk" ] && \
+       ! waydroid app list 2>/dev/null | grep -q 'org.fdroid.fdroid'; then
+        s_dire "Android" "Installation du magasin F-Droid…" phone
+        waydroid app install "$APK_MAISON/fdroid.apk" >>"$S_ETAT/android-init.log" 2>&1 || true
+    fi
+    touch "$MARQUE"
+fi
+
+# --- Le Play Store : une seule declaration, imposee par Google --------------
+# Elle ne peut pas etre automatisee jusqu'au bout — il faut un humain connecte
+# a son compte Google. s-play-store fait tout le reste : il lit
+# l'identifiant, le copie, et ouvre la page. Il se tait s'il a deja servi.
+if [ ! -f "$S_ETAT/android-certifie" ]; then
+    s_dire "Play Store" "Google demande a connaitre cet appareil. Un mot de passe va etre demande, une seule fois."
+    s-play-store && touch "$S_ETAT/android-certifie" || true
+fi
+
+# Waydroid pose lui-meme une icone par application installee. On rafraichit
+# pour qu'elles apparaissent sans attendre la prochaine ouverture de session.
+s_rafraichir_menu
+
+if [ "${1:-}" = "--magasin" ]; then
+    # Le Play Store d'abord : c'est le magasin que l'image GAPPS apporte.
+    waydroid app launch com.android.vending 2>/dev/null || \
+    waydroid app launch org.fdroid.fdroid 2>/dev/null || \
+    waydroid show-full-ui
+else
+    waydroid show-full-ui
+fi

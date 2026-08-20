@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Installer un paquet Linux
+Comment=Ouvre un .deb ou un .rpm et pose son icone au menu
+Exec=/usr/bin/s-ouvrir-paquet %f
+Icon=package-x-generic
+Terminal=false
+NoDisplay=true
+MimeType=application/vnd.debian.binary-package;application/x-deb;application/x-rpm;application/x-redhat-package-manager;

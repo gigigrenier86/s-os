@@ -1,0 +1,56 @@
+#!/usr/bin/bash
+# Le Play Store refuse de servir un appareil que Google ne connait pas.
+#
+# Ce n'est pas une limite de Waydroid ni de S : Google exige qu'un appareil non
+# certifie soit declare une fois, par un humain connecte a son compte. La
+# verification est faite sur leurs serveurs — aucun contournement n'existe, et
+# en inventer un serait mentir.
+#
+# Ce script fait donc tout ce qui est automatisable, et le dit : il lit
+# l'identifiant, le depose dans le presse-papiers, ouvre la bonne page. Il reste
+# un collage et un clic, une seule fois dans la vie de la machine.
+set -uo pipefail
+source /usr/bin/s-monde
+
+MARQUE="$S_ETAT/android-certifie"
+[ "${1:-}" = "--force" ] && rm -f "$MARQUE"
+[ -f "$MARQUE" ] && exit 0
+
+waydroid status 2>/dev/null | grep -qi 'RUNNING' || \
+    s_echec "Android ne tourne pas" "Ouvre d'abord Android, puis recommence."
+
+# L'identifiant vit dans la base de Google Services Framework, a l'interieur
+# d'Android. Les quatre variables sont indispensables : sans elles, sqlite3 ne
+# trouve pas ses bibliotheques dans les apex et sort sans rien dire.
+LIRE='ANDROID_RUNTIME_ROOT=/apex/com.android.runtime ANDROID_DATA=/data
+ANDROID_TZDATA_ROOT=/apex/com.android.tzdata ANDROID_I18N_ROOT=/apex/com.android.i18n
+sqlite3 /data/data/com.google.android.gsf/databases/gservices.db
+"select value from main where name = '"'"'android_id'"'"';"'
+
+ID="$(pkexec waydroid shell -- sh -c "$(printf '%s' "$LIRE" | tr '\n' ' ')" 2>/dev/null \
+      | tr -d '\r' | grep -oE '^[0-9]+$' | head -n1)"
+
+if [ -z "$ID" ]; then
+    s_dire "Identifiant Google introuvable" \
+           "Les services Google ne sont pas encore prets. Laisse Android tourner une minute, puis relance « Activer le Play Store »." dialog-warning
+    exit 1
+fi
+
+# Le presse-papiers d'abord : c'est ce qui evite de recopier dix-neuf chiffres.
+printf '%s' "$ID" | { wl-copy 2>/dev/null || xclip -selection clipboard 2>/dev/null; } || true
+
+s_dire "Identifiant copie : $ID" \
+       "Colle-le dans la page qui s'ouvre, puis « Register ». Compte cinq a dix minutes avant que le Play Store accepte de se connecter."
+
+# Un vrai repli : on essaie chaque navigateur, et on s'arrete au premier qui
+# existe. La forme « && cmd & break » echouait ici — le break tombait au premier
+# tour, donc xdg-open n'etait jamais atteint si Vivaldi manquait.
+for n in vivaldi-stable xdg-open; do
+    if command -v "$n" >/dev/null 2>&1; then
+        "$n" "https://www.google.com/android/uncertified" >/dev/null 2>&1 &
+        break
+    fi
+done
+
+touch "$MARQUE"
+printf 'Identifiant Google Services Framework : %s\n' "$ID"

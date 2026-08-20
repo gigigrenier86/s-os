@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Installer ou lancer un programme Windows
+Comment=Ouvre un .exe ou un .msi sans passer par un programme tiers
+Exec=/usr/bin/s-ouvrir-exe %f
+Icon=application-x-ms-dos-executable
+Terminal=false
+NoDisplay=true
+MimeType=application/x-ms-dos-executable;application/x-msi;application/x-msdownload;application/vnd.microsoft.portable-executable;

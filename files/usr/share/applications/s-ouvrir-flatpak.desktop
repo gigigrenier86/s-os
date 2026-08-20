@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Installer un flatpak
+Comment=Installe en silence, sans ouvrir de magasin
+Exec=/usr/bin/s-ouvrir-flatpak %f
+Icon=package-x-generic
+Terminal=false
+NoDisplay=true
+MimeType=application/vnd.flatpak;application/vnd.flatpak.ref;
