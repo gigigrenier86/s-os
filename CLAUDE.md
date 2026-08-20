@@ -70,7 +70,7 @@ dans l'image.
 | Socle | `ghcr.io/ublue-os/bazzite:stable` — Fedora 44 atomique, KDE Plasma |
 | Construction | GitHub Actions, ~9 min, **plus reconstruction quotidienne automatique** |
 | Installation | `bootc install to-disk --source-imgref docker://…` — 35 min |
-| Image | **137 couches, 6,95 Go** — 128 de Bazzite, 9 de S |
+| Poids | **137 couches, 6,95 Go** — 128 viennent de Bazzite, 9 de S |
 | Mise à jour | **`bootc upgrade`** — une retouche de geste coûte **9,6 Mo** depuis le découpage en couches (2,3 Go avant) |
 | Démarrage | **35 s** en régime ; 58 s la première fois après une mise à jour |
 | Compte utilisateur | créé à l'installation par **`plasma-setup`**, natif à l'image de base |
