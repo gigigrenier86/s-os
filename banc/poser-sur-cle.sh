@@ -119,7 +119,35 @@ fi
 echo "  verdict  : cible confirmee, ecriture autorisee, place suffisante"
 echo
 
+# --- Couper le zram, qui a fait echouer l'essai du 2026-08-21 a 00h30 -------
+# Le swap de cette image est un zram : un swap COMPRESSE EN MEMOIRE VIVE, pas
+# sur disque. Quand bootc deploie son arborescence de 16 Go, la memoire se
+# remplit, le noyau evacue des pages vers le zram -- qui consomme lui-meme de la
+# RAM pour les stocker compressees. Chaque page evacuee aggrave la penurie qui
+# l'a causee. Spirale.
+#
+# Mesure de l'essai bloque : 101 % d'un coeur en continu, ZERO E/S sur les deux
+# disques pendant 29 minutes, et sshd incapable de repondre. Le "zero E/S" est
+# la signature : un swap sur disque aurait produit des ecritures, le zram non.
+# Liberer 2 Go cote hote n'avait rien change, ce qui confirmait que le probleme
+# etait DANS l'invite.
+#
+# Le couper rend jusqu'a 3,9 Go de RAM reelle au lieu d'en consommer. Sans swap
+# du tout, une penurie tue bootc franchement au lieu de figer la machine : un
+# echec rapide et lisible vaut mieux qu'un blocage d'une demi-heure.
+echo "=== Memoire ==="
+echo "  avant  : $(free -m | awk '/^Mem:/ {print $7}') Mio disponibles, swap $(free -m | awk '/^Swap:/ {print $2}') Mio"
+swapoff -a 2>/dev/null || true
+systemctl stop 'systemd-zram-setup@zram0.service' 2>/dev/null || true
+echo "  apres  : $(free -m | awk '/^Mem:/ {print $7}') Mio disponibles, swap $(free -m | awk '/^Swap:/ {print $2}') Mio"
+echo
+
 echo "=== Ecriture ==="
+# ext4 plutot que btrfs : nettement plus sobre en memoire et en metadonnees,
+# et mieux adapte a de la memoire flash, dont btrfs use la puce pour rien avec
+# sa copie-sur-ecriture. On ne perd rien : le retour arriere de bootc repose sur
+# ostree, pas sur les instantanes du systeme de fichiers.
+#
 # --generic-image fait deux choses indispensables ici :
 #   - il installe TOUS les types de chargeur, et non le seul que la machine
 #     courante utilise. On installe depuis du virtio, ca demarrera sur du xHCI.
@@ -149,7 +177,7 @@ podman run --rm --privileged --pid=host \
     bootc install to-disk \
         --wipe \
         --generic-image \
-        --filesystem btrfs \
+        --filesystem ext4 \
         --target-imgref "$IMAGE" \
         "$CIBLE"
 
