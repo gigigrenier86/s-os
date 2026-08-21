@@ -1680,3 +1680,45 @@ Sur matériel réel, F12 rejoue exactement ce démarrage à froid.
   unmount /sysroot: Device or resource busy », puis « Unable to finalize remaining file
   systems, ignoring ». C'est bruyant et sans conséquence ici, le système redémarrant juste
   après. À surveiller si un arrêt propre devenait nécessaire.
+
+### Les outils tournent — première exécution réelle des huit logiciels
+
+Le carnet disait depuis le 2026-08-20 qu'**aucun des huit logiciels n'avait jamais été
+lancé**, seul Vivaldi ayant reçu un `--version`. **Ce n'est plus vrai.** Exécutés cette nuit
+**sous le compte utilisateur**, pas en root :
+
+| Outil | Version rendue |
+|---|---|
+| `git` | 2.55.0 |
+| `node` | v24.18.0 |
+| `npm` | 11.16.0 |
+| `claude` | **2.1.228 (Claude Code)** |
+| `gemini` | 0.56.0 |
+| `code` | 1.134.0 |
+| `antigravity` | 1.107.0 |
+
+Cela reste un `--version` : aucun n'a ouvert de fenêtre ni fait de travail utile. Mais le
+binaire se lance, trouve ses bibliothèques et rend une réponse cohérente — ce que ni la
+présence d'un fichier ni la construction ne prouvaient.
+
+**`/etc/skel` tient sa promesse.** Le compte porte bien `anthropic.claude-code` et
+`ms-ceintl.vscode-language-pack-fr` dans VS Code, et `argv.json` impose `locale: fr`. C'est
+la seule mécanique du projet qui soit à la fois dans l'image et propre à chaque compte, et
+elle est désormais vérifiée de bout en bout.
+
+### Une fausse alerte, et ce qu'elle apprend
+
+Le contrôle a d'abord semblé catastrophique : `/usr/bin/s-*` **vide** dans la machine
+virtuelle, et le `.deb` toujours associé à l'archiveur. Les coutures auraient disparu.
+
+Elles n'ont jamais été là : **cette VM tourne sur un déploiement antérieur**. L'`ostree admin
+undeploy` de la veille, fait pour libérer de la place, a retiré le déploiement récent.
+
+L'image publiée, elle, les porte toutes — vérifié en lançant un conteneur depuis
+`ghcr.io/gigigrenier86/s-os:latest`, c'est-à-dire **exactement ce que la clé a reçu** : huit
+scripts, sept lanceurs dont « Android » et « Magasin Android », treize associations, F-Droid
+(12,4 Mio) et Proton pré-cuit dans `/usr/lib/s/windows`.
+
+**La leçon vaut au-delà du cas** : sur un système atomique, l'état d'une machine ne dit pas
+l'état de l'image. Interroger l'image directement — `podman run` sur le tag publié — est le
+seul contrôle qui réponde à la question posée.
