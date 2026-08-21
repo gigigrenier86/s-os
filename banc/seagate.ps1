@@ -8,6 +8,20 @@
 # Securite par construction : la VM ne voit que son propre disque et la
 # Seagate. Le NVMe interne n'est JAMAIS expose, donc rien de ce qui se passe
 # a l'interieur ne peut atteindre Windows -- meme une faute de frappe.
+#
+# -Variante : de quoi bissecter le halt du 2026-08-21.
+#   prouve    = la syntaxe EXACTEMENT eprouvee sur la cle virtuelle le
+#               2026-08-21 a 01h15. C'est le defaut, et ce doit rester le
+#               defaut : on ne part jamais d'une variante non eprouvee.
+#   geometrie = declare au disque sa geometrie 512e (secteur physique 4096).
+#               Plus rapide en theorie sur un SMR, JAMAIS EPROUVE, et premier
+#               suspect du halt a 1,46 s de temps noyau.
+# -SansEffacer : le disque est deja RAW, ne pas rejouer Clear-Disk.
+param(
+    [ValidateSet('prouve','geometrie')]
+    [string] $Variante = 'prouve',
+    [switch] $SansEffacer
+)
 $ErrorActionPreference = 'Stop'
 $VM = 'C:\Users\Ghis\Desktop\S-vm'
 
@@ -46,10 +60,24 @@ $sys = @(Get-Disk | Where-Object { $_.IsSystem -or $_.IsBoot } | ForEach-Object 
 if ($sys -contains 1) { throw "REFUS : le disque 1 porte Windows." }
 
 Write-Host ""
-Write-Host "Ce disque va etre ENTIEREMENT EFFACE : table, partitions, D: SEAGATE." -ForegroundColor Yellow
-Write-Host "Il sera rendu a Windows plus tard, en retrecissant ext4." -ForegroundColor Yellow
-$r = Read-Host "Taper exactement : EFFACER DISQUE 1"
-if ($r -ne 'EFFACER DISQUE 1') { throw "Annule. Rien n'a ete touche." }
+Write-Host ("Variante de ligne de commande : {0}" -f $Variante) -ForegroundColor Magenta
+
+# Un disque deja RAW n'a plus rien a effacer, et Clear-Disk y echoue. On lit
+# l'etat plutot que de le supposer -- c'est la regle 7 du carnet, et elle vaut
+# aussi pour les reprises apres echec.
+$dejaVide = ($d.PartitionStyle -eq 'RAW')
+if ($dejaVide) {
+    Write-Host "Le disque est deja RAW : rien a effacer, on saute la confirmation." -ForegroundColor Green
+}
+elseif ($SansEffacer) {
+    throw "REFUS : -SansEffacer demande, mais le disque porte encore une table $($d.PartitionStyle)."
+}
+else {
+    Write-Host "Ce disque va etre ENTIEREMENT EFFACE : table, partitions, D: SEAGATE." -ForegroundColor Yellow
+    Write-Host "Il sera rendu a Windows plus tard, en retrecissant ext4." -ForegroundColor Yellow
+    $r = Read-Host "Taper exactement : EFFACER DISQUE 1"
+    if ($r -ne 'EFFACER DISQUE 1') { throw "Annule. Rien n'a ete touche." }
+}
 
 # --- Liberer le disque -----------------------------------------------------
 # Windows refuse de mettre un media amovible hors ligne ("Removable media
@@ -68,12 +96,16 @@ if ($r -ne 'EFFACER DISQUE 1') { throw "Annule. Rien n'a ete touche." }
 # Clear-Disk plutot que Remove-Partition en boucle : ce disque porte une
 # partition reservee Microsoft (MSR) en plus de la NTFS, et Remove-Partition
 # la refuse parfois. -RemoveOEM couvre le cas.
-Write-Host ""
-Write-Host "Suppression des partitions..." -ForegroundColor Cyan
-Clear-Disk -Number 1 -RemoveData -RemoveOEM -Confirm:$false
+if (-not $dejaVide) {
+    Write-Host ""
+    Write-Host "Suppression des partitions..." -ForegroundColor Cyan
+    Clear-Disk -Number 1 -RemoveData -RemoveOEM -Confirm:$false
+}
 
 # On verifie le VOLUME, pas le nombre de partitions : c'est le volume monte
-# qui bloque, le compte de partitions n'en est qu'un indice.
+# qui bloque, le compte de partitions n'en est qu'un indice. Ce controle
+# tourne dans TOUS les cas, y compris sur reprise -- un disque RAW pourrait
+# theoriquement avoir ete remonte entre-temps.
 $restantes = @(Get-Partition -DiskNumber 1 -ErrorAction SilentlyContinue).Count
 if ($restantes -ne 0) { throw "REFUS : $restantes partition(s) subsistent sur le disque 1." }
 $vol = @(Get-Disk -Number 1 | Get-Partition -ErrorAction SilentlyContinue |
@@ -86,17 +118,41 @@ Write-Host "Disque 1 sans volume monte : ecriture brute autorisee." -ForegroundC
 # bootc ecrira lui-meme la table de partition depuis l'interieur : rien n'a
 # besoin d'etre prepare ici.
 #
-# La Seagate passe par -drive if=none + -device virtio-blk-pci plutot que par
-# le raccourci if=virtio, et ce n'est pas de la coquetterie : le raccourci ne
-# permet pas de declarer la geometrie. Ce disque est un 512e -- secteur
-# logique 512, secteur physique 4096 -- et sans le lui dire, l'invite aligne
-# ses ecritures sur 512 octets. Chaque ecriture desalignee oblige alors le
-# disque a lire-modifier-ecrire un bloc de 4 Kio. Sur un SMR de 5 To en
-# 2,5 pouces, ou la reecriture est deja le point faible, c'est le genre de
-# detail qui separe quarante minutes de trois heures.
+# DEUX VARIANTES, ET LE DEFAUT EST CELLE QUI A DEJA MARCHE.
+#
+# "geometrie" declare au disque son secteur physique de 4096 octets, ce que le
+# raccourci if=virtio ne sait pas transmettre. En theorie c'est un gain reel
+# sur un SMR : sans cette declaration l'invite aligne ses ecritures sur 512
+# octets, et chaque ecriture desalignee oblige le disque a lire-modifier-
+# ecrire un bloc de 4 Kio.
+#
+# MAIS ELLE N'A JAMAIS ETE EPROUVEE, et le 2026-08-21 l'invite s'est HALTE a
+# 1,46 s de temps noyau avec elle : zero CPU consomme sur 75 s, les huit
+# threads de QEMU en attente, zero E/S sur le disque hote -- lequel restait
+# Online et sain. Un arret franc, pas une lenteur.
+#
+# La lecon vaut plus que l'optimisation : on ne modifie pas un chemin eprouve
+# le soir meme du premier essai reel, et surtout pas pour de la performance.
+# Trois changements avaient ete introduits d'un coup (if=none + -device, les
+# tailles de bloc, aio=threads), ce qui interdisait de savoir lequel accusait.
+# D'ou ce parametre : une seule variable a la fois.
 #
 # L'ordre des -drive fixe les noms : S.qcow2 en premier donc vda, la Seagate
 # ensuite donc vdb. poser-sur-seagate.sh vise vdb et revalide la taille.
+if ($Variante -eq 'geometrie') {
+    $argsDisque = @(
+      '-drive','file=\\.\PHYSICALDRIVE1,if=none,id=seagate,format=raw,cache=none,aio=threads',
+      '-device','virtio-blk-pci,drive=seagate,logical_block_size=512,physical_block_size=4096'
+    )
+    Write-Host "ATTENTION : variante JAMAIS EPROUVEE, et suspecte du halt du 2026-08-21." -ForegroundColor Yellow
+}
+else {
+    # Mot pour mot la forme qui a fonctionne sur la cle virtuelle.
+    $argsDisque = @(
+      '-drive','file=\\.\PHYSICALDRIVE1,if=virtio,format=raw,cache=none'
+    )
+}
+
 Write-Host "Lancement de la machine virtuelle..." -ForegroundColor Cyan
 
 # QEMU est lance DETACHE, et c'est important : lance en processus enfant, il
@@ -112,9 +168,8 @@ $qemuArgs = @(
   '-cpu','qemu64,+ssse3,+sse4.1,+sse4.2,+popcnt,+cx16,+lahf_lm',
   '-smp','4','-m','8192',
   '-bios',"$VM\firmware\bios.fd",
-  '-drive',"file=$VM\S.qcow2,if=virtio,format=qcow2",
-  '-drive','file=\\.\PHYSICALDRIVE1,if=none,id=seagate,format=raw,cache=none,aio=threads',
-  '-device','virtio-blk-pci,drive=seagate,logical_block_size=512,physical_block_size=4096',
+  '-drive',"file=$VM\S.qcow2,if=virtio,format=qcow2"
+) + $argsDisque + @(
   '-boot','order=c',
   '-serial','tcp:127.0.0.1:4446,server,nowait',
   '-vga','std',
