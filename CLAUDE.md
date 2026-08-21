@@ -1434,3 +1434,75 @@ couches 135 et 136, soit **9,6 Mo au lieu de 2,3 Go**. Et lire un manifeste coû
 une requête, là où le mesurer par `bootc upgrade` coûtait une demi-heure de
 téléchargement dans le banc.
 
+
+## 2026-08-20, 21 h 30 — la clé USB, et les cinq murs de Windows
+
+**Décision de l'utilisateur : tester sur sa clé USB plutôt que d'attendre le SSD.**
+Le plan écartait la clé — la mémoire flash s'effondre en écriture aléatoire — et cet
+argument reste vrai **pour un usage quotidien**. Pour un test d'une heure, il ne tient
+pas : la clé répond exactement aux trois questions que le banc ne peut pas trancher.
+
+**La clé n'était plus l'installateur Windows.** Le carnet de PC Boost la protégeait
+depuis le 2026-08-18 (`CCCOMA_X64F`, FAT32, 1 066 fichiers, 31 minutes de travail).
+Relevée ce soir : une seule partition **exFAT de 57,3 Go, vide**. Elle a été reformatée
+entre-temps. Il n'y avait donc rien à protéger — mais **il fallait regarder avant de le
+dire**, et non se fier à ce que le carnet affirmait deux jours plus tôt.
+
+### La cible, vérifiée trois fois avant d'écrire
+
+Une seule erreur ici coûterait le Windows de la machine. Trois preuves indépendantes :
+
+| Preuve | `vda` (la VM) | `vdb` (la clé) |
+|---|---|---|
+| Taille exacte | 53 687 091 200 o | **61 524 148 224 o** = 57,3 Go |
+| Système de fichiers | btrfs | **exFAT** |
+| Rôle | porte `/sysroot`, `/boot`, `/var` | monté nulle part |
+
+Et une garantie qui ne dépend d'aucune vérification : **le NVMe interne n'a jamais été
+présenté à la machine virtuelle.** Même une faute de frappe à l'intérieur ne peut pas
+l'atteindre. C'est de la sécurité par construction, pas par vigilance.
+
+### Cinq murs, dans l'ordre où ils sont tombés
+
+Aucun n'est propre à S ; tous se reposeront à la prochaine manipulation de disque
+physique depuis Windows.
+
+1. **La stratégie d'exécution refuse les `.ps1`.** `powershell -ExecutionPolicy Bypass
+   -File …` lève la règle pour ce seul processus, sans rien changer sur la machine.
+2. **Un `.ps1` en UTF-8 casse sous PowerShell 5.1**, qui le lit en CP1252 : le tiret
+   cadratin devient un délimiteur de chaîne et la ligne cesse d'être analysée — d'où un
+   `-ForegroundColor Cyan` affiché en clair. Le piège est écrit noir sur blanc dans le
+   carnet de PC Boost, et je l'ai quand même commis. **Les scripts de banc s'écrivent en
+   ASCII strict**, et un contrôle `ParseFile` avant lancement coûte une seconde.
+3. **Windows refuse de mettre un média amovible hors ligne** — « Removable media cannot
+   be set to offline ». Ce n'est pas grave : ce qui verrouille le disque physique n'est
+   pas le disque mais le **volume monté** dessus. Retirer la lettre par
+   `Remove-PartitionAccessPath` suffit, et laisse `bootc` écrire lui-même la table depuis
+   l'intérieur — là où il sait ce qu'il fait.
+4. **L'accès brut à un disque physique exige l'élévation.** Sans elle, QEMU rend
+   « Could not open device: Permission denied » — mais **trois étapes trop tard**, la clé
+   ayant déjà été démontée. Le contrôle d'élévation est passé en tête du script : un refus
+   doit tomber avant qu'on ait touché à quoi que ce soit. Et il teste le **rôle**, jamais
+   le nom du groupe, qui s'appelle « Administrateurs » sur un Windows français.
+5. **QEMU lancé en processus enfant meurt avec sa fenêtre.** Fermer le terminal a coûté
+   sept minutes de démarrage. `Start-Process -PassThru` le détache — en passant les
+   arguments par un tableau dont **aucun ne contient d'espace**, puisque `Start-Process`
+   les joint sans les protéger.
+
+### Où ça en est
+
+`banc/poser-sur-cle.ps1` écrit S sur la clé depuis la VM, et refait le contrôle de taille
+**à l'intérieur, juste avant d'écrire** — l'inventaire d'un appelant ne se tient jamais
+pour acquis. Le script est écrit, sa syntaxe validée, et **il n'a pas encore été lancé** :
+l'écriture est un geste de l'utilisateur, pas du mien.
+
+**Ce que ce test doit trancher**, et qu'aucune machine virtuelle ne peut dire :
+
+1. **S démarre-t-il sur du vrai matériel.** Un firmware virtuel prouve qu'un support est
+   amorçable ; il ne prouve pas qu'un système démarre.
+2. **L'iGPU de la M720q va-t-il mieux sous Linux.** 266 réinitialisations du moteur
+   d'affichage en 30 jours sous Windows, conclusion « matériel ». `dmesg` et les compteurs
+   `i915` diront si le défaut suit la machine. **Cette réponse vaut aussi pour PC Boost.**
+3. **Waydroid tourne-t-il**, et donc le Play Store. C'est la seule chose qui demandait
+   exactement ce qui manquait au banc : un vrai GPU. Mesuré au banc, Steam tourne sur
+   `llvmpipe`, du rendu logiciel.
