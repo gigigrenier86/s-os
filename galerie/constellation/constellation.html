@@ -1,0 +1,976 @@
+<title>Constellation</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
+
+<style>
+/* ═══════════════════════════════════════════════════════════════════
+   CONSTELLATION — le bureau de S
+
+   Deux mondes visuels, et c'est un choix, pas une option :
+     NUIT   le ciel lui-meme, indigo profond
+     ATLAS  la planche gravee, encre sur papier creme
+
+   Les trois mondes de S sont colores par CLASSE SPECTRALE reelle :
+     Linux   classe G, or       — le Soleil, notre propre etoile
+     Windows classe B, blanc-bleu — chaude, lointaine, etrangere
+     Android classe M, orange   — la naine rouge, l'etoile la plus
+                                  commune de la galaxie
+   Il n'existe pas d'etoile verte. Le vert d'Android est donc exclu
+   par l'astronomie, pas par gout.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* NUIT — le defaut assume de ce dessin. */
+:root {
+  --fond:        #0A0D18;
+  --fond-voile:  rgba(10, 13, 24, 0.72);
+  --encre:       #E8ECF7;
+  --encre-pale:  #8A93AD;
+  --encre-tres-pale: #545C74;
+  --filet:       rgba(232, 236, 247, 0.11);
+  --filet-fort:  rgba(232, 236, 247, 0.22);
+  --lien:        rgba(232, 236, 247, 0.30);
+  --lien-vif:    rgba(232, 236, 247, 0.85);
+
+  --linux:       #F2C57C;
+  --windows:     #A9C8F5;
+  --android:     #F09E86;
+  --socle:       #E8ECF7;
+
+  --etoiles:     rgba(232, 236, 247, 0.55);
+  --lueur:       0.85;
+  --grain:       0;
+}
+
+/* ATLAS — la planche imprimee. Sur "systeme = clair", et sans
+   marquage sur la racine, c'est ce media qui decide. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --fond:        #F2EDE1;
+    --fond-voile:  rgba(242, 237, 225, 0.80);
+    --encre:       #1B1A17;
+    --encre-pale:  #6B655A;
+    --encre-tres-pale: #9A9285;
+    --filet:       rgba(27, 26, 23, 0.13);
+    --filet-fort:  rgba(27, 26, 23, 0.26);
+    --lien:        rgba(27, 26, 23, 0.38);
+    --lien-vif:    rgba(27, 26, 23, 0.92);
+
+    --linux:       #A0701A;
+    --windows:     #2E5C9E;
+    --android:     #AE4E2C;
+    --socle:       #1B1A17;
+
+    --etoiles:     rgba(27, 26, 23, 0.30);
+    --lueur:       0.30;
+    --grain:       1;
+  }
+}
+
+/* Le choix explicite gagne dans les deux sens. */
+:root[data-theme="light"] {
+  --fond:        #F2EDE1;
+  --fond-voile:  rgba(242, 237, 225, 0.80);
+  --encre:       #1B1A17;
+  --encre-pale:  #6B655A;
+  --encre-tres-pale: #9A9285;
+  --filet:       rgba(27, 26, 23, 0.13);
+  --filet-fort:  rgba(27, 26, 23, 0.26);
+  --lien:        rgba(27, 26, 23, 0.38);
+  --lien-vif:    rgba(27, 26, 23, 0.92);
+  --linux:       #A0701A;
+  --windows:     #2E5C9E;
+  --android:     #AE4E2C;
+  --socle:       #1B1A17;
+  --etoiles:     rgba(27, 26, 23, 0.30);
+  --lueur:       0.30;
+  --grain:       1;
+}
+:root[data-theme="dark"] {
+  --fond:        #0A0D18;
+  --fond-voile:  rgba(10, 13, 24, 0.72);
+  --encre:       #E8ECF7;
+  --encre-pale:  #8A93AD;
+  --encre-tres-pale: #545C74;
+  --filet:       rgba(232, 236, 247, 0.11);
+  --filet-fort:  rgba(232, 236, 247, 0.22);
+  --lien:        rgba(232, 236, 247, 0.30);
+  --lien-vif:    rgba(232, 236, 247, 0.85);
+  --linux:       #F2C57C;
+  --windows:     #A9C8F5;
+  --android:     #F09E86;
+  --socle:       #E8ECF7;
+  --etoiles:     rgba(232, 236, 247, 0.55);
+  --lueur:       0.85;
+  --grain:       0;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--fond);
+  color: var(--encre);
+  font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+  height: 100vh;
+  height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  transition: background 420ms ease, color 420ms ease;
+}
+
+#ciel {
+  position: fixed;
+  inset: 0;
+  display: block;
+  touch-action: none;
+  cursor: crosshair;
+}
+#ciel.saisit { cursor: grabbing; }
+#ciel.survole { cursor: pointer; }
+
+/* ── Les elements flottants. Aucun cadre, aucune barre : le ciel
+      occupe tout, le texte se pose dessus. ───────────────────── */
+.flotte {
+  position: fixed;
+  z-index: 2;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Le cartouche — comme sur une planche gravee, en haut a gauche. */
+#cartouche { top: clamp(18px, 3vh, 34px); left: clamp(20px, 3vw, 40px); }
+
+#nom {
+  font-family: "EB Garamond", Georgia, serif;
+  font-size: clamp(46px, 7vw, 82px);
+  font-weight: 500;
+  line-height: 0.82;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+#sous-titre {
+  font-family: "EB Garamond", Georgia, serif;
+  font-style: italic;
+  font-size: clamp(13px, 1.5vw, 16px);
+  color: var(--encre-pale);
+  margin: 8px 0 0;
+  max-width: 30ch;
+  line-height: 1.35;
+}
+
+#compteur {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--encre-tres-pale);
+  letter-spacing: 0.06em;
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+#compteur b { font-weight: 500; color: var(--encre-pale); }
+
+/* Le repos se voit : c'est la preuve visible de la sobriete. */
+#etat-rendu { display: flex; align-items: center; gap: 6px; }
+#pastille {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--encre-tres-pale);
+  transition: background 200ms ease;
+}
+#pastille.actif { background: var(--linux); }
+
+/* La legende — en bas a gauche, avec les trois etats de preuve. */
+#legende {
+  bottom: clamp(18px, 3vh, 34px);
+  left: clamp(20px, 3vw, 40px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 11.5px;
+}
+.groupe { display: flex; flex-direction: column; gap: 5px; }
+.titre-groupe {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--encre-tres-pale);
+}
+.ligne { display: flex; align-items: center; gap: 8px; color: var(--encre-pale); }
+.puce { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.puce.creux { background: none !important; border: 1px solid currentColor; }
+.puce.barre { background: none !important; border: 1px solid currentColor; position: relative; }
+.puce.barre::after {
+  content: ""; position: absolute; inset: 3px 0; top: 4px; height: 1px;
+  background: currentColor;
+}
+
+/* L'aide — en bas a droite, discrete. */
+#aide {
+  bottom: clamp(18px, 3vh, 34px);
+  right: clamp(20px, 3vw, 40px);
+  text-align: right;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  line-height: 1.9;
+  color: var(--encre-tres-pale);
+  letter-spacing: 0.03em;
+}
+#aide kbd {
+  font: inherit;
+  color: var(--encre-pale);
+  border: 1px solid var(--filet-fort);
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-right: 5px;
+}
+
+/* La fiche d'un noeud survole. Suit le curseur. */
+#fiche {
+  position: fixed;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  background: var(--fond-voile);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  border: 1px solid var(--filet);
+  border-radius: 3px;
+  padding: 9px 12px 10px;
+  max-width: 270px;
+}
+#fiche.visible { opacity: 1; transform: translateY(0); }
+#fiche .nom-app {
+  font-family: "EB Garamond", Georgia, serif;
+  font-size: 18px;
+  line-height: 1.1;
+  margin-bottom: 3px;
+}
+#fiche .monde {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 7px;
+}
+#fiche .fait {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--encre-pale);
+  font-variant-numeric: tabular-nums;
+}
+#fiche .preuve {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--filet);
+  color: var(--encre-tres-pale);
+}
+
+/* Le message fugace, au centre bas. */
+#message {
+  bottom: clamp(72px, 12vh, 110px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--encre-pale);
+  background: var(--fond-voile);
+  border: 1px solid var(--filet);
+  border-radius: 3px;
+  padding: 6px 13px;
+  opacity: 0;
+  transition: opacity 260ms ease;
+  white-space: nowrap;
+}
+#message.visible { opacity: 1; }
+
+@media (max-width: 720px) {
+  #aide { display: none; }
+  #sous-titre { max-width: 22ch; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 1ms !important; }
+}
+</style>
+
+<canvas id="ciel"></canvas>
+
+<div id="cartouche" class="flotte">
+  <h1 id="nom">S</h1>
+  <p id="sous-titre">Windows, Linux et Android&#8239;; une seule machine, un seul ciel.</p>
+  <div id="compteur">
+    <span><b id="n-etoiles">0</b> etoiles &#183; <b id="n-eprouvees">0</b> eprouvees &#183; <b id="n-liens">0</b> liens</span>
+    <span id="etat-rendu"><i id="pastille"></i><span id="mot-etat">au repos</span> &#183; <b id="n-images">0</b> images tracees</span>
+  </div>
+</div>
+
+<div id="legende" class="flotte">
+  <div class="groupe">
+    <span class="titre-groupe">Les trois mondes</span>
+    <span class="ligne"><i class="puce" style="background:var(--linux)"></i>Linux &#8212; natif, le sol</span>
+    <span class="ligne"><i class="puce" style="background:var(--windows)"></i>Windows &#8212; traduit par Proton</span>
+    <span class="ligne"><i class="puce" style="background:var(--android)"></i>Android &#8212; conteneur Waydroid</span>
+  </div>
+  <div class="groupe">
+    <span class="titre-groupe">L'etat de preuve</span>
+    <span class="ligne"><i class="puce" style="background:var(--socle)"></i>execute, mesure</span>
+    <span class="ligne"><i class="puce creux"></i>pose, jamais exerce</span>
+    <span class="ligne"><i class="puce barre"></i>essaye, echoue</span>
+  </div>
+</div>
+
+<div id="aide" class="flotte">
+  <div><kbd>clic</kbd>choisir une etoile</div>
+  <div><kbd>2 clics</kbd>tracer un lien</div>
+  <div><kbd>clic lien</kbd>l'effacer</div>
+  <div><kbd>glisser</kbd>deplacer</div>
+  <div><kbd>T</kbd>nuit / atlas</div>
+  <div><kbd>N</kbd>noms toujours visibles</div>
+  <div><kbd>R</kbd>rendre les liens d'origine</div>
+  <div><kbd>F</kbd>plein ecran</div>
+</div>
+
+<div id="fiche">
+  <div class="nom-app"></div>
+  <div class="monde"></div>
+  <div class="fait"></div>
+  <div class="preuve"></div>
+</div>
+
+<div id="message" class="flotte"></div>
+
+<script>
+"use strict";
+
+/* ══════════════════════════════════════════════════════════════════
+   LE CIEL DE S
+
+   Trois choix d'ingenierie portent la promesse "ultra-faible en
+   consommation", et chacun est verifiable a l'ecran :
+
+   1. LE RENDU S'ARRETE. Un compositeur ordinaire redessine soixante
+      fois par seconde, pour toujours. Ici, des que l'energie
+      cinetique du systeme passe sous un seuil et que personne ne
+      touche a rien, la boucle d'animation est ANNULEE. Zero image,
+      zero calcul, zero watt. Le compteur "images tracees" cesse
+      d'avancer et la pastille s'eteint : la sobriete se voit.
+
+   2. LES LUEURS SONT DES SPRITES. Un degrade radial recree a chaque
+      image coute cher. Chaque combinaison monde x rayon x etat est
+      donc dessinee UNE fois dans un petit canevas hors ecran, puis
+      simplement recopiee. Le cout par etoile tombe a un drawImage.
+
+   3. LE FOND EST GRAVE UNE FOIS. Le champ d'etoiles lointaines et la
+      graticule sont peints dans un canevas hors ecran, refaits
+      seulement au redimensionnement ou au changement de monde visuel.
+   ══════════════════════════════════════════════════════════════════ */
+
+const cv  = document.getElementById("ciel");
+const ctx = cv.getContext("2d", { alpha: false });
+
+const MONDES = {
+  linux:   { nom: "Linux",   jeton: "--linux"   },
+  windows: { nom: "Windows", jeton: "--windows" },
+  android: { nom: "Android", jeton: "--android" },
+  socle:   { nom: "S",       jeton: "--socle"   }
+};
+
+/* Les etoiles sont les vrais logiciels de S, avec leurs vrais chiffres
+   et leur vrai etat de preuve. Rien n'est invente : l'etat vient du
+   carnet du projet, ou "pose" et "eprouve" ne se confondent jamais. */
+const ETOILES = [
+  { id:"s",       nom:"S",            monde:"socle",   r:11, etat:"eprouve",
+    fait:"L'image bootc elle-meme. 137 couches, 6,95 Go, publiee sur ghcr.io.",
+    preuve:"installee, demarree, mise a jour par bootc upgrade" },
+
+  { id:"vivaldi", nom:"Vivaldi",      monde:"linux",   r:7,  etat:"eprouve",
+    fait:"8.1.4087.68 &#183; /usr/lib/opt/vivaldi &#183; 438 Mo",
+    preuve:"lance sous le compte utilisateur" },
+  { id:"code",    nom:"VS Code",      monde:"linux",   r:7,  etat:"eprouve",
+    fait:"1.134.0 &#183; /usr/share/code &#183; 1,1 Go",
+    preuve:"lance &#183; extension Claude Code et pack francais poses" },
+  { id:"node",    nom:"Node.js",      monde:"linux",   r:5,  etat:"eprouve",
+    fait:"v24.18.0 &#183; /usr/bin &#183; npm 11.16.0",
+    preuve:"lance" },
+  { id:"claude",  nom:"Claude Code",  monde:"linux",   r:6,  etat:"eprouve",
+    fait:"2.1.228 &#183; /usr/bin/claude &#183; depot RPM signe",
+    preuve:"lance" },
+  { id:"gemini",  nom:"Gemini CLI",   monde:"linux",   r:5,  etat:"eprouve",
+    fait:"0.56.0 &#183; /usr/lib/node_modules &#183; 100 Mo",
+    preuve:"lance &#183; entre SANS verification de signature" },
+  { id:"antigr",  nom:"Antigravity",  monde:"linux",   r:6,  etat:"eprouve",
+    fait:"1.107.0 &#183; /usr/share/antigravity &#183; 682 Mo",
+    preuve:"lance &#183; entre SANS verification de signature" },
+  { id:"retro",   nom:"RetroArch",    monde:"linux",   r:6,  etat:"pose",
+    fait:"1.22.0 et 14 coeurs &#183; /usr/lib64/libretro",
+    preuve:"present dans l'image, jamais lance" },
+  { id:"zoom",    nom:"Zoom",         monde:"linux",   r:6,  etat:"pose",
+    fait:"/usr/lib/opt/zoom &#183; 918 Mo &#183; cle Zoom verifiee",
+    preuve:"present dans l'image, jamais lance" },
+
+  { id:"proton",  nom:"Proton",       monde:"windows", r:8,  etat:"eprouve",
+    fait:"UMU-Proton-10.0-4 &#183; archive pre-cuite de 468 Mo dans l'image",
+    preuve:"deplie et execute &#183; 3 min 02 au premier usage" },
+  { id:"cmd",     nom:"cmd.exe",      monde:"windows", r:5,  etat:"eprouve",
+    fait:"Un vrai binaire PE Windows, lance par la couture.",
+    preuve:"execute &#183; codes de sortie fideles, 0 puis 7" },
+  { id:"notepad", nom:"Notepad",      monde:"windows", r:5,  etat:"echoue",
+    fait:"Sort en 1 au banc, sans une ligne d'erreur de Wine.",
+    preuve:"echoue &#8212; rendu logiciel llvmpipe suspecte, a reprendre sur GPU" },
+  { id:"lineage", nom:"Lineage 2",    monde:"windows", r:7,  etat:"pose",
+    fait:"Moteur de 2003. GameGuard charge un pilote en anneau 0.",
+    preuve:"jamais lance &#183; serveurs officiels hors d'atteinte" },
+
+  { id:"waydroid",nom:"Waydroid",     monde:"android", r:8,  etat:"pose",
+    fait:"binder compile dans le noyau &#183; lanceur present &#183; image LineageOS",
+    preuve:"JAMAIS lance &#8212; le differenciateur du projet, non eprouve" },
+  { id:"fdroid",  nom:"F-Droid",      monde:"android", r:6,  etat:"pose",
+    fait:"/usr/share/s/apk &#183; 12,4 Mio &#183; empreinte GPG en dur",
+    preuve:"pose dans l'image, jamais installe" },
+  { id:"play",    nom:"Play Store",   monde:"android", r:6,  etat:"pose",
+    fait:"Vit dans l'image GAPPS. Exige un enregistrement humain, une fois.",
+    preuve:"jamais atteint" }
+];
+
+/* Les liens d'origine sont les COUTURES qui existent vraiment.
+   Ce dessin raconte donc l'etat reel du projet, pas une maquette. */
+const LIENS_ORIGINE = [
+  ["s","vivaldi"], ["s","code"], ["s","proton"], ["s","waydroid"],
+  ["proton","cmd"], ["proton","notepad"], ["proton","lineage"],
+  ["waydroid","fdroid"], ["waydroid","play"],
+  ["code","claude"], ["code","node"], ["node","gemini"],
+  ["s","retro"], ["s","zoom"], ["s","antigr"]
+];
+
+/* ── Etat ──────────────────────────────────────────────────────── */
+let noeuds = [], liens = [], sprites = new Map(), fond = null;
+let L = 0, H = 0, dpr = 1;
+let choisi = null, survole = null, saisi = null, saisiBouge = false;
+let nomsVisibles = false, images = 0, boucle = 0, dernier = 0;
+let pointeur = { x: -1e4, y: -1e4, actif: false };
+let pulsations = [];
+
+const REPOS_SEUIL = 0.018;   /* energie sous laquelle on cesse de peindre */
+let calmeDepuis = 0;
+
+/* ── Couleurs, relues au changement de monde visuel ────────────── */
+let COUL = {};
+function relireCouleurs() {
+  const s = getComputedStyle(document.documentElement);
+  COUL = {};
+  for (const k in MONDES) COUL[k] = s.getPropertyValue(MONDES[k].jeton).trim();
+  COUL.lien       = s.getPropertyValue("--lien").trim();
+  COUL.lienVif    = s.getPropertyValue("--lien-vif").trim();
+  COUL.fond       = s.getPropertyValue("--fond").trim();
+  COUL.etoiles    = s.getPropertyValue("--etoiles").trim();
+  COUL.filet      = s.getPropertyValue("--filet").trim();
+  COUL.encre      = s.getPropertyValue("--encre").trim();
+  COUL.encrePale  = s.getPropertyValue("--encre-pale").trim();
+  COUL.lueur      = parseFloat(s.getPropertyValue("--lueur")) || 0;
+  sprites.clear();
+  fond = null;
+}
+
+/* ── Sprites de lueur : dessines une fois, recopies ensuite ────── */
+function sprite(monde, rayon, etat) {
+  const cle = monde + "|" + rayon.toFixed(1) + "|" + etat;
+  if (sprites.has(cle)) return sprites.get(cle);
+
+  const halo = rayon * (etat === "eprouve" ? 5.2 : 2.6);
+  const taille = Math.ceil(halo * 2) + 4;
+  const c = document.createElement("canvas");
+  c.width = c.height = taille * dpr;
+  const g = c.getContext("2d");
+  g.scale(dpr, dpr);
+  const cx = taille / 2;
+  const teinte = COUL[monde] || COUL.socle;
+
+  if (COUL.lueur > 0.05 && etat === "eprouve") {
+    const deg = g.createRadialGradient(cx, cx, rayon * 0.4, cx, cx, halo);
+    deg.addColorStop(0,    avecAlpha(teinte, 0.55 * COUL.lueur));
+    deg.addColorStop(0.35, avecAlpha(teinte, 0.16 * COUL.lueur));
+    deg.addColorStop(1,    avecAlpha(teinte, 0));
+    g.fillStyle = deg;
+    g.beginPath(); g.arc(cx, cx, halo, 0, 6.2832); g.fill();
+  }
+
+  g.beginPath();
+  g.arc(cx, cx, rayon, 0, 6.2832);
+  if (etat === "eprouve") {
+    g.fillStyle = teinte; g.fill();
+    /* Le coeur clair : ce qui fait qu'une etoile a l'air d'une etoile. */
+    g.beginPath(); g.arc(cx - rayon * 0.16, cx - rayon * 0.16, rayon * 0.42, 0, 6.2832);
+    g.fillStyle = avecAlpha("#ffffff", COUL.lueur > 0.5 ? 0.55 : 0.0); g.fill();
+  } else {
+    g.strokeStyle = avecAlpha(teinte, 0.85);
+    g.lineWidth = 1.3;
+    g.stroke();
+    if (etat === "echoue") {
+      g.beginPath();
+      g.moveTo(cx - rayon * 0.75, cx); g.lineTo(cx + rayon * 0.75, cx);
+      g.stroke();
+    }
+  }
+
+  const s = { c, taille };
+  sprites.set(cle, s);
+  return s;
+}
+
+function avecAlpha(couleur, a) {
+  if (a <= 0) return "rgba(0,0,0,0)";
+  if (couleur.startsWith("#")) {
+    let h = couleur.slice(1);
+    if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+    const n = parseInt(h, 16);
+    return "rgba(" + ((n>>16)&255) + "," + ((n>>8)&255) + "," + (n&255) + "," + a + ")";
+  }
+  if (couleur.startsWith("rgb")) {
+    const p = couleur.match(/[\d.]+/g);
+    return "rgba(" + p[0] + "," + p[1] + "," + p[2] + "," + a + ")";
+  }
+  return couleur;
+}
+
+/* ── Le fond grave : champ d'etoiles + graticule ───────────────── */
+function graverFond() {
+  const c = document.createElement("canvas");
+  c.width = L * dpr; c.height = H * dpr;
+  const g = c.getContext("2d");
+  g.scale(dpr, dpr);
+
+  g.fillStyle = COUL.fond;
+  g.fillRect(0, 0, L, H);
+
+  /* La graticule d'un atlas celeste. Tres faible : on la devine. */
+  g.strokeStyle = COUL.filet;
+  g.lineWidth = 1;
+  const pas = 110;
+  g.beginPath();
+  for (let x = pas; x < L; x += pas) { g.moveTo(x + 0.5, 0); g.lineTo(x + 0.5, H); }
+  for (let y = pas; y < H; y += pas) { g.moveTo(0, y + 0.5); g.lineTo(L, y + 0.5); }
+  g.stroke();
+
+  /* Les etoiles lointaines : decor pur, aucune interaction.
+     Semees par un generateur deterministe pour que le ciel soit le
+     meme d'un lancement a l'autre — un ciel qui change tout seul
+     n'est pas un ciel, c'est du bruit. */
+  let graine = 20260821;
+  const alea = () => (graine = (graine * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const nb = Math.round((L * H) / 5200);
+  for (let i = 0; i < nb; i++) {
+    const x = alea() * L, y = alea() * H;
+    const t = alea();
+    const rr = t < 0.86 ? 0.55 : (t < 0.98 ? 0.95 : 1.5);
+    g.globalAlpha = 0.16 + alea() * 0.5;
+    g.fillStyle = COUL.etoiles;
+    g.beginPath(); g.arc(x, y, rr, 0, 6.2832); g.fill();
+  }
+  g.globalAlpha = 1;
+  fond = c;
+}
+
+/* ── Mise en place ─────────────────────────────────────────────── */
+function semer() {
+  const cx = L / 2, cy = H / 2;
+  const rayonBase = Math.min(L, H) * 0.31;
+  const parMonde = { linux: [], windows: [], android: [], socle: [] };
+  ETOILES.forEach(e => parMonde[e.monde].push(e));
+
+  /* Chaque monde occupe son secteur du ciel — un tiers chacun,
+     et le socle au centre. Ce n'est pas decoratif : la position
+     dit a quel monde appartient le logiciel, avant meme la couleur. */
+  const secteurs = { linux: -Math.PI / 2, windows: Math.PI / 6, android: Math.PI * 5 / 6 };
+
+  noeuds = ETOILES.map(e => {
+    let x, y;
+    if (e.monde === "socle") {
+      x = cx; y = cy;
+    } else {
+      const groupe = parMonde[e.monde];
+      const i = groupe.indexOf(e);
+      const etalement = 1.05;
+      const a = secteurs[e.monde] + (i / Math.max(1, groupe.length - 1) - 0.5) * etalement;
+      const d = rayonBase * (0.62 + 0.38 * ((i * 0.61803) % 1));
+      x = cx + Math.cos(a) * d;
+      y = cy + Math.sin(a) * d * 0.86;
+    }
+    return Object.assign({}, e, { x, y, vx: 0, vy: 0, ax: x, ay: y, eclat: 0 });
+  });
+
+  rendreLiensOrigine();
+}
+
+function noeud(id) { return noeuds.find(n => n.id === id); }
+
+function rendreLiensOrigine() {
+  liens = LIENS_ORIGINE
+    .map(([a, b]) => ({ a: noeud(a), b: noeud(b), ne: 0 }))
+    .filter(l => l.a && l.b);
+}
+
+/* ── Physique : un rappel doux vers la place d'origine, plus une
+      repulsion locale. Amortie fort, pour que ca SE POSE et que le
+      rendu puisse s'arreter. Un systeme qui ne converge jamais est un
+      systeme qui consomme pour toujours. ───────────────────────── */
+function avancer(dt) {
+  let energie = 0;
+  const n = noeuds.length;
+
+  for (let i = 0; i < n; i++) {
+    const a = noeuds[i];
+    if (a === saisi) continue;
+    a.vx += (a.ax - a.x) * 0.9 * dt;
+    a.vy += (a.ay - a.y) * 0.9 * dt;
+
+    for (let j = i + 1; j < n; j++) {
+      const b = noeuds[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d2 = dx * dx + dy * dy;
+      const min = (a.r + b.r) * 4.4;
+      if (d2 < min * min && d2 > 0.01) {
+        const d = Math.sqrt(d2);
+        const f = (min - d) / d * 2.6 * dt;
+        if (b !== saisi) { b.vx += dx * f; b.vy += dy * f; }
+        a.vx -= dx * f; a.vy -= dy * f;
+      }
+    }
+  }
+
+  for (const a of noeuds) {
+    if (a === saisi) { a.vx = a.vy = 0; continue; }
+    a.vx *= 0.86; a.vy *= 0.86;
+    a.x += a.vx * dt * 60; a.y += a.vy * dt * 60;
+    energie += a.vx * a.vx + a.vy * a.vy;
+  }
+
+  /* L'eclat suit le survol, en douceur. Il compte dans l'energie :
+     tant qu'une transition court, on continue de peindre. */
+  for (const a of noeuds) {
+    const vise = (a === survole || a === choisi) ? 1 : 0;
+    const d = vise - a.eclat;
+    if (Math.abs(d) > 0.002) { a.eclat += d * Math.min(1, dt * 9); energie += 0.05; }
+    else a.eclat = vise;
+  }
+
+  for (const l of liens) {
+    if (l.ne < 1) { l.ne = Math.min(1, l.ne + dt * 1.8); energie += 0.05; }
+  }
+  if (pulsations.length) energie += 0.05;
+
+  return energie;
+}
+
+/* ── Peinture ──────────────────────────────────────────────────── */
+function peindre(t, dt) {
+  if (!fond) graverFond();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.drawImage(fond, 0, 0, L, H);
+
+  /* Les liens d'abord : ils passent SOUS les etoiles. */
+  ctx.lineCap = "round";
+  for (const l of liens) {
+    const vif = (choisi && (l.a === choisi || l.b === choisi)) ||
+                (survole && (l.a === survole || l.b === survole));
+    ctx.strokeStyle = vif ? COUL.lienVif : COUL.lien;
+    ctx.lineWidth = vif ? 1.15 : 0.7;
+    ctx.globalAlpha = l.ne;
+    ctx.beginPath();
+    ctx.moveTo(l.a.x, l.a.y);
+    ctx.lineTo(l.b.x, l.b.y);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  /* Les pulsations : une onde parcourt un lien qui vient de naitre. */
+  for (let i = pulsations.length - 1; i >= 0; i--) {
+    const p = pulsations[i];
+    p.t += dt * 1.35;
+    if (p.t >= 1) { pulsations.splice(i, 1); continue; }
+    const x = p.a.x + (p.b.x - p.a.x) * p.t;
+    const y = p.a.y + (p.b.y - p.a.y) * p.t;
+    ctx.globalAlpha = Math.sin(p.t * Math.PI) * 0.9;
+    ctx.fillStyle = COUL.lienVif;
+    ctx.beginPath(); ctx.arc(x, y, 2.1, 0, 6.2832); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  /* Le cercle de selection. */
+  if (choisi) {
+    ctx.strokeStyle = avecAlpha(COUL[choisi.monde], 0.9);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(choisi.x, choisi.y, choisi.r + 8 + Math.sin(t * 0.004) * 1.6, 0, 6.2832);
+    ctx.stroke();
+  }
+
+  /* Les etoiles. */
+  for (const a of noeuds) {
+    const s = sprite(a.monde, a.r, a.etat);
+    const d = s.taille;
+    ctx.drawImage(s.c, a.x - d / 2, a.y - d / 2, d, d);
+  }
+
+  /* Les noms. Toujours pour le socle, sinon au survol ou sur demande. */
+  ctx.font = '500 11.5px "IBM Plex Sans", system-ui, sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  for (const a of noeuds) {
+    const op = nomsVisibles ? Math.max(0.42, a.eclat) : a.eclat;
+    if (op < 0.02) continue;
+    ctx.globalAlpha = op;
+    ctx.fillStyle = a.eclat > 0.5 ? COUL.encre : COUL.encrePale;
+    ctx.fillText(a.nom, a.x, a.y + a.r + 7);
+  }
+  ctx.globalAlpha = 1;
+
+  images++;
+}
+
+/* ── La boucle, et surtout son ARRET ───────────────────────────── */
+function image(t) {
+  const dt = Math.min(0.05, (t - dernier) / 1000) || 0.016;
+  dernier = t;
+
+  const energie = avancer(dt);
+  peindre(t, dt);
+  majCompteurs();
+
+  if (energie < REPOS_SEUIL && !saisi && !pointeur.actif) {
+    if (!calmeDepuis) calmeDepuis = t;
+    if (t - calmeDepuis > 320) { dormir(); return; }
+  } else {
+    calmeDepuis = 0;
+  }
+  boucle = requestAnimationFrame(image);
+}
+
+function reveiller() {
+  calmeDepuis = 0;
+  if (boucle) return;
+  dernier = performance.now();
+  document.getElementById("pastille").classList.add("actif");
+  document.getElementById("mot-etat").textContent = "en mouvement";
+  boucle = requestAnimationFrame(image);
+}
+
+function dormir() {
+  cancelAnimationFrame(boucle);
+  boucle = 0;
+  document.getElementById("pastille").classList.remove("actif");
+  document.getElementById("mot-etat").textContent = "au repos";
+  majCompteurs();
+}
+
+function majCompteurs() {
+  document.getElementById("n-etoiles").textContent   = noeuds.length;
+  document.getElementById("n-eprouvees").textContent = noeuds.filter(n => n.etat === "eprouve").length;
+  document.getElementById("n-liens").textContent     = liens.length;
+  document.getElementById("n-images").textContent    = images;
+}
+
+/* ── Geometrie ─────────────────────────────────────────────────── */
+function redimensionner() {
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  L = window.innerWidth; H = window.innerHeight;
+  cv.width = L * dpr; cv.height = H * dpr;
+  cv.style.width = L + "px"; cv.style.height = H + "px";
+  sprites.clear();
+  fond = null;
+  if (!noeuds.length) semer(); else recentrer();
+  reveiller();
+}
+
+function recentrer() {
+  const cx = L / 2, cy = H / 2;
+  const anciens = noeuds.map(n => ({ id: n.id, x: n.x, y: n.y }));
+  const memoire = new Map(anciens.map(a => [a.id, a]));
+  semer();
+  for (const n of noeuds) {
+    const a = memoire.get(n.id);
+    if (a) { n.x = a.x; n.y = a.y; }
+  }
+}
+
+function sous(x, y) {
+  let meilleur = null, dmin = 1e9;
+  for (const n of noeuds) {
+    const d = Math.hypot(n.x - x, n.y - y);
+    if (d < Math.max(16, n.r + 11) && d < dmin) { dmin = d; meilleur = n; }
+  }
+  return meilleur;
+}
+
+function lienSous(x, y) {
+  for (const l of liens) {
+    const dx = l.b.x - l.a.x, dy = l.b.y - l.a.y;
+    const long2 = dx * dx + dy * dy;
+    if (long2 < 1) continue;
+    let u = ((x - l.a.x) * dx + (y - l.a.y) * dy) / long2;
+    u = Math.max(0, Math.min(1, u));
+    const px = l.a.x + u * dx, py = l.a.y + u * dy;
+    if (Math.hypot(px - x, py - y) < 6) return l;
+  }
+  return null;
+}
+
+/* ── Interaction ───────────────────────────────────────────────── */
+const fiche = document.getElementById("fiche");
+
+function montrerFiche(n, x, y) {
+  fiche.querySelector(".nom-app").textContent = n.nom;
+  const m = fiche.querySelector(".monde");
+  m.textContent = MONDES[n.monde].nom;
+  m.style.color = "var(" + MONDES[n.monde].jeton + ")";
+  fiche.querySelector(".fait").innerHTML = n.fait;
+  fiche.querySelector(".preuve").innerHTML =
+    (n.etat === "eprouve" ? "&#10003; " : n.etat === "echoue" ? "&#10007; " : "&#9675; ") + n.preuve;
+  fiche.classList.add("visible");
+  const b = fiche.getBoundingClientRect();
+  let fx = x + 20, fy = y + 16;
+  if (fx + b.width  > L - 12) fx = x - b.width - 20;
+  if (fy + b.height > H - 12) fy = y - b.height - 16;
+  fiche.style.left = Math.max(12, fx) + "px";
+  fiche.style.top  = Math.max(12, fy) + "px";
+}
+function cacherFiche() { fiche.classList.remove("visible"); }
+
+let minuteurMsg = 0;
+function dire(txt) {
+  const m = document.getElementById("message");
+  m.textContent = txt;
+  m.classList.add("visible");
+  clearTimeout(minuteurMsg);
+  minuteurMsg = setTimeout(() => m.classList.remove("visible"), 2100);
+}
+
+cv.addEventListener("pointermove", e => {
+  pointeur.x = e.clientX; pointeur.y = e.clientY;
+  if (saisi) {
+    saisi.x = e.clientX; saisi.y = e.clientY;
+    saisi.ax = e.clientX; saisi.ay = e.clientY;
+    saisiBouge = true;
+    reveiller();
+    return;
+  }
+  const n = sous(e.clientX, e.clientY);
+  if (n !== survole) {
+    survole = n;
+    cv.classList.toggle("survole", !!n || !!lienSous(e.clientX, e.clientY));
+    if (n) montrerFiche(n, e.clientX, e.clientY); else cacherFiche();
+    reveiller();
+  } else if (n) {
+    montrerFiche(n, e.clientX, e.clientY);
+  } else {
+    cv.classList.toggle("survole", !!lienSous(e.clientX, e.clientY));
+  }
+});
+
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId);
+  pointeur.actif = true;
+  const n = sous(e.clientX, e.clientY);
+  if (n) { saisi = n; saisiBouge = false; cv.classList.add("saisit"); }
+  reveiller();
+});
+
+cv.addEventListener("pointerup", e => {
+  pointeur.actif = false;
+  cv.classList.remove("saisit");
+  const n = saisi;
+  saisi = null;
+
+  if (n && saisiBouge) { reveiller(); return; }   /* c'etait un deplacement */
+
+  if (n) {
+    if (choisi === n) { choisi = null; dire("choix annule"); }
+    else if (choisi) {
+      const deja = liens.find(l => (l.a === choisi && l.b === n) || (l.a === n && l.b === choisi));
+      if (deja) { dire("ce lien existe deja"); }
+      else {
+        liens.push({ a: choisi, b: n, ne: 0 });
+        pulsations.push({ a: choisi, b: n, t: 0 });
+        dire(choisi.nom + " — " + n.nom + "  lies");
+      }
+      choisi = null;
+    } else {
+      choisi = n;
+      dire(n.nom + "  —  choisir une seconde etoile");
+    }
+  } else {
+    const l = lienSous(e.clientX, e.clientY);
+    if (l) {
+      liens.splice(liens.indexOf(l), 1);
+      dire("lien efface");
+    } else if (choisi) {
+      choisi = null; dire("choix annule");
+    }
+  }
+  reveiller();
+});
+
+cv.addEventListener("pointerleave", () => {
+  survole = null; pointeur.actif = false; cacherFiche(); reveiller();
+});
+
+addEventListener("keydown", e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "t") {
+    const r = document.documentElement;
+    const sombreActuel = !r.getAttribute("data-theme")
+      ? !matchMedia("(prefers-color-scheme: light)").matches
+      : r.getAttribute("data-theme") === "dark";
+    r.setAttribute("data-theme", sombreActuel ? "light" : "dark");
+    relireCouleurs();
+    dire(sombreActuel ? "atlas — encre sur papier" : "nuit — le ciel");
+    reveiller();
+  } else if (k === "n") {
+    nomsVisibles = !nomsVisibles;
+    dire(nomsVisibles ? "noms toujours visibles" : "noms au survol seulement");
+    reveiller();
+  } else if (k === "r") {
+    rendreLiensOrigine();
+    choisi = null;
+    dire("liens d'origine rendus — les coutures reelles de S");
+    reveiller();
+  } else if (k === "c") {
+    for (const n of noeuds) { n.x += (n.ax - n.x) * 0.001; }
+    semer(); dire("ciel recentre"); reveiller();
+  } else if (k === "f") {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(() => dire("plein ecran refuse par le navigateur"));
+  } else if (k === "escape") {
+    choisi = null; dire("choix annule"); reveiller();
+  }
+});
+
+addEventListener("resize", redimensionner);
+matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+  relireCouleurs(); reveiller();
+});
+
+/* ── Depart ────────────────────────────────────────────────────── */
+function partir() {
+  relireCouleurs();
+  redimensionner();
+  setTimeout(() => dire("clic sur deux etoiles pour les lier"), 900);
+}
+
+if (document.fonts && document.fonts.ready) {
+  document.fonts.ready.then(partir);
+} else {
+  partir();
+}
+</script>
