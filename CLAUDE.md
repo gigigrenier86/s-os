@@ -1475,10 +1475,22 @@ physique depuis Windows.
    carnet de PC Boost, et je l'ai quand même commis. **Les scripts de banc s'écrivent en
    ASCII strict**, et un contrôle `ParseFile` avant lancement coûte une seconde.
 3. **Windows refuse de mettre un média amovible hors ligne** — « Removable media cannot
-   be set to offline ». Ce n'est pas grave : ce qui verrouille le disque physique n'est
-   pas le disque mais le **volume monté** dessus. Retirer la lettre par
-   `Remove-PartitionAccessPath` suffit, et laisse `bootc` écrire lui-même la table depuis
-   l'intérieur — là où il sait ce qu'il fait.
+   be set to offline ». Ce qui verrouille le disque physique n'est pas le disque mais le
+   **volume monté** dessus — et **retirer la lettre ne le démonte pas** : cela enlève le
+   point de montage, pas le montage. Mesuré le 2026-08-20, QEMU tenant déjà le disque
+   ouvert : `mountvol` annonçait « Aucun point de montage » tandis que `Get-Volume`
+   rendait encore un exFAT sain de 61 519 953 920 octets avec son espace libre vivant.
+   Windows refuse alors toute écriture par handle de disque sur les secteurs de la
+   partition, et QEMU n'émet ni `FSCTL_LOCK_VOLUME` ni `FSCTL_DISMOUNT_VOLUME`.
+   Il faut **supprimer la partition** : sans volume, le disque redevient inscriptible de
+   bout en bout, et `bootc` écrit lui-même la table depuis l'intérieur.
+
+   **Ce défaut aurait été le pire de la série**, parce qu'il échoue à moitié : la table
+   de partition, elle, se serait écrite — secteurs 0 à 2047, hors partition, donc
+   autorisés — puis l'écriture de l'ESP aurait été refusée. Après le téléchargement, et
+   en laissant la clé sans table **et** sans système. Windows l'aurait annoncée « non
+   initialisée ». D'où la sonde d'écriture de `poser-sur-cle.sh`, qui réécrit à
+   l'identique le secteur 2048 et le dernier **avant** d'engager quoi que ce soit.
 4. **L'accès brut à un disque physique exige l'élévation.** Sans elle, QEMU rend
    « Could not open device: Permission denied » — mais **trois étapes trop tard**, la clé
    ayant déjà été démontée. Le contrôle d'élévation est passé en tête du script : un refus
@@ -1506,3 +1518,51 @@ l'écriture est un geste de l'utilisateur, pas du mien.
 3. **Waydroid tourne-t-il**, et donc le Play Store. C'est la seule chose qui demandait
    exactement ce qui manquait au banc : un vrai GPU. Mesuré au banc, Steam tourne sur
    `llvmpipe`, du rendu logiciel.
+
+### La relecture croisée qui a évité le troisième essai — 2026-08-20, 22 h
+
+Après deux tentatives échouées, la chaîne entière a été soumise à quatre examens
+parallèles — les scripts, l'invocation de `bootc`, l'amorçage sur la M720q,
+l'environnement — chacun suivi d'un sceptique chargé de **démolir** ce qu'il trouvait.
+**17 défauts avancés, 5 confirmés, 12 réfutés.** Le taux de réfutation est le résultat le
+plus utile : sans cette seconde passe, douze corrections plausibles et fausses seraient
+entrées dans le dépôt. Parmi les réfutées, quatre visaient le garde-fou « la cible porte
+la racine » — l'argument, séduisant, était qu'une racine `composefs` ne rend jamais un nom
+de périphérique ; il ne tenait pas.
+
+**Deux bloquants, tous deux mesurés :**
+
+- **Le volume Windows, resté monté** — détaillé au mur 3 ci-dessus.
+- **La place manquante, et l'échec était déjà au journal du projet.**
+  `S-vm/bootc-install.log` porte, ligne 2 : « no space left on device », sur la **même
+  image**, à la couche 84 sur 137. Le `pull` paie deux fois sur le même système de
+  fichiers — ~7 Gio de blobs compressés dans `$TMPDIR` pendant tout le dépôt, puis les
+  couches décompressées dans le magasin, dont le déploiement aplati de 16 Gio est le
+  plancher. Pic entre 23 et 26,5 Gio ; il y avait 22,9 Gio. Le script n'appelait `df`
+  nulle part.
+
+  Libéré ce soir : `ostree admin undeploy` + `rpm-ostree cleanup` ont rendu **3,15 Gio**
+  (dont un dossier de déploiement orphelin, présent sur disque et absent d'`ostree admin
+  status`), et le résidu du test des coutures — Steam et le magasin podman de l'essai
+  `.deb` — **3,66 Gio** de plus. De 22,9 à **29,4 Gio**.
+
+**Trois majeurs, tous dans la fiche remise à l'utilisateur** — c'est-à-dire dans le seul
+document qu'il aura sous les yeux au moment où je ne verrai rien :
+
+- **Le premier démarrage redémarre la machine au bout de 2 min 38 s**, à dessein
+  (`bazzite-hardware-setup` pose `bluetooth.disable_ertm=1` puis redémarre). Or **F12 est
+  un choix ponctuel, déjà consommé** : la machine repart sur Windows. L'utilisateur aurait
+  vu deux minutes d'écran figé puis Windows, et conclu que la clé ne démarre pas — alors
+  que S avait parfaitement démarré et n'attendait qu'un second F12.
+- **Secure Boot est déjà désactivé** sur cette machine (`UEFISecureBootEnabled = 0`,
+  confirmé par msinfo32). La fiche demandait de le vérifier et décrivait un symptôme
+  — « Secure Boot violation » — qui **ne peut pas se produire ici** : shim et GRUB sont
+  signés par Fedora et passent ; c'est le noyau, signé `O=Universal Blue`, qui serait
+  refusé, deux étages plus loin et sans ce message.
+- **« La clé n'apparaît pas dans F12 » n'est jamais Secure Boot** : il vérifie les
+  signatures au chargement, pas à l'énumération — il ne masque pas un périphérique.
+
+**Ce que ça dit de la méthode.** Les deux bloquants étaient invisibles à la relecture :
+l'un se voyait en interrogeant Windows pendant que QEMU tenait le disque, l'autre en
+lisant un journal vieux de quinze heures dans le dossier du banc. Aucun n'aurait été
+trouvé en relisant le code.

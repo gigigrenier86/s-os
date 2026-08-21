@@ -38,17 +38,35 @@ $r = Read-Host "Taper exactement : EFFACER DISQUE 1"
 if ($r -ne 'EFFACER DISQUE 1') { throw "Annule." }
 
 # --- Liberer le disque -----------------------------------------------------
-# Windows refuse de mettre un media amovible hors ligne : "Removable media
-# cannot be set to offline". Ce n'est pas grave, parce que ce qui verrouille
-# le disque physique, c'est le VOLUME monte dessus. Retirer sa lettre suffit
-# a le demonter, et QEMU peut alors ouvrir le disque en ecriture.
+# Windows refuse de mettre un media amovible hors ligne ("Removable media cannot
+# be set to offline"). Ce qui verrouille le disque physique est le VOLUME monte
+# dessus -- et RETIRER LA LETTRE NE LE DEMONTE PAS : cela enleve le point de
+# montage, pas le montage. Mesure le 2026-08-20, QEMU tenant deja le disque
+# ouvert : Get-Volume rendait encore un exFAT sain de 61 519 953 920 octets avec
+# son espace libre vivant, alors que mountvol annoncait "Aucun point de montage".
+#
+# Or Windows refuse toute ecriture par handle de DISQUE sur des secteurs couverts
+# par un volume monte, et QEMU n'emet ni FSCTL_LOCK_VOLUME ni FSCTL_DISMOUNT_VOLUME.
+# La partition allant de l'offset 1 Mio jusqu'au dernier octet, tout sauf les 2048
+# premiers secteurs aurait ete refuse : bootc aurait ecrit la table de partition
+# (autorisee, hors volume) puis serait mort en erreur d'E/S sur l'ESP -- apres le
+# telechargement, et en laissant la cle sans table et sans systeme.
+#
+# Supprimer la partition supprime le volume. Sans volume monte, le disque
+# redevient ecrivable de bout en bout.
 Get-Partition -DiskNumber 1 -ErrorAction SilentlyContinue |
-    Where-Object DriveLetter |
-    ForEach-Object {
-        $lettre = "$($_.DriveLetter):"
-        Remove-PartitionAccessPath -DiskNumber 1 -PartitionNumber $_.PartitionNumber -AccessPath "$lettre\"
-        Write-Host "Volume $lettre demonte." -ForegroundColor Green
-    }
+    Remove-Partition -Confirm:$false
+
+# On verifie le VOLUME, pas le nombre de partitions : c'est le volume monte qui
+# bloque, le compte de partitions n'en est qu'un indice.
+$restantes = @(Get-Partition -DiskNumber 1 -ErrorAction SilentlyContinue).Count
+if ($restantes -ne 0) { throw "REFUS : $restantes partition(s) subsistent sur le disque 1." }
+
+$vol = @(Get-Disk -Number 1 | Get-Partition -ErrorAction SilentlyContinue |
+         Get-Volume -ErrorAction SilentlyContinue)
+if ($vol.Count -ne 0) { throw "REFUS : un volume est encore monte sur le disque 1." }
+
+Write-Host "Disque 1 sans volume monte : ecriture brute autorisee." -ForegroundColor Green
 
 # --- La VM, avec la cle en second disque ----------------------------------
 # bootc ecrira lui-meme la table de partition depuis l'interieur : rien n'a

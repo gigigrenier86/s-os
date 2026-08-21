@@ -11,12 +11,35 @@ Support : SanDisk 3.2Gen1 de 57,3 Go.
 ## Avant de redémarrer
 
 1. Éteindre la machine virtuelle, sinon la clé lui appartient encore.
-2. **Débrancher puis rebrancher la clé** — Windows lui a retiré sa lettre, et le
-   firmware doit la redécouvrir.
+2. **Débrancher puis rebrancher la clé** — Windows lui a supprimé sa partition, et
+   le firmware doit la redécouvrir.
 3. Redémarrer, et appuyer sur **F12** dès l'écran Lenovo.
 
 > **F12 est un choix ponctuel.** Il ne modifie pas l'ordre de démarrage. Sans clé
 > branchée, la machine repart sur Windows comme d'habitude.
+
+4. **Le premier démarrage redémarre la machine tout seul, au bout d'environ deux
+   minutes et demie. C'est voulu, ça n'arrive qu'une fois — et il faut refaire F12.**
+
+> `bazzite-hardware-setup` ne tourne qu'au **premier** démarrage d'une installation
+> neuve : il ajoute l'argument noyau `bluetooth.disable_ertm=1`, met le changement en
+> attente, puis redémarre pour l'appliquer. Mesuré sur cette même image en machine
+> virtuelle : **2 min 38 s** entre le noyau et le redémarrage, dont 1 min 51 s pour le
+> service seul. Il se place `Before=systemd-user-sessions`, donc **aucun écran de
+> connexion n'apparaît pendant ce temps** — l'écran semble figé, et il ne l'est pas.
+>
+> Comme F12 est un choix ponctuel déjà consommé, ce redémarrage **repart sur Windows**
+> si tu ne fais rien. Ce n'est pas un échec : c'est le moment d'appuyer sur F12 une
+> seconde fois et de rechoisir la clé.
+
+> **Secure Boot est déjà désactivé sur cette machine** — relevé le 2026-08-20 par deux
+> sources : `UEFISecureBootEnabled = 0` dans le registre, et msinfo32 (LENOVO
+> 10T7002CUS, BIOS M1UKT77A, mode UEFI). **Rien à régler dans le BIOS avant ce test.**
+> Ne pas le réactiver, et se méfier d'un « Load Optimized Defaults » : le noyau de
+> Bazzite est signé par un certificat `O=Universal Blue`, pas par Fedora, et
+> `bootc install --generic-image` n'inscrit aucune clé. L'enrôlement
+> (`ujust enroll-secure-boot-key`) se fait depuis un système **déjà démarré** — donc
+> trop tard.
 
 ---
 
@@ -64,10 +87,12 @@ s'arrête :
 
 | Symptôme | Ce que ça dit |
 |---|---|
-| La clé n'apparaît pas dans F12 | l'ESP n'a pas été écrite, ou Secure Boot refuse |
-| « Secure Boot violation » | à désactiver dans le BIOS — noter le message exact |
+| La clé n'apparaît pas dans F12 | la machine virtuelle tourne encore et garde la clé · la clé n'a pas été débranchée puis rebranchée · l'ESP n'a pas été écrite · le démarrage USB est désactivé dans le BIOS. **Ce n'est jamais Secure Boot** : il vérifie les signatures au chargement, pas à l'énumération — il ne masque pas un périphérique |
+| La clé apparaît, mais seulement en entrée héritée | prendre l'UEFI ; s'il n'y a pas d'entrée UEFI, c'est l'ESP qui n'a pas été écrite |
+| GRUB s'affiche, puis le choix rend une erreur de signature et retombe sur le menu | Secure Boot a été réactivé. shim et GRUB sont signés par Fedora et passent ; le noyau est signé par Universal Blue et non — le refus tombe deux étages plus loin, et **aucun message « Secure Boot violation » n'apparaît**. Le désactiver : **F1** au démarrage, *Security > Secure Boot > Disabled*, **F10**. Mesuré le 2026-08-20 : il est déjà désactivé, donc cette ligne ne devrait pas se produire |
 | Texte qui défile puis arrêt | un pilote manque : **photographier l'écran** |
 | Écran noir après le texte | c'est l'affichage, pas le démarrage |
+| Deux minutes d'écran figé, puis un redémarrage vers Windows | **normal au premier démarrage** — refaire F12, voir le point 4 |
 
 **Une photo de l'écran vaut mieux qu'une description**, surtout pour du texte d'erreur.
 
