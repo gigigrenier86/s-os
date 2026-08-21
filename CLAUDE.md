@@ -1639,3 +1639,44 @@ Sept choses, et chacune était une inconnue :
 Le matériel réel. Un firmware virtuel qui trouve la clé ne dit rien du contrôleur USB de la
 M720q, ni de son iGPU, ni du débit d'une vraie mémoire flash — qui sera **plus lent** que
 les 16 Mio/s du disque virtuel.
+
+### Le second démarrage arrive à l'assistant de création de compte
+
+**La chaîne est éprouvée de bout en bout**, et les deux captures sont versionnées :
+
+| Capture | Ce qu'elle prouve |
+|---|---|
+| `cle-demarrage-console.png` | le premier démarrage, jusqu'à `greenboot-success` |
+| `cle-ecran-accueil.png` | le second : **« Welcome to Plasma Desktop », bouton *Begin Setup*** |
+
+C'est précisément l'écran que verra l'utilisateur. L'assistant `plasma-setup` s'ouvre et
+demande la création du compte — comportement voulu, puisque aucun mot de passe n'entre dans
+une image publique.
+
+**Le rendu est graphique alors que le banc n'a aucune accélération 3D.** Plasma tombe sur
+`llvmpipe`, le rendu logiciel de Mesa, et l'assistant s'affiche quand même. Cela ne dit
+rien de la fluidité sur matériel réel, mais cela écarte définitivement la crainte d'un
+« écran noir » — laquelle avait déjà été une fausse alerte le 2026-08-20.
+
+### Le redémarrage automatique, vu et chronométré
+
+`bazzite-hardware-setup` a déclenché son redémarrage à **142,3 s d'uptime**, soit 2 min 22 s
+— cohérent avec les 2 min 38 s mesurés en machine virtuelle la veille. La fiche donne donc
+une fourchette plutôt qu'un chiffre.
+
+**Et le redémarrage à chaud n'est jamais reparti**, l'écran restant figé treize minutes sur
+`systemd-shutdown`. Ce n'est pas un défaut de S : c'est la limite du banc déjà consignée
+plus haut — *le redémarrage à chaud de QEMU ne repart jamais, le démarrage à froid marche
+toujours*. Un arrêt forcé suivi d'un démarrage à froid a rendu l'écran d'accueil en 100 s.
+Sur matériel réel, F12 rejoue exactement ce démarrage à froid.
+
+### Une réserve levée, et une corrigée
+
+- **Aucune entrée ne sera ajoutée au BIOS.** `--generic-image` déclare *« Changes to the
+  system firmware will be skipped »*, et la clé a bien démarré par le chemin de repli
+  `\EFI\BOOT\BOOTX64.EFI`. La réserve annoncée à l'utilisateur est donc **fausse** et a été
+  retirée de la fiche.
+- **`plymouthd` empêche le démontage propre de la racine** au redémarrage — « Failed to
+  unmount /sysroot: Device or resource busy », puis « Unable to finalize remaining file
+  systems, ignoring ». C'est bruyant et sans conséquence ici, le système redémarrant juste
+  après. À surveiller si un arrêt propre devenait nécessaire.

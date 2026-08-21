@@ -18,15 +18,16 @@ Support : SanDisk 3.2Gen1 de 57,3 Go.
 > **F12 est un choix ponctuel.** Il ne modifie pas l'ordre de démarrage. Sans clé
 > branchée, la machine repart sur Windows comme d'habitude.
 
-4. **Le premier démarrage redémarre la machine tout seul, au bout d'environ deux
-   minutes et demie. C'est voulu, ça n'arrive qu'une fois — et il faut refaire F12.**
+4. **Le premier démarrage redémarre la machine tout seul, au bout de deux à trois
+   minutes. C'est voulu, ça n'arrive qu'une fois — et il faut refaire F12.**
 
 > `bazzite-hardware-setup` ne tourne qu'au **premier** démarrage d'une installation
 > neuve : il ajoute l'argument noyau `bluetooth.disable_ertm=1`, met le changement en
 > attente, puis redémarre pour l'appliquer. Mesuré sur cette même image en machine
-> virtuelle : **2 min 38 s** entre le noyau et le redémarrage, dont 1 min 51 s pour le
-> service seul. Il se place `Before=systemd-user-sessions`, donc **aucun écran de
-> connexion n'apparaît pendant ce temps** — l'écran semble figé, et il ne l'est pas.
+> virtuelle : **2 min 38 s** entre le noyau et le redémarrage ; **2 min 22 s** mesuré la
+> nuit suivante sur la clé elle-même. Il se place `Before=systemd-user-sessions`, donc
+> **aucun écran de connexion n'apparaît pendant ce temps** — l'écran semble figé, et il
+> ne l'est pas.
 >
 > Comme F12 est un choix ponctuel déjà consommé, ce redémarrage **repart sur Windows**
 > si tu ne fais rien. Ce n'est pas un échec : c'est le moment d'appuyer sur F12 une
@@ -104,5 +105,8 @@ Le Windows du disque interne n'est pas touché. Il n'a jamais été présenté �
 virtuelle qui a écrit la clé, et `bootc install` n'a écrit que sur `/dev/vdb`. Débrancher
 la clé et redémarrer ramène tout en l'état.
 
-Seule réserve : le firmware **peut** ajouter une entrée de démarrage pour la clé dans sa
-mémoire. Elle se supprime dans le BIOS, et n'empêche pas Windows de démarrer.
+Et la réserve que j'annonçais sur une entrée ajoutée au BIOS **est levée** :
+`bootc install --generic-image` déclare explicitement *« Changes to the system firmware
+will be skipped »*. Aucune variable de firmware n'est écrite. La clé reste trouvable par
+F12 via le chemin de repli `\EFI\BOOT\BOOTX64.EFI`, que tout firmware cherche sur un
+amovible — c'est d'ailleurs par là qu'elle a démarré au banc cette nuit.

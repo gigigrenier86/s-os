@@ -53,7 +53,7 @@ Ces quatre lignes sont les garde-fous. **Si l'une échoue, le script s'arrête s
 
 ### Le piège qui te ferait conclure à tort
 
-**Le premier démarrage redémarre la machine tout seul, au bout d'environ 2 min 38 s.**
+**Le premier démarrage redémarre la machine tout seul, au bout de 2 min 20 s a 2 min 40 s.**
 C'est `bazzite-hardware-setup` : il pose un argument noyau puis redémarre pour l'appliquer.
 Pendant ce temps l'écran affiche `Preparing System - Please wait` et **semble figé**.
 
