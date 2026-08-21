@@ -1566,3 +1566,76 @@ document qu'il aura sous les yeux au moment où je ne verrai rien :
 l'un se voyait en interrogeant Windows pendant que QEMU tenait le disque, l'autre en
 lisant un journal vieux de quinze heures dans le dossier du banc. Aucun n'aurait été
 trouvé en relisant le code.
+
+## 2026-08-21, 01 h 40 — S démarre depuis une clé, et le blocage est expliqué
+
+**Le jalon 3 est franchi sur banc.** Une clé virtuelle a reçu S, et **S a démarré dessus**,
+seul, en UEFI, sans aucun autre disque attaché. Capture à l'appui : `cle-boot-1.png`.
+
+### Le banc qui a permis tout ça
+
+Écrire sur la vraie clé exige l'élévation — accès brut à un disque physique — donc
+immobilise l'utilisateur et interdit le travail de nuit. La parade est celle du banc VHD de
+PC Boost : **un `qcow2` de 61 524 148 224 octets, l'octet près**. Le garde-fou de taille de
+`poser-sur-cle.sh` le laisse passer sans aucune modification, si bien que **c'est exactement
+le même chemin de code** qui est exercé — sonde d'écriture et contrôle de place compris.
+
+Ce qu'il ne prouve pas : le débit réel de la mémoire flash et le comportement du contrôleur
+USB. Il prouve tout le reste.
+
+### Le blocage de la veille, expliqué et corrigé
+
+**Le zram**, comme supposé — mais le correctif d'abord écrit était faux, et seul le banc
+l'a montré.
+
+- **L'unité à arrêter est `dev-zram0.swap`, pas `systemd-zram-setup@zram0.service`.**
+  `swapoff -a` désactive le swap une seconde, puis **systemd le réactive** : l'unité `.swap`
+  reste active et il la remet en service.
+- **Un contrôle pris trop tôt ment.** Le script affichait fièrement « swap 0 Mio » juste
+  après le `swapoff`, et `swapon --show` rendait de nouveau `/dev/zram0` trois minutes plus
+  tard. La vérification se fait désormais **après un délai**, et le script prévient si un
+  swap subsiste au lieu de continuer en silence.
+
+### Le chiffre qui change les prévisions
+
+**L'installation écrit 20,2 Gio, pas 7,5.** Le « layers needed: 137 (7.5 GB) » de `bootc`
+est le volume des couches à **transférer** ; l'arborescence déployée pèse près du triple.
+
+Conséquence rétrospective : la tentative bloquée s'était arrêtée à **6,99 Gio, soit un tiers
+du chemin** — et non « presque au bout », comme je l'avais cru et dit. J'ai lu 6,99 contre
+7,5 comme une quasi-réussite ; c'était une lecture fausse, faute d'avoir compris ce que
+mesurait le 7,5.
+
+### Ce qui a été mesuré
+
+| | |
+|---|---|
+| Durée de l'écriture | **21 minutes** (01:15 → 01:36), disque virtuel |
+| Volume écrit | 20 717 Mio |
+| Occupation réelle du `qcow2` | 16,7 Gio |
+| Système de fichiers | **ext4**, `mkfs.ext4 -O verity` |
+| Structure | BIOS boot 1 Mio · ESP FAT32 512 Mio · racine ext4 56,8 Gio |
+| Débit moyen | ~16 Mio/s sur disque virtuel |
+
+### Ce que la capture de démarrage prouve
+
+Sept choses, et chacune était une inconnue :
+
+1. **Le firmware trouve la clé et lui passe la main** — l'ESP et le chargeur sont corrects.
+2. **`EXT4-fs (vda3): re-mounted`** — la racine ext4 monte ; le changement de système de
+   fichiers depuis btrfs ne casse rien.
+3. **`Reached target boot-complete.target`** puis **`greenboot-success.target`** — le
+   contrôle de santé au démarrage de Bazzite passe. **Le système se déclare sain lui-même.**
+4. Réseau en ligne, NetworkManager démarré.
+5. `ostree-finalize-staged.service` terminé — le déploiement est propre.
+6. **`bazzite-hardware-setup.service/start running (57s / 15min 25s)`** — le service dont la
+   fiche annonce le redémarrage automatique. Les « 15min 25s » confirment au passage que
+   l'`override` `TimeoutStartSec=900` posé par `10-base.sh` est bien en vigueur.
+7. `--generic-image` n'a rien cassé : les deux chargeurs sont installés et aucune variable
+   de firmware n'a été touchée.
+
+### Ce qui reste inconnu
+
+Le matériel réel. Un firmware virtuel qui trouve la clé ne dit rien du contrôleur USB de la
+M720q, ni de son iGPU, ni du débit d'une vraie mémoire flash — qui sera **plus lent** que
+les 16 Mio/s du disque virtuel.

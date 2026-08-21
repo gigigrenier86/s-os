@@ -137,9 +137,25 @@ echo
 # echec rapide et lisible vaut mieux qu'un blocage d'une demi-heure.
 echo "=== Memoire ==="
 echo "  avant  : $(free -m | awk '/^Mem:/ {print $7}') Mio disponibles, swap $(free -m | awk '/^Swap:/ {print $2}') Mio"
+
+# L'unite a arreter est « dev-zram0.swap », PAS « systemd-zram-setup@zram0 ».
+# Mesure du 2026-08-21 : « swapoff -a » seul desactive le swap une seconde, puis
+# systemd le REACTIVE -- l'unite .swap reste active et il la remet en service.
+# Le relevé disait « swap 0 Mio » juste apres, et « swapon --show » rendait de
+# nouveau /dev/zram0 trois minutes plus tard. Un controle pris trop tot ment.
+# D'ou l'ordre : arreter l'unite, la masquer, PUIS swapoff -- et verifier apres.
+systemctl stop dev-zram0.swap 2>/dev/null || true
+systemctl mask dev-zram0.swap 2>/dev/null || true
 swapoff -a 2>/dev/null || true
-systemctl stop 'systemd-zram-setup@zram0.service' 2>/dev/null || true
+sleep 2
+RESTE=$(swapon --show --noheadings 2>/dev/null | wc -l)
 echo "  apres  : $(free -m | awk '/^Mem:/ {print $7}') Mio disponibles, swap $(free -m | awk '/^Swap:/ {print $2}') Mio"
+if [ "$RESTE" -ne 0 ]; then
+    echo "AVERTISSEMENT : un swap est encore actif, le risque de blocage demeure." >&2
+    swapon --show >&2
+else
+    echo "  swap     : aucun, verifie apres coup"
+fi
 echo
 
 echo "=== Ecriture ==="
