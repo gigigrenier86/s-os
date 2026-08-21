@@ -2,975 +2,963 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 
 <style>
 /* ═══════════════════════════════════════════════════════════════════
    CONSTELLATION — le bureau de S
 
-   Deux mondes visuels, et c'est un choix, pas une option :
-     NUIT   le ciel lui-meme, indigo profond
-     ATLAS  la planche gravee, encre sur papier creme
+   Les applications sont des spheres. Chacune porte SON icone, et son
+   anneau dit d'ou elle vient :
+       rouge  Linux      bleu  Windows      vert  Android
+   On reconnait l'application avant de lire son nom.
 
-   Les trois mondes de S sont colores par CLASSE SPECTRALE reelle :
-     Linux   classe G, or       — le Soleil, notre propre etoile
-     Windows classe B, blanc-bleu — chaude, lointaine, etrangere
-     Android classe M, orange   — la naine rouge, l'etoile la plus
-                                  commune de la galaxie
-   Il n'existe pas d'etoile verte. Le vert d'Android est donc exclu
-   par l'astronomie, pas par gout.
+   Un anneau PLEIN = le logiciel a deja tourne, mesure.
+   Un anneau POINTILLE = il est pose dans l'image, jamais exerce.
+   C'est la discipline du carnet, rendue visible sans un mot.
    ═══════════════════════════════════════════════════════════════════ */
 
-/* NUIT — le defaut assume de ce dessin. */
 :root {
-  --fond:        #0A0D18;
-  --fond-voile:  rgba(10, 13, 24, 0.72);
-  --encre:       #E8ECF7;
-  --encre-pale:  #8A93AD;
-  --encre-tres-pale: #545C74;
-  --filet:       rgba(232, 236, 247, 0.11);
-  --filet-fort:  rgba(232, 236, 247, 0.22);
-  --lien:        rgba(232, 236, 247, 0.30);
-  --lien-vif:    rgba(232, 236, 247, 0.85);
+  --linux:    #ff4d4d;
+  --windows:  #4da6ff;
+  --android:  #4dff88;
 
-  --linux:       #F2C57C;
-  --windows:     #A9C8F5;
-  --android:     #F09E86;
-  --socle:       #E8ECF7;
+  --espace:   #050510;
+  --verre:    rgba(12, 12, 20, 0.86);
+  --verre-2:  rgba(255, 255, 255, 0.045);
+  --bord:     rgba(255, 255, 255, 0.09);
+  --bord-vif: rgba(255, 255, 255, 0.22);
+  --texte:    #eef0f6;
+  --texte-2:  rgba(238, 240, 246, 0.62);
+  --texte-3:  rgba(238, 240, 246, 0.34);
+  --lien:     rgba(255, 255, 255, 0.16);
+  --lien-vif: rgba(255, 255, 255, 0.55);
 
-  --etoiles:     rgba(232, 236, 247, 0.55);
-  --lueur:       0.85;
-  --grain:       0;
-}
-
-/* ATLAS — la planche imprimee. Sur "systeme = clair", et sans
-   marquage sur la racine, c'est ce media qui decide. */
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --fond:        #F2EDE1;
-    --fond-voile:  rgba(242, 237, 225, 0.80);
-    --encre:       #1B1A17;
-    --encre-pale:  #6B655A;
-    --encre-tres-pale: #9A9285;
-    --filet:       rgba(27, 26, 23, 0.13);
-    --filet-fort:  rgba(27, 26, 23, 0.26);
-    --lien:        rgba(27, 26, 23, 0.38);
-    --lien-vif:    rgba(27, 26, 23, 0.92);
-
-    --linux:       #A0701A;
-    --windows:     #2E5C9E;
-    --android:     #AE4E2C;
-    --socle:       #1B1A17;
-
-    --etoiles:     rgba(27, 26, 23, 0.30);
-    --lueur:       0.30;
-    --grain:       1;
-  }
-}
-
-/* Le choix explicite gagne dans les deux sens. */
-:root[data-theme="light"] {
-  --fond:        #F2EDE1;
-  --fond-voile:  rgba(242, 237, 225, 0.80);
-  --encre:       #1B1A17;
-  --encre-pale:  #6B655A;
-  --encre-tres-pale: #9A9285;
-  --filet:       rgba(27, 26, 23, 0.13);
-  --filet-fort:  rgba(27, 26, 23, 0.26);
-  --lien:        rgba(27, 26, 23, 0.38);
-  --lien-vif:    rgba(27, 26, 23, 0.92);
-  --linux:       #A0701A;
-  --windows:     #2E5C9E;
-  --android:     #AE4E2C;
-  --socle:       #1B1A17;
-  --etoiles:     rgba(27, 26, 23, 0.30);
-  --lueur:       0.30;
-  --grain:       1;
-}
-:root[data-theme="dark"] {
-  --fond:        #0A0D18;
-  --fond-voile:  rgba(10, 13, 24, 0.72);
-  --encre:       #E8ECF7;
-  --encre-pale:  #8A93AD;
-  --encre-tres-pale: #545C74;
-  --filet:       rgba(232, 236, 247, 0.11);
-  --filet-fort:  rgba(232, 236, 247, 0.22);
-  --lien:        rgba(232, 236, 247, 0.30);
-  --lien-vif:    rgba(232, 236, 247, 0.85);
-  --linux:       #F2C57C;
-  --windows:     #A9C8F5;
-  --android:     #F09E86;
-  --socle:       #E8ECF7;
-  --etoiles:     rgba(232, 236, 247, 0.55);
-  --lueur:       0.85;
-  --grain:       0;
+  --rayon:    12px;
+  --sphere:   40px;
 }
 
 * { box-sizing: border-box; }
 
-body {
-  margin: 0;
-  background: var(--fond);
-  color: var(--encre);
-  font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+html, body {
+  margin: 0; padding: 0;
+  width: 100%; height: 100%;
+  background: var(--espace);
+  color: var(--texte);
+  font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   overflow: hidden;
-  height: 100vh;
-  height: 100dvh;
-  -webkit-font-smoothing: antialiased;
-  transition: background 420ms ease, color 420ms ease;
-}
-
-#ciel {
-  position: fixed;
-  inset: 0;
-  display: block;
-  touch-action: none;
-  cursor: crosshair;
-}
-#ciel.saisit { cursor: grabbing; }
-#ciel.survole { cursor: pointer; }
-
-/* ── Les elements flottants. Aucun cadre, aucune barre : le ciel
-      occupe tout, le texte se pose dessus. ───────────────────── */
-.flotte {
-  position: fixed;
-  z-index: 2;
-  pointer-events: none;
   user-select: none;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Le cartouche — comme sur une planche gravee, en haut a gauche. */
-#cartouche { top: clamp(18px, 3vh, 34px); left: clamp(20px, 3vw, 40px); }
+#fond, #liens { position: fixed; inset: 0; display: block; }
+#fond  { z-index: 0; }
+#liens { z-index: 1; pointer-events: none; }
 
-#nom {
-  font-family: "EB Garamond", Georgia, serif;
-  font-size: clamp(46px, 7vw, 82px);
-  font-weight: 500;
-  line-height: 0.82;
-  letter-spacing: -0.01em;
-  margin: 0;
-}
+#scene { position: fixed; inset: 0; z-index: 2; }
 
-#sous-titre {
-  font-family: "EB Garamond", Georgia, serif;
-  font-style: italic;
-  font-size: clamp(13px, 1.5vw, 16px);
-  color: var(--encre-pale);
-  margin: 8px 0 0;
-  max-width: 30ch;
-  line-height: 1.35;
+/* ── Les spheres ───────────────────────────────────────────────── */
+.astre {
+  position: absolute;
+  width: var(--sphere); height: var(--sphere);
+  margin: calc(var(--sphere) / -2) 0 0 calc(var(--sphere) / -2);
+  border-radius: 50%;
+  display: grid; place-items: center;
+  cursor: grab;
+  z-index: 10;
+  /* Une sphere, pas un disque : le degre radial decale donne le volume. */
+  background:
+    radial-gradient(circle at 34% 30%,
+      rgba(255,255,255,0.16) 0%,
+      rgba(255,255,255,0.04) 38%,
+      rgba(0,0,0,0.55) 100%),
+    #0b0b14;
+  border: 2px solid var(--teinte);
+  box-shadow: 0 0 0 0 transparent, inset 0 0 12px rgba(0,0,0,0.7);
+  transition: transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms ease;
 }
+.astre:active { cursor: grabbing; }
+.astre.pose   { border-style: dashed; }          /* pose, jamais exerce */
+.astre:hover  { transform: scale(1.16); }
+.astre:hover, .astre.choisi { box-shadow: 0 0 18px var(--halo), inset 0 0 12px rgba(0,0,0,0.7); }
+.astre.choisi { transform: scale(1.22); border-width: 2.5px; }
+.astre:focus-visible { outline: 2px solid var(--texte); outline-offset: 4px; }
 
-#compteur {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--encre-tres-pale);
-  letter-spacing: 0.06em;
-  margin-top: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-#compteur b { font-weight: 500; color: var(--encre-pale); }
+.astre svg { width: 19px; height: 19px; fill: none; stroke: var(--teinte);
+             stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+             pointer-events: none; }
 
-/* Le repos se voit : c'est la preuve visible de la sobriete. */
-#etat-rendu { display: flex; align-items: center; gap: 6px; }
-#pastille {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: var(--encre-tres-pale);
-  transition: background 200ms ease;
-}
-#pastille.actif { background: var(--linux); }
-
-/* La legende — en bas a gauche, avec les trois etats de preuve. */
-#legende {
-  bottom: clamp(18px, 3vh, 34px);
-  left: clamp(20px, 3vw, 40px);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  font-size: 11.5px;
-}
-.groupe { display: flex; flex-direction: column; gap: 5px; }
-.titre-groupe {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-size: 9.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--encre-tres-pale);
-}
-.ligne { display: flex; align-items: center; gap: 8px; color: var(--encre-pale); }
-.puce { width: 9px; height: 9px; border-radius: 50%; flex: none; }
-.puce.creux { background: none !important; border: 1px solid currentColor; }
-.puce.barre { background: none !important; border: 1px solid currentColor; position: relative; }
-.puce.barre::after {
-  content: ""; position: absolute; inset: 3px 0; top: 4px; height: 1px;
-  background: currentColor;
-}
-
-/* L'aide — en bas a droite, discrete. */
-#aide {
-  bottom: clamp(18px, 3vh, 34px);
-  right: clamp(20px, 3vw, 40px);
-  text-align: right;
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-size: 10.5px;
-  line-height: 1.9;
-  color: var(--encre-tres-pale);
-  letter-spacing: 0.03em;
-}
-#aide kbd {
-  font: inherit;
-  color: var(--encre-pale);
-  border: 1px solid var(--filet-fort);
-  border-radius: 3px;
-  padding: 0 4px;
-  margin-right: 5px;
-}
-
-/* La fiche d'un noeud survole. Suit le curseur. */
-#fiche {
-  position: fixed;
-  z-index: 3;
-  pointer-events: none;
-  opacity: 0;
-  transform: translateY(3px);
-  transition: opacity 140ms ease, transform 140ms ease;
-  background: var(--fond-voile);
-  backdrop-filter: blur(7px);
-  -webkit-backdrop-filter: blur(7px);
-  border: 1px solid var(--filet);
-  border-radius: 3px;
-  padding: 9px 12px 10px;
-  max-width: 270px;
-}
-#fiche.visible { opacity: 1; transform: translateY(0); }
-#fiche .nom-app {
-  font-family: "EB Garamond", Georgia, serif;
-  font-size: 18px;
-  line-height: 1.1;
-  margin-bottom: 3px;
-}
-#fiche .monde {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  margin-bottom: 7px;
-}
-#fiche .fait {
-  font-size: 11.5px;
-  line-height: 1.45;
-  color: var(--encre-pale);
-  font-variant-numeric: tabular-nums;
-}
-#fiche .preuve {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-size: 9.5px;
-  letter-spacing: 0.05em;
-  margin-top: 7px;
-  padding-top: 6px;
-  border-top: 1px solid var(--filet);
-  color: var(--encre-tres-pale);
-}
-
-/* Le message fugace, au centre bas. */
-#message {
-  bottom: clamp(72px, 12vh, 110px);
-  left: 50%;
+.etiquette {
+  position: absolute; top: calc(100% + 8px); left: 50%;
   transform: translateX(-50%);
+  font-size: 11px; letter-spacing: 0.02em; white-space: nowrap;
+  color: var(--texte-2); pointer-events: none;
+  opacity: 0; transition: opacity 160ms ease;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.9);
+}
+.astre:hover .etiquette, .astre.choisi .etiquette, body.noms .etiquette { opacity: 1; }
+
+/* ── La barre du bas ───────────────────────────────────────────── */
+#barre {
+  position: fixed; left: 50%; bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 9px;
+  background: var(--verre);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--bord);
+  border-radius: 999px;
+}
+
+#noyau {
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 1px solid var(--bord-vif);
+  background: radial-gradient(circle at 50% 45%, #33333f 0%, #07070f 78%);
+  display: grid; place-items: center;
+  cursor: pointer; flex: none;
+  transition: box-shadow 260ms ease, transform 260ms ease;
+}
+#noyau:hover, #noyau.ouvert { box-shadow: 0 0 22px rgba(255,255,255,0.28); transform: scale(1.05); }
+#noyau .etoile {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 12px #fff, 0 0 26px rgba(255,255,255,0.5);
+}
+
+.raccourci {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 1.5px solid var(--teinte);
+  background: radial-gradient(circle at 34% 30%, rgba(255,255,255,0.14), rgba(0,0,0,0.5));
+  display: grid; place-items: center; cursor: pointer; flex: none;
+  transition: box-shadow 160ms ease, transform 160ms ease;
+}
+.raccourci:hover { transform: translateY(-3px); box-shadow: 0 0 14px var(--halo); }
+.raccourci svg { width: 16px; height: 16px; fill: none; stroke: var(--teinte);
+                 stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+#horloge {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  color: var(--encre-pale);
-  background: var(--fond-voile);
-  border: 1px solid var(--filet);
-  border-radius: 3px;
-  padding: 6px 13px;
-  opacity: 0;
-  transition: opacity 260ms ease;
-  white-space: nowrap;
-}
-#message.visible { opacity: 1; }
-
-@media (max-width: 720px) {
-  #aide { display: none; }
-  #sous-titre { max-width: 22ch; }
+  font-size: 12px; font-variant-numeric: tabular-nums;
+  color: var(--texte-2); padding: 0 12px 0 6px; letter-spacing: 0.04em;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  * { transition-duration: 1ms !important; }
+/* ── Le menu Demarrer ──────────────────────────────────────────── */
+#menu {
+  position: fixed; left: 50%; bottom: 84px;
+  transform: translateX(-50%) translateY(14px) scale(0.985);
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(640px, calc(100vh - 130px));
+  z-index: 70;
+  display: flex; flex-direction: column;
+  background: var(--verre);
+  backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+  border: 1px solid var(--bord);
+  border-radius: var(--rayon);
+  box-shadow: 0 24px 70px rgba(0,0,0,0.65);
+  opacity: 0; pointer-events: none;
+  transition: opacity 220ms ease, transform 220ms cubic-bezier(.2,.8,.2,1);
+  overflow: hidden;
 }
+#menu.ouvert { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0) scale(1); }
+
+#tete { display: flex; align-items: center; gap: 10px; padding: 14px 16px 12px; }
+#recherche {
+  flex: 1; height: 34px; padding: 0 12px;
+  background: var(--verre-2); border: 1px solid var(--bord);
+  border-radius: 8px; color: var(--texte);
+  font: inherit; font-size: 13px; outline: none;
+}
+#recherche::placeholder { color: var(--texte-3); }
+#recherche:focus { border-color: var(--bord-vif); }
+
+#onglets { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--bord); }
+.onglet {
+  appearance: none; background: none; border: none; color: var(--texte-3);
+  font: inherit; font-size: 12px; padding: 9px 12px 10px; cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  display: flex; align-items: center; gap: 7px;
+}
+.onglet svg { width: 14px; height: 14px; fill: none; stroke: currentColor;
+              stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.onglet:hover { color: var(--texte-2); }
+.onglet.actif { color: var(--texte); border-bottom-color: var(--texte); }
+
+#corps { overflow-y: auto; padding: 14px 16px 18px; scrollbar-width: thin; }
+#corps::-webkit-scrollbar { width: 8px; }
+#corps::-webkit-scrollbar-thumb { background: var(--bord); border-radius: 4px; }
+
+.section-titre {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--texte-3); margin: 4px 0 10px;
+}
+.section-titre + .section-titre, .grille + .section-titre, .liste + .section-titre { margin-top: 20px; }
+
+.grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
+.tuile {
+  appearance: none; background: none; border: none; color: var(--texte-2);
+  font: inherit; font-size: 11px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 11px 4px 9px; border-radius: 9px;
+  transition: background 140ms ease;
+}
+.tuile:hover, .tuile:focus-visible { background: var(--verre-2); color: var(--texte); outline: none; }
+.tuile .bulle {
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 1.5px solid var(--teinte);
+  background: radial-gradient(circle at 34% 30%, rgba(255,255,255,0.14), rgba(0,0,0,0.5));
+  display: grid; place-items: center;
+}
+.tuile .bulle.pose { border-style: dashed; }
+.tuile svg { width: 17px; height: 17px; fill: none; stroke: var(--teinte);
+             stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.tuile .nom { text-align: center; line-height: 1.25; }
+
+.liste { display: flex; flex-direction: column; gap: 1px; }
+.rangee {
+  appearance: none; background: none; border: none; color: var(--texte-2);
+  font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+  display: flex; align-items: center; gap: 13px;
+  padding: 10px 11px; border-radius: 8px;
+  transition: background 140ms ease;
+}
+.rangee:hover, .rangee:focus-visible { background: var(--verre-2); color: var(--texte); outline: none; }
+.rangee svg { width: 17px; height: 17px; flex: none; fill: none; stroke: var(--teinte, var(--texte-2));
+              stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.rangee .detail { margin-left: auto; font-size: 11px; color: var(--texte-3);
+                  font-family: "IBM Plex Mono", ui-monospace, monospace; }
+.rangee.grave:hover { background: rgba(255, 77, 77, 0.14); color: #ffbfbf; }
+
+/* ── Fonds d'ecran ─────────────────────────────────────────────── */
+.fonds { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 9px; }
+.vignette {
+  appearance: none; padding: 0; cursor: pointer;
+  aspect-ratio: 16 / 10; border-radius: 8px; overflow: hidden;
+  border: 1.5px solid var(--bord); position: relative;
+  transition: border-color 140ms ease, transform 140ms ease;
+}
+.vignette:hover { transform: translateY(-2px); border-color: var(--bord-vif); }
+.vignette.actif { border-color: var(--texte); }
+.vignette canvas { width: 100%; height: 100%; display: block; }
+.vignette .titre-v {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  font-size: 10px; padding: 4px 6px; color: var(--texte-2);
+  background: linear-gradient(transparent, rgba(0,0,0,0.8));
+  text-align: left;
+}
+
+.reglage { display: flex; align-items: center; gap: 12px; padding: 9px 11px; border-radius: 8px; font-size: 13px; color: var(--texte-2); }
+.reglage:hover { background: var(--verre-2); }
+.reglage .detail { margin-left: auto; font-size: 11px; color: var(--texte-3);
+                   font-family: "IBM Plex Mono", ui-monospace, monospace; }
+.bascule {
+  appearance: none; width: 38px; height: 21px; border-radius: 999px;
+  background: var(--verre-2); border: 1px solid var(--bord);
+  position: relative; cursor: pointer; flex: none; transition: background 160ms ease;
+}
+.bascule::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 15px; height: 15px; border-radius: 50%; background: var(--texte-3);
+  transition: transform 160ms cubic-bezier(.2,.8,.2,1), background 160ms ease;
+}
+.bascule:checked { background: rgba(77, 166, 255, 0.28); border-color: var(--windows); }
+.bascule:checked::after { transform: translateX(17px); background: var(--windows); }
+
+/* ── Fiche de survol ───────────────────────────────────────────── */
+#fiche {
+  position: fixed; z-index: 80; pointer-events: none;
+  opacity: 0; transform: translateY(3px);
+  transition: opacity 130ms ease, transform 130ms ease;
+  background: var(--verre); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--bord); border-radius: 8px;
+  padding: 9px 12px 10px; max-width: 264px;
+}
+#fiche.vu { opacity: 1; transform: translateY(0); }
+#fiche .f-nom { font-size: 13.5px; font-weight: 500; }
+#fiche .f-src { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 9px;
+                letter-spacing: 0.15em; text-transform: uppercase; margin-top: 2px; }
+#fiche .f-txt { font-size: 11.5px; line-height: 1.45; color: var(--texte-2); margin-top: 7px;
+                font-variant-numeric: tabular-nums; }
+
+/* ── Message fugace ────────────────────────────────────────────── */
+#mot {
+  position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%);
+  z-index: 55; pointer-events: none;
+  font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px;
+  color: var(--texte-2); background: var(--verre);
+  border: 1px solid var(--bord); border-radius: 7px; padding: 6px 13px;
+  opacity: 0; transition: opacity 240ms ease; white-space: nowrap;
+}
+#mot.vu { opacity: 1; }
+
+#aide {
+  position: fixed; right: 20px; bottom: 22px; z-index: 50;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px; line-height: 1.85; color: var(--texte-3);
+  text-align: right; pointer-events: none;
+}
+#aide b { color: var(--texte-2); font-weight: 500; }
+
+@media (max-width: 760px) { #aide { display: none; } #horloge { display: none; } }
+@media (prefers-reduced-motion: reduce) { * { transition-duration: 1ms !important; } }
 </style>
 
-<canvas id="ciel"></canvas>
+<!-- ═══ Les icones. Des glyphes generiques, dessines ici : un logo de
+         marque ne se recopie pas, et un pictogramme se reconnait tout
+         aussi bien. ═════════════════════════════════════════════════ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18"/></symbol>
+<symbol id="i-code" viewBox="0 0 24 24"><path d="m8 8-5 4 5 4M16 8l5 4-5 4M14 5l-4 14"/></symbol>
+<symbol id="i-terminal" viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="m6.5 9.5 3 2.5-3 2.5M13 15h4.5"/></symbol>
+<symbol id="i-dossier" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+<symbol id="i-manette" viewBox="0 0 24 24"><path d="M7 11h4M9 9v4M15.5 11h.01M18 13h.01"/><rect x="2" y="6.5" width="20" height="11" rx="5.5"/></symbol>
+<symbol id="i-video" viewBox="0 0 24 24"><rect x="2.5" y="6" width="13" height="12" rx="2"/><path d="m15.5 10.5 6-3.5v10l-6-3.5z"/></symbol>
+<symbol id="i-etincelle" viewBox="0 0 24 24"><path d="M12 3.5 13.9 9 19.5 11l-5.6 2L12 18.5 10.1 13 4.5 11 10.1 9z"/><path d="M18.5 4.5v3M17 6h3"/></symbol>
+<symbol id="i-boite" viewBox="0 0 24 24"><path d="M20.5 8v8a2 2 0 0 1-1 1.7l-6.5 3.6a2 2 0 0 1-2 0L4.5 17.7a2 2 0 0 1-1-1.7V8a2 2 0 0 1 1-1.7l6.5-3.6a2 2 0 0 1 2 0l6.5 3.6A2 2 0 0 1 20.5 8z"/><path d="m3.8 7.2 8.2 4.5 8.2-4.5M12 20.8v-9.1"/></symbol>
+<symbol id="i-notes" viewBox="0 0 24 24"><path d="M6 3h9l4.5 4.5V19a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M14.5 3v5h5M8 13h8M8 17h5"/></symbol>
+<symbol id="i-magasin" viewBox="0 0 24 24"><path d="M4 8h16l-1 11a2 2 0 0 1-2 1.8H7A2 2 0 0 1 5 19z"/><path d="M8.5 8V6a3.5 3.5 0 0 1 7 0v2"/></symbol>
+<symbol id="i-bulle" viewBox="0 0 24 24"><path d="M20.5 11.5c0 4.1-3.8 7.5-8.5 7.5a9.7 9.7 0 0 1-2.7-.4L4 20.5l1.5-3.8A7.1 7.1 0 0 1 3.5 11.5C3.5 7.4 7.3 4 12 4s8.5 3.4 8.5 7.5z"/></symbol>
+<symbol id="i-note-mus" viewBox="0 0 24 24"><path d="M9 18V6l11-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></symbol>
+<symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="10" r="1.7"/><path d="m3.5 17 5-4.5 4 3.5 3-2.5 5 4"/></symbol>
+<symbol id="i-tel" viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></symbol>
+<symbol id="i-reglages" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M21.5 12h-3M5.5 12h-3M18.7 5.3 16.6 7.4M7.4 16.6l-2.1 2.1M18.7 18.7l-2.1-2.1M7.4 7.4 5.3 5.3"/></symbol>
+<symbol id="i-alim" viewBox="0 0 24 24"><path d="M12 3.5v8"/><path d="M7 6.3a8 8 0 1 0 10 0"/></symbol>
+<symbol id="i-grille" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></symbol>
+<symbol id="i-cadenas" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></symbol>
+<symbol id="i-sortie" viewBox="0 0 24 24"><path d="M14.5 3.5H18a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-3.5M10 16l-4-4 4-4M6 12h10"/></symbol>
+<symbol id="i-recommence" viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 1 1-2.7-6.2"/><path d="M20.5 4v5h-5"/></symbol>
+<symbol id="i-disque" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+<symbol id="i-telech" viewBox="0 0 24 24"><path d="M12 3.5v11M7.5 10.5 12 15l4.5-4.5M4 19.5h16"/></symbol>
+<symbol id="i-maison" viewBox="0 0 24 24"><path d="M3.5 10.5 12 3.5l8.5 7M6 9.5v10h12v-10"/></symbol>
+<symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></symbol>
+<symbol id="i-ecran" viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8.5 20.5h7M12 17v3.5"/></symbol>
+<symbol id="i-son" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13L7.5 14.5H4z"/><path d="M15.5 9.5a4 4 0 0 1 0 5M18 7a7.5 7.5 0 0 1 0 10"/></symbol>
+<symbol id="i-reseau" viewBox="0 0 24 24"><path d="M2.5 9a14 14 0 0 1 19 0M6 12.5a9 9 0 0 1 12 0M9.5 16a4 4 0 0 1 5 0"/><circle cx="12" cy="19.5" r="1.2"/></symbol>
+<symbol id="i-fenetre" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3 9h18M12 9v10.5"/></symbol>
+</defs></svg>
 
-<div id="cartouche" class="flotte">
-  <h1 id="nom">S</h1>
-  <p id="sous-titre">Windows, Linux et Android&#8239;; une seule machine, un seul ciel.</p>
-  <div id="compteur">
-    <span><b id="n-etoiles">0</b> etoiles &#183; <b id="n-eprouvees">0</b> eprouvees &#183; <b id="n-liens">0</b> liens</span>
-    <span id="etat-rendu"><i id="pastille"></i><span id="mot-etat">au repos</span> &#183; <b id="n-images">0</b> images tracees</span>
+<canvas id="fond"></canvas>
+<canvas id="liens"></canvas>
+<div id="scene"></div>
+
+<div id="barre">
+  <div id="noyau" role="button" tabindex="0" aria-label="Menu Demarrer"><span class="etoile"></span></div>
+  <div id="raccourcis" style="display:flex;gap:8px"></div>
+  <span id="horloge">--:--</span>
+</div>
+
+<div id="menu" role="dialog" aria-label="Menu Demarrer">
+  <div id="tete">
+    <input id="recherche" type="search" placeholder="Chercher une application, un dossier, un reglage" autocomplete="off">
   </div>
-</div>
-
-<div id="legende" class="flotte">
-  <div class="groupe">
-    <span class="titre-groupe">Les trois mondes</span>
-    <span class="ligne"><i class="puce" style="background:var(--linux)"></i>Linux &#8212; natif, le sol</span>
-    <span class="ligne"><i class="puce" style="background:var(--windows)"></i>Windows &#8212; traduit par Proton</span>
-    <span class="ligne"><i class="puce" style="background:var(--android)"></i>Android &#8212; conteneur Waydroid</span>
+  <div id="onglets">
+    <button class="onglet actif" data-vue="apps"><svg><use href="#i-grille"/></svg>Applications</button>
+    <button class="onglet" data-vue="dossiers"><svg><use href="#i-dossier"/></svg>Dossiers</button>
+    <button class="onglet" data-vue="reglages"><svg><use href="#i-reglages"/></svg>Reglages</button>
+    <button class="onglet" data-vue="alim"><svg><use href="#i-alim"/></svg>Alimentation</button>
   </div>
-  <div class="groupe">
-    <span class="titre-groupe">L'etat de preuve</span>
-    <span class="ligne"><i class="puce" style="background:var(--socle)"></i>execute, mesure</span>
-    <span class="ligne"><i class="puce creux"></i>pose, jamais exerce</span>
-    <span class="ligne"><i class="puce barre"></i>essaye, echoue</span>
-  </div>
+  <div id="corps"></div>
 </div>
 
-<div id="aide" class="flotte">
-  <div><kbd>clic</kbd>choisir une etoile</div>
-  <div><kbd>2 clics</kbd>tracer un lien</div>
-  <div><kbd>clic lien</kbd>l'effacer</div>
-  <div><kbd>glisser</kbd>deplacer</div>
-  <div><kbd>T</kbd>nuit / atlas</div>
-  <div><kbd>N</kbd>noms toujours visibles</div>
-  <div><kbd>R</kbd>rendre les liens d'origine</div>
-  <div><kbd>F</kbd>plein ecran</div>
+<div id="fiche"><div class="f-nom"></div><div class="f-src"></div><div class="f-txt"></div></div>
+<div id="mot"></div>
+<div id="aide">
+  <div><b>clic</b> choisir &#183; <b>2 clics</b> lier</div>
+  <div><b>clic sur un lien</b> l'effacer</div>
+  <div><b>N</b> noms &#183; <b>R</b> liens d'origine &#183; <b>F</b> plein ecran</div>
 </div>
-
-<div id="fiche">
-  <div class="nom-app"></div>
-  <div class="monde"></div>
-  <div class="fait"></div>
-  <div class="preuve"></div>
-</div>
-
-<div id="message" class="flotte"></div>
 
 <script>
 "use strict";
 
 /* ══════════════════════════════════════════════════════════════════
-   LE CIEL DE S
+   TROIS DECISIONS D'INGENIERIE, ET ELLES TIENNENT LA PROMESSE
+   "ultra-faible en consommation" :
 
-   Trois choix d'ingenierie portent la promesse "ultra-faible en
-   consommation", et chacun est verifiable a l'ecran :
+   1. IL N'Y A AUCUNE BOUCLE D'ANIMATION. Pas un seul
+      requestAnimationFrame permanent. Le canevas des liens n'est
+      redessine que sur un evenement reel : on bouge une sphere, on
+      cree un lien, on redimensionne. Au repos, le cout est
+      exactement zero -- pas "faible", zero.
 
-   1. LE RENDU S'ARRETE. Un compositeur ordinaire redessine soixante
-      fois par seconde, pour toujours. Ici, des que l'energie
-      cinetique du systeme passe sous un seuil et que personne ne
-      touche a rien, la boucle d'animation est ANNULEE. Zero image,
-      zero calcul, zero watt. Le compteur "images tracees" cesse
-      d'avancer et la pastille s'eteint : la sobriete se voit.
+   2. LE FOND EST PEINT UNE FOIS dans son propre canevas, et n'est
+      jamais retouche tant qu'on n'en change pas.
 
-   2. LES LUEURS SONT DES SPRITES. Un degrade radial recree a chaque
-      image coute cher. Chaque combinaison monde x rayon x etat est
-      donc dessinee UNE fois dans un petit canevas hors ecran, puis
-      simplement recopiee. Le cout par etoile tombe a un drawImage.
-
-   3. LE FOND EST GRAVE UNE FOIS. Le champ d'etoiles lointaines et la
-      graticule sont peints dans un canevas hors ecran, refaits
-      seulement au redimensionnement ou au changement de monde visuel.
+   3. LES SPHERES SONT DU DOM, pas du canevas. Le navigateur les
+      compose sur le GPU sans que rien ne les redessine, et leurs
+      icones restent nettes a toute densite d'ecran.
    ══════════════════════════════════════════════════════════════════ */
 
-const cv  = document.getElementById("ciel");
-const ctx = cv.getContext("2d", { alpha: false });
-
-const MONDES = {
+const SOURCES = {
   linux:   { nom: "Linux",   jeton: "--linux"   },
   windows: { nom: "Windows", jeton: "--windows" },
-  android: { nom: "Android", jeton: "--android" },
-  socle:   { nom: "S",       jeton: "--socle"   }
+  android: { nom: "Android", jeton: "--android" }
 };
 
-/* Les etoiles sont les vrais logiciels de S, avec leurs vrais chiffres
-   et leur vrai etat de preuve. Rien n'est invente : l'etat vient du
-   carnet du projet, ou "pose" et "eprouve" ne se confondent jamais. */
-const ETOILES = [
-  { id:"s",       nom:"S",            monde:"socle",   r:11, etat:"eprouve",
-    fait:"L'image bootc elle-meme. 137 couches, 6,95 Go, publiee sur ghcr.io.",
-    preuve:"installee, demarree, mise a jour par bootc upgrade" },
+/* Les vrais logiciels de S, avec leurs vrais chiffres. "eprouve" dit
+   si le binaire a deja tourne -- l'anneau devient pointille sinon. */
+const APPS = [
+  { id:"vivaldi", nom:"Vivaldi",     src:"linux",   ico:"i-globe",     ep:1, epingle:1,
+    txt:"8.1.4087.68 &#183; /usr/lib/opt/vivaldi &#183; 438 Mo" },
+  { id:"code",    nom:"VS Code",     src:"linux",   ico:"i-code",      ep:1, epingle:1,
+    txt:"1.134.0 &#183; /usr/share/code &#183; 1,1 Go" },
+  { id:"term",    nom:"Terminal",    src:"linux",   ico:"i-terminal",  ep:1, epingle:1,
+    txt:"Konsole &#183; le shell de la machine" },
+  { id:"fichiers",nom:"Fichiers",    src:"linux",   ico:"i-dossier",   ep:1, epingle:1,
+    txt:"Dolphin &#183; un seul dossier personnel pour les trois mondes" },
+  { id:"claude",  nom:"Claude Code", src:"linux",   ico:"i-etincelle", ep:1, epingle:1,
+    txt:"2.1.228 &#183; /usr/bin/claude &#183; depot RPM signe" },
+  { id:"gemini",  nom:"Gemini CLI",  src:"linux",   ico:"i-etincelle", ep:1, epingle:0,
+    txt:"0.56.0 &#183; 100 Mo &#183; entre sans verification de signature" },
+  { id:"antigr",  nom:"Antigravity", src:"linux",   ico:"i-code",      ep:1, epingle:0,
+    txt:"1.107.0 &#183; 682 Mo &#183; entre sans verification de signature" },
+  { id:"node",    nom:"Node.js",     src:"linux",   ico:"i-boite",     ep:1, epingle:0,
+    txt:"v24.18.0 &#183; npm 11.16.0" },
+  { id:"retro",   nom:"RetroArch",   src:"linux",   ico:"i-manette",   ep:0, epingle:1,
+    txt:"1.22.0 et 14 coeurs &#183; jamais lance" },
+  { id:"zoom",    nom:"Zoom",        src:"linux",   ico:"i-video",     ep:0, epingle:0,
+    txt:"/usr/lib/opt/zoom &#183; 918 Mo &#183; jamais lance" },
 
-  { id:"vivaldi", nom:"Vivaldi",      monde:"linux",   r:7,  etat:"eprouve",
-    fait:"8.1.4087.68 &#183; /usr/lib/opt/vivaldi &#183; 438 Mo",
-    preuve:"lance sous le compte utilisateur" },
-  { id:"code",    nom:"VS Code",      monde:"linux",   r:7,  etat:"eprouve",
-    fait:"1.134.0 &#183; /usr/share/code &#183; 1,1 Go",
-    preuve:"lance &#183; extension Claude Code et pack francais poses" },
-  { id:"node",    nom:"Node.js",      monde:"linux",   r:5,  etat:"eprouve",
-    fait:"v24.18.0 &#183; /usr/bin &#183; npm 11.16.0",
-    preuve:"lance" },
-  { id:"claude",  nom:"Claude Code",  monde:"linux",   r:6,  etat:"eprouve",
-    fait:"2.1.228 &#183; /usr/bin/claude &#183; depot RPM signe",
-    preuve:"lance" },
-  { id:"gemini",  nom:"Gemini CLI",   monde:"linux",   r:5,  etat:"eprouve",
-    fait:"0.56.0 &#183; /usr/lib/node_modules &#183; 100 Mo",
-    preuve:"lance &#183; entre SANS verification de signature" },
-  { id:"antigr",  nom:"Antigravity",  monde:"linux",   r:6,  etat:"eprouve",
-    fait:"1.107.0 &#183; /usr/share/antigravity &#183; 682 Mo",
-    preuve:"lance &#183; entre SANS verification de signature" },
-  { id:"retro",   nom:"RetroArch",    monde:"linux",   r:6,  etat:"pose",
-    fait:"1.22.0 et 14 coeurs &#183; /usr/lib64/libretro",
-    preuve:"present dans l'image, jamais lance" },
-  { id:"zoom",    nom:"Zoom",         monde:"linux",   r:6,  etat:"pose",
-    fait:"/usr/lib/opt/zoom &#183; 918 Mo &#183; cle Zoom verifiee",
-    preuve:"present dans l'image, jamais lance" },
+  { id:"lineage", nom:"Lineage 2",   src:"windows", ico:"i-manette",   ep:0, epingle:1,
+    txt:"Moteur de 2003 &#183; GameGuard bloque les serveurs officiels" },
+  { id:"cmd",     nom:"Invite",      src:"windows", ico:"i-terminal",  ep:1, epingle:0,
+    txt:"cmd.exe &#183; execute, codes de sortie fideles" },
+  { id:"notepad", nom:"Bloc-notes",  src:"windows", ico:"i-notes",     ep:0, epingle:0,
+    txt:"Sort en 1 au banc &#183; a reprendre sur un vrai GPU" },
+  { id:"rapido",  nom:"RapidO",      src:"windows", ico:"i-fenetre",   ep:1, epingle:1,
+    txt:"MEWS en fenetre dediee &#183; neuf lignes de .desktop" },
 
-  { id:"proton",  nom:"Proton",       monde:"windows", r:8,  etat:"eprouve",
-    fait:"UMU-Proton-10.0-4 &#183; archive pre-cuite de 468 Mo dans l'image",
-    preuve:"deplie et execute &#183; 3 min 02 au premier usage" },
-  { id:"cmd",     nom:"cmd.exe",      monde:"windows", r:5,  etat:"eprouve",
-    fait:"Un vrai binaire PE Windows, lance par la couture.",
-    preuve:"execute &#183; codes de sortie fideles, 0 puis 7" },
-  { id:"notepad", nom:"Notepad",      monde:"windows", r:5,  etat:"echoue",
-    fait:"Sort en 1 au banc, sans une ligne d'erreur de Wine.",
-    preuve:"echoue &#8212; rendu logiciel llvmpipe suspecte, a reprendre sur GPU" },
-  { id:"lineage", nom:"Lineage 2",    monde:"windows", r:7,  etat:"pose",
-    fait:"Moteur de 2003. GameGuard charge un pilote en anneau 0.",
-    preuve:"jamais lance &#183; serveurs officiels hors d'atteinte" },
-
-  { id:"waydroid",nom:"Waydroid",     monde:"android", r:8,  etat:"pose",
-    fait:"binder compile dans le noyau &#183; lanceur present &#183; image LineageOS",
-    preuve:"JAMAIS lance &#8212; le differenciateur du projet, non eprouve" },
-  { id:"fdroid",  nom:"F-Droid",      monde:"android", r:6,  etat:"pose",
-    fait:"/usr/share/s/apk &#183; 12,4 Mio &#183; empreinte GPG en dur",
-    preuve:"pose dans l'image, jamais installe" },
-  { id:"play",    nom:"Play Store",   monde:"android", r:6,  etat:"pose",
-    fait:"Vit dans l'image GAPPS. Exige un enregistrement humain, une fois.",
-    preuve:"jamais atteint" }
+  { id:"fdroid",  nom:"F-Droid",     src:"android", ico:"i-magasin",   ep:0, epingle:1,
+    txt:"12,4 Mio &#183; empreinte GPG en dur &#183; jamais installe" },
+  { id:"play",    nom:"Play Store",  src:"android", ico:"i-magasin",   ep:0, epingle:0,
+    txt:"Image GAPPS &#183; exige un enregistrement humain, une fois" },
+  { id:"msg",     nom:"Messages",    src:"android", ico:"i-bulle",     ep:0, epingle:1,
+    txt:"Waydroid n'a jamais tourne" },
+  { id:"musique", nom:"Musique",     src:"android", ico:"i-note-mus",  ep:0, epingle:0,
+    txt:"Waydroid n'a jamais tourne" },
+  { id:"photos",  nom:"Photos",      src:"android", ico:"i-image",     ep:0, epingle:1,
+    txt:"Waydroid n'a jamais tourne" },
+  { id:"tel",     nom:"Telephone",   src:"android", ico:"i-tel",       ep:0, epingle:0,
+    txt:"Waydroid n'a jamais tourne" }
 ];
 
-/* Les liens d'origine sont les COUTURES qui existent vraiment.
-   Ce dessin raconte donc l'etat reel du projet, pas une maquette. */
+/* Les liens d'origine sont les coutures REELLES de S. */
 const LIENS_ORIGINE = [
-  ["s","vivaldi"], ["s","code"], ["s","proton"], ["s","waydroid"],
-  ["proton","cmd"], ["proton","notepad"], ["proton","lineage"],
-  ["waydroid","fdroid"], ["waydroid","play"],
-  ["code","claude"], ["code","node"], ["node","gemini"],
-  ["s","retro"], ["s","zoom"], ["s","antigr"]
+  ["code","claude"], ["code","node"], ["node","gemini"], ["code","antigr"],
+  ["cmd","lineage"], ["cmd","notepad"], ["rapido","vivaldi"],
+  ["fdroid","msg"], ["fdroid","photos"], ["play","musique"],
+  ["fichiers","photos"], ["fichiers","term"]
 ];
 
 /* ── Etat ──────────────────────────────────────────────────────── */
-let noeuds = [], liens = [], sprites = new Map(), fond = null;
-let L = 0, H = 0, dpr = 1;
-let choisi = null, survole = null, saisi = null, saisiBouge = false;
-let nomsVisibles = false, images = 0, boucle = 0, dernier = 0;
-let pointeur = { x: -1e4, y: -1e4, actif: false };
-let pulsations = [];
+const scene = document.getElementById("scene");
+const cvF = document.getElementById("fond"),  ctxF = cvF.getContext("2d");
+const cvL = document.getElementById("liens"), ctxL = cvL.getContext("2d");
+const fiche = document.getElementById("fiche");
 
-const REPOS_SEUIL = 0.018;   /* energie sous laquelle on cesse de peindre */
-let calmeDepuis = 0;
+let astres = [], liens = [], choisi = null, dpr = 1, L = 0, H = 0;
+let fondActuel = "nebuleuse", imagePerso = null;
 
-/* ── Couleurs, relues au changement de monde visuel ────────────── */
-let COUL = {};
-function relireCouleurs() {
-  const s = getComputedStyle(document.documentElement);
-  COUL = {};
-  for (const k in MONDES) COUL[k] = s.getPropertyValue(MONDES[k].jeton).trim();
-  COUL.lien       = s.getPropertyValue("--lien").trim();
-  COUL.lienVif    = s.getPropertyValue("--lien-vif").trim();
-  COUL.fond       = s.getPropertyValue("--fond").trim();
-  COUL.etoiles    = s.getPropertyValue("--etoiles").trim();
-  COUL.filet      = s.getPropertyValue("--filet").trim();
-  COUL.encre      = s.getPropertyValue("--encre").trim();
-  COUL.encrePale  = s.getPropertyValue("--encre-pale").trim();
-  COUL.lueur      = parseFloat(s.getPropertyValue("--lueur")) || 0;
-  sprites.clear();
-  fond = null;
-}
-
-/* ── Sprites de lueur : dessines une fois, recopies ensuite ────── */
-function sprite(monde, rayon, etat) {
-  const cle = monde + "|" + rayon.toFixed(1) + "|" + etat;
-  if (sprites.has(cle)) return sprites.get(cle);
-
-  const halo = rayon * (etat === "eprouve" ? 5.2 : 2.6);
-  const taille = Math.ceil(halo * 2) + 4;
-  const c = document.createElement("canvas");
-  c.width = c.height = taille * dpr;
-  const g = c.getContext("2d");
-  g.scale(dpr, dpr);
-  const cx = taille / 2;
-  const teinte = COUL[monde] || COUL.socle;
-
-  if (COUL.lueur > 0.05 && etat === "eprouve") {
-    const deg = g.createRadialGradient(cx, cx, rayon * 0.4, cx, cx, halo);
-    deg.addColorStop(0,    avecAlpha(teinte, 0.55 * COUL.lueur));
-    deg.addColorStop(0.35, avecAlpha(teinte, 0.16 * COUL.lueur));
-    deg.addColorStop(1,    avecAlpha(teinte, 0));
-    g.fillStyle = deg;
-    g.beginPath(); g.arc(cx, cx, halo, 0, 6.2832); g.fill();
-  }
-
-  g.beginPath();
-  g.arc(cx, cx, rayon, 0, 6.2832);
-  if (etat === "eprouve") {
-    g.fillStyle = teinte; g.fill();
-    /* Le coeur clair : ce qui fait qu'une etoile a l'air d'une etoile. */
-    g.beginPath(); g.arc(cx - rayon * 0.16, cx - rayon * 0.16, rayon * 0.42, 0, 6.2832);
-    g.fillStyle = avecAlpha("#ffffff", COUL.lueur > 0.5 ? 0.55 : 0.0); g.fill();
-  } else {
-    g.strokeStyle = avecAlpha(teinte, 0.85);
-    g.lineWidth = 1.3;
-    g.stroke();
-    if (etat === "echoue") {
-      g.beginPath();
-      g.moveTo(cx - rayon * 0.75, cx); g.lineTo(cx + rayon * 0.75, cx);
-      g.stroke();
+/* ── Fonds d'ecran, tous PEINTS, aucun fichier a telecharger ───── */
+const FONDS = {
+  nebuleuse: { nom: "Nebuleuse", peindre(g, w, h) {
+    g.fillStyle = "#050510"; g.fillRect(0, 0, w, h);
+    const taches = [
+      [0.24, 0.30, 0.62, "77,110,255"], [0.76, 0.22, 0.50, "255,77,120"],
+      [0.60, 0.78, 0.58, "60,220,180"], [0.12, 0.82, 0.42, "150,80,255"]
+    ];
+    for (const [px, py, pr, c] of taches) {
+      const r = Math.max(w, h) * pr;
+      const d = g.createRadialGradient(w*px, h*py, 0, w*px, h*py, r);
+      d.addColorStop(0, "rgba(" + c + ",0.17)");
+      d.addColorStop(0.45, "rgba(" + c + ",0.05)");
+      d.addColorStop(1, "rgba(" + c + ",0)");
+      g.fillStyle = d; g.fillRect(0, 0, w, h);
     }
-  }
+    etoiles(g, w, h, 1);
+  }},
+  vide: { nom: "Espace profond", peindre(g, w, h) {
+    g.fillStyle = "#050510"; g.fillRect(0, 0, w, h);
+    etoiles(g, w, h, 1.25);
+  }},
+  aube: { nom: "Aube", peindre(g, w, h) {
+    const d = g.createLinearGradient(0, h, 0, 0);
+    d.addColorStop(0, "#2a1230"); d.addColorStop(0.45, "#12102a"); d.addColorStop(1, "#04040c");
+    g.fillStyle = d; g.fillRect(0, 0, w, h);
+    etoiles(g, w, h, 0.7);
+  }},
+  grille: { nom: "Grille", peindre(g, w, h) {
+    g.fillStyle = "#06070d"; g.fillRect(0, 0, w, h);
+    g.strokeStyle = "rgba(255,255,255,0.045)"; g.lineWidth = 1;
+    g.beginPath();
+    for (let x = 0; x < w; x += 46) { g.moveTo(x + .5, 0); g.lineTo(x + .5, h); }
+    for (let y = 0; y < h; y += 46) { g.moveTo(0, y + .5); g.lineTo(w, y + .5); }
+    g.stroke();
+    const d = g.createRadialGradient(w/2, h/2, 0, w/2, h/2, Math.max(w,h)*0.7);
+    d.addColorStop(0, "rgba(0,0,0,0)"); d.addColorStop(1, "rgba(0,0,0,0.75)");
+    g.fillStyle = d; g.fillRect(0, 0, w, h);
+  }},
+  encre: { nom: "Encre", peindre(g, w, h) {
+    g.fillStyle = "#0a0a0c"; g.fillRect(0, 0, w, h);
+    etoiles(g, w, h, 0.5);
+  }},
+  trois: { nom: "Trois mondes", peindre(g, w, h) {
+    g.fillStyle = "#050510"; g.fillRect(0, 0, w, h);
+    const t = [["255,77,77", 0.18, 0.30], ["77,166,255", 0.50, 0.22], ["77,255,136", 0.82, 0.32]];
+    for (const [c, px, py] of t) {
+      const r = Math.max(w, h) * 0.52;
+      const d = g.createRadialGradient(w*px, h*py, 0, w*px, h*py, r);
+      d.addColorStop(0, "rgba(" + c + ",0.15)");
+      d.addColorStop(0.5, "rgba(" + c + ",0.035)");
+      d.addColorStop(1, "rgba(" + c + ",0)");
+      g.fillStyle = d; g.fillRect(0, 0, w, h);
+    }
+    etoiles(g, w, h, 0.9);
+  }}
+};
 
-  const s = { c, taille };
-  sprites.set(cle, s);
-  return s;
-}
-
-function avecAlpha(couleur, a) {
-  if (a <= 0) return "rgba(0,0,0,0)";
-  if (couleur.startsWith("#")) {
-    let h = couleur.slice(1);
-    if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
-    const n = parseInt(h, 16);
-    return "rgba(" + ((n>>16)&255) + "," + ((n>>8)&255) + "," + (n&255) + "," + a + ")";
-  }
-  if (couleur.startsWith("rgb")) {
-    const p = couleur.match(/[\d.]+/g);
-    return "rgba(" + p[0] + "," + p[1] + "," + p[2] + "," + a + ")";
-  }
-  return couleur;
-}
-
-/* ── Le fond grave : champ d'etoiles + graticule ───────────────── */
-function graverFond() {
-  const c = document.createElement("canvas");
-  c.width = L * dpr; c.height = H * dpr;
-  const g = c.getContext("2d");
-  g.scale(dpr, dpr);
-
-  g.fillStyle = COUL.fond;
-  g.fillRect(0, 0, L, H);
-
-  /* La graticule d'un atlas celeste. Tres faible : on la devine. */
-  g.strokeStyle = COUL.filet;
-  g.lineWidth = 1;
-  const pas = 110;
-  g.beginPath();
-  for (let x = pas; x < L; x += pas) { g.moveTo(x + 0.5, 0); g.lineTo(x + 0.5, H); }
-  for (let y = pas; y < H; y += pas) { g.moveTo(0, y + 0.5); g.lineTo(L, y + 0.5); }
-  g.stroke();
-
-  /* Les etoiles lointaines : decor pur, aucune interaction.
-     Semees par un generateur deterministe pour que le ciel soit le
-     meme d'un lancement a l'autre — un ciel qui change tout seul
-     n'est pas un ciel, c'est du bruit. */
-  let graine = 20260821;
-  const alea = () => (graine = (graine * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-  const nb = Math.round((L * H) / 5200);
-  for (let i = 0; i < nb; i++) {
-    const x = alea() * L, y = alea() * H;
-    const t = alea();
-    const rr = t < 0.86 ? 0.55 : (t < 0.98 ? 0.95 : 1.5);
-    g.globalAlpha = 0.16 + alea() * 0.5;
-    g.fillStyle = COUL.etoiles;
-    g.beginPath(); g.arc(x, y, rr, 0, 6.2832); g.fill();
+/* Semis deterministe : un ciel qui change tout seul n'est pas un ciel. */
+function etoiles(g, w, h, densite) {
+  let s = 20260821;
+  const al = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const n = Math.round((w * h) / 6000 * densite);
+  for (let i = 0; i < n; i++) {
+    const t = al();
+    g.globalAlpha = 0.14 + al() * 0.55;
+    g.fillStyle = "#fff";
+    g.beginPath();
+    g.arc(al() * w, al() * h, t < 0.88 ? 0.6 : (t < 0.985 ? 1.0 : 1.6), 0, 6.2832);
+    g.fill();
   }
   g.globalAlpha = 1;
-  fond = c;
 }
 
-/* ── Mise en place ─────────────────────────────────────────────── */
-function semer() {
-  const cx = L / 2, cy = H / 2;
-  const rayonBase = Math.min(L, H) * 0.31;
-  const parMonde = { linux: [], windows: [], android: [], socle: [] };
-  ETOILES.forEach(e => parMonde[e.monde].push(e));
+function peindreFond() {
+  ctxF.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (imagePerso) {
+    /* On couvre sans deformer : le rapport de l'image est respecte. */
+    const r = Math.max(L / imagePerso.width, H / imagePerso.height);
+    const w = imagePerso.width * r, h = imagePerso.height * r;
+    ctxF.fillStyle = "#000"; ctxF.fillRect(0, 0, L, H);
+    ctxF.drawImage(imagePerso, (L - w) / 2, (H - h) / 2, w, h);
+    ctxF.fillStyle = "rgba(5,5,16,0.42)"; ctxF.fillRect(0, 0, L, H);
+  } else {
+    (FONDS[fondActuel] || FONDS.nebuleuse).peindre(ctxF, L, H);
+  }
+}
 
-  /* Chaque monde occupe son secteur du ciel — un tiers chacun,
-     et le socle au centre. Ce n'est pas decoratif : la position
-     dit a quel monde appartient le logiciel, avant meme la couleur. */
-  const secteurs = { linux: -Math.PI / 2, windows: Math.PI / 6, android: Math.PI * 5 / 6 };
+/* ── Les spheres ───────────────────────────────────────────────── */
+function creerAstre(app, x, y) {
+  const el = document.createElement("div");
+  el.className = "astre" + (app.ep ? "" : " pose");
+  el.tabIndex = 0;
+  el.style.setProperty("--teinte", "var(" + SOURCES[app.src].jeton + ")");
+  el.style.setProperty("--halo", couleurSource(app.src, 0.55));
+  el.style.left = x + "px"; el.style.top = y + "px";
+  el.innerHTML = '<svg><use href="#' + app.ico + '"/></svg>' +
+                 '<span class="etiquette">' + app.nom + "</span>";
+  scene.appendChild(el);
 
-  noeuds = ETOILES.map(e => {
-    let x, y;
-    if (e.monde === "socle") {
-      x = cx; y = cy;
-    } else {
-      const groupe = parMonde[e.monde];
-      const i = groupe.indexOf(e);
-      const etalement = 1.05;
-      const a = secteurs[e.monde] + (i / Math.max(1, groupe.length - 1) - 0.5) * etalement;
-      const d = rayonBase * (0.62 + 0.38 * ((i * 0.61803) % 1));
-      x = cx + Math.cos(a) * d;
-      y = cy + Math.sin(a) * d * 0.86;
-    }
-    return Object.assign({}, e, { x, y, vx: 0, vy: 0, ax: x, ay: y, eclat: 0 });
+  const a = { app, el, x, y };
+  astres.push(a);
+  brancher(a);
+  return a;
+}
+
+function couleurSource(src, alpha) {
+  const v = getComputedStyle(document.documentElement)
+              .getPropertyValue(SOURCES[src].jeton).trim();
+  const h = v.replace("#", "");
+  const n = parseInt(h.length === 3 ? h[0]+h[0]+h[1]+h[1]+h[2]+h[2] : h, 16);
+  return "rgba(" + ((n>>16)&255) + "," + ((n>>8)&255) + "," + (n&255) + "," + alpha + ")";
+}
+
+function brancher(a) {
+  let bouge = false, ox = 0, oy = 0;
+
+  a.el.addEventListener("pointerdown", e => {
+    e.stopPropagation();
+    a.el.setPointerCapture(e.pointerId);
+    bouge = false; ox = e.clientX - a.x; oy = e.clientY - a.y;
   });
 
-  rendreLiensOrigine();
+  a.el.addEventListener("pointermove", e => {
+    if (!a.el.hasPointerCapture || !a.el.hasPointerCapture(e.pointerId)) return;
+    const nx = e.clientX - ox, ny = e.clientY - oy;
+    if (!bouge && Math.hypot(nx - a.x, ny - a.y) < 4) return;
+    bouge = true;
+    a.x = Math.max(26, Math.min(L - 26, nx));
+    a.y = Math.max(26, Math.min(H - 96, ny));
+    a.el.style.left = a.x + "px"; a.el.style.top = a.y + "px";
+    tracerLiens();
+  });
+
+  a.el.addEventListener("pointerup", e => {
+    e.stopPropagation();
+    if (bouge) { bouge = false; return; }
+    choisirAstre(a);
+  });
+
+  a.el.addEventListener("pointerenter", e => montrerFiche(a, e.clientX, e.clientY));
+  a.el.addEventListener("pointerleave", () => fiche.classList.remove("vu"));
+  a.el.addEventListener("keydown", e => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choisirAstre(a); }
+  });
 }
 
-function noeud(id) { return noeuds.find(n => n.id === id); }
-
-function rendreLiensOrigine() {
-  liens = LIENS_ORIGINE
-    .map(([a, b]) => ({ a: noeud(a), b: noeud(b), ne: 0 }))
-    .filter(l => l.a && l.b);
+function choisirAstre(a) {
+  if (choisi === a) { deselectionner(); dire("choix annule"); return; }
+  if (!choisi) {
+    choisi = a; a.el.classList.add("choisi");
+    dire(a.app.nom + "  —  choisir une seconde etoile");
+    return;
+  }
+  const deja = liens.find(l => (l.a === choisi && l.b === a) || (l.a === a && l.b === choisi));
+  if (deja) dire("ce lien existe deja");
+  else { liens.push({ a: choisi, b: a }); dire(choisi.app.nom + " — " + a.app.nom + "  lies"); }
+  deselectionner();
+  tracerLiens();
 }
 
-/* ── Physique : un rappel doux vers la place d'origine, plus une
-      repulsion locale. Amortie fort, pour que ca SE POSE et que le
-      rendu puisse s'arreter. Un systeme qui ne converge jamais est un
-      systeme qui consomme pour toujours. ───────────────────────── */
-function avancer(dt) {
-  let energie = 0;
-  const n = noeuds.length;
+function deselectionner() {
+  if (choisi) choisi.el.classList.remove("choisi");
+  choisi = null;
+}
 
-  for (let i = 0; i < n; i++) {
-    const a = noeuds[i];
-    if (a === saisi) continue;
-    a.vx += (a.ax - a.x) * 0.9 * dt;
-    a.vy += (a.ay - a.y) * 0.9 * dt;
-
-    for (let j = i + 1; j < n; j++) {
-      const b = noeuds[j];
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const d2 = dx * dx + dy * dy;
-      const min = (a.r + b.r) * 4.4;
-      if (d2 < min * min && d2 > 0.01) {
-        const d = Math.sqrt(d2);
-        const f = (min - d) / d * 2.6 * dt;
-        if (b !== saisi) { b.vx += dx * f; b.vy += dy * f; }
-        a.vx -= dx * f; a.vy -= dy * f;
-      }
-    }
-  }
-
-  for (const a of noeuds) {
-    if (a === saisi) { a.vx = a.vy = 0; continue; }
-    a.vx *= 0.86; a.vy *= 0.86;
-    a.x += a.vx * dt * 60; a.y += a.vy * dt * 60;
-    energie += a.vx * a.vx + a.vy * a.vy;
-  }
-
-  /* L'eclat suit le survol, en douceur. Il compte dans l'energie :
-     tant qu'une transition court, on continue de peindre. */
-  for (const a of noeuds) {
-    const vise = (a === survole || a === choisi) ? 1 : 0;
-    const d = vise - a.eclat;
-    if (Math.abs(d) > 0.002) { a.eclat += d * Math.min(1, dt * 9); energie += 0.05; }
-    else a.eclat = vise;
-  }
-
+/* ── Les liens : redessines UNIQUEMENT sur evenement ───────────── */
+function tracerLiens() {
+  ctxL.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctxL.clearRect(0, 0, L, H);
+  ctxL.lineCap = "round";
+  const styles = getComputedStyle(document.documentElement);
+  const pale = styles.getPropertyValue("--lien").trim();
+  const vif  = styles.getPropertyValue("--lien-vif").trim();
   for (const l of liens) {
-    if (l.ne < 1) { l.ne = Math.min(1, l.ne + dt * 1.8); energie += 0.05; }
+    const actif = choisi && (l.a === choisi || l.b === choisi);
+    ctxL.strokeStyle = actif ? vif : pale;
+    ctxL.lineWidth = actif ? 1.2 : 0.8;
+    ctxL.beginPath();
+    ctxL.moveTo(l.a.x, l.a.y);
+    ctxL.lineTo(l.b.x, l.b.y);
+    ctxL.stroke();
   }
-  if (pulsations.length) energie += 0.05;
-
-  return energie;
-}
-
-/* ── Peinture ──────────────────────────────────────────────────── */
-function peindre(t, dt) {
-  if (!fond) graverFond();
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.drawImage(fond, 0, 0, L, H);
-
-  /* Les liens d'abord : ils passent SOUS les etoiles. */
-  ctx.lineCap = "round";
-  for (const l of liens) {
-    const vif = (choisi && (l.a === choisi || l.b === choisi)) ||
-                (survole && (l.a === survole || l.b === survole));
-    ctx.strokeStyle = vif ? COUL.lienVif : COUL.lien;
-    ctx.lineWidth = vif ? 1.15 : 0.7;
-    ctx.globalAlpha = l.ne;
-    ctx.beginPath();
-    ctx.moveTo(l.a.x, l.a.y);
-    ctx.lineTo(l.b.x, l.b.y);
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-
-  /* Les pulsations : une onde parcourt un lien qui vient de naitre. */
-  for (let i = pulsations.length - 1; i >= 0; i--) {
-    const p = pulsations[i];
-    p.t += dt * 1.35;
-    if (p.t >= 1) { pulsations.splice(i, 1); continue; }
-    const x = p.a.x + (p.b.x - p.a.x) * p.t;
-    const y = p.a.y + (p.b.y - p.a.y) * p.t;
-    ctx.globalAlpha = Math.sin(p.t * Math.PI) * 0.9;
-    ctx.fillStyle = COUL.lienVif;
-    ctx.beginPath(); ctx.arc(x, y, 2.1, 0, 6.2832); ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-
-  /* Le cercle de selection. */
-  if (choisi) {
-    ctx.strokeStyle = avecAlpha(COUL[choisi.monde], 0.9);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(choisi.x, choisi.y, choisi.r + 8 + Math.sin(t * 0.004) * 1.6, 0, 6.2832);
-    ctx.stroke();
-  }
-
-  /* Les etoiles. */
-  for (const a of noeuds) {
-    const s = sprite(a.monde, a.r, a.etat);
-    const d = s.taille;
-    ctx.drawImage(s.c, a.x - d / 2, a.y - d / 2, d, d);
-  }
-
-  /* Les noms. Toujours pour le socle, sinon au survol ou sur demande. */
-  ctx.font = '500 11.5px "IBM Plex Sans", system-ui, sans-serif';
-  ctx.textAlign = "center";
-  ctx.textBaseline = "top";
-  for (const a of noeuds) {
-    const op = nomsVisibles ? Math.max(0.42, a.eclat) : a.eclat;
-    if (op < 0.02) continue;
-    ctx.globalAlpha = op;
-    ctx.fillStyle = a.eclat > 0.5 ? COUL.encre : COUL.encrePale;
-    ctx.fillText(a.nom, a.x, a.y + a.r + 7);
-  }
-  ctx.globalAlpha = 1;
-
-  images++;
-}
-
-/* ── La boucle, et surtout son ARRET ───────────────────────────── */
-function image(t) {
-  const dt = Math.min(0.05, (t - dernier) / 1000) || 0.016;
-  dernier = t;
-
-  const energie = avancer(dt);
-  peindre(t, dt);
-  majCompteurs();
-
-  if (energie < REPOS_SEUIL && !saisi && !pointeur.actif) {
-    if (!calmeDepuis) calmeDepuis = t;
-    if (t - calmeDepuis > 320) { dormir(); return; }
-  } else {
-    calmeDepuis = 0;
-  }
-  boucle = requestAnimationFrame(image);
-}
-
-function reveiller() {
-  calmeDepuis = 0;
-  if (boucle) return;
-  dernier = performance.now();
-  document.getElementById("pastille").classList.add("actif");
-  document.getElementById("mot-etat").textContent = "en mouvement";
-  boucle = requestAnimationFrame(image);
-}
-
-function dormir() {
-  cancelAnimationFrame(boucle);
-  boucle = 0;
-  document.getElementById("pastille").classList.remove("actif");
-  document.getElementById("mot-etat").textContent = "au repos";
-  majCompteurs();
-}
-
-function majCompteurs() {
-  document.getElementById("n-etoiles").textContent   = noeuds.length;
-  document.getElementById("n-eprouvees").textContent = noeuds.filter(n => n.etat === "eprouve").length;
-  document.getElementById("n-liens").textContent     = liens.length;
-  document.getElementById("n-images").textContent    = images;
-}
-
-/* ── Geometrie ─────────────────────────────────────────────────── */
-function redimensionner() {
-  dpr = Math.min(2, window.devicePixelRatio || 1);
-  L = window.innerWidth; H = window.innerHeight;
-  cv.width = L * dpr; cv.height = H * dpr;
-  cv.style.width = L + "px"; cv.style.height = H + "px";
-  sprites.clear();
-  fond = null;
-  if (!noeuds.length) semer(); else recentrer();
-  reveiller();
-}
-
-function recentrer() {
-  const cx = L / 2, cy = H / 2;
-  const anciens = noeuds.map(n => ({ id: n.id, x: n.x, y: n.y }));
-  const memoire = new Map(anciens.map(a => [a.id, a]));
-  semer();
-  for (const n of noeuds) {
-    const a = memoire.get(n.id);
-    if (a) { n.x = a.x; n.y = a.y; }
-  }
-}
-
-function sous(x, y) {
-  let meilleur = null, dmin = 1e9;
-  for (const n of noeuds) {
-    const d = Math.hypot(n.x - x, n.y - y);
-    if (d < Math.max(16, n.r + 11) && d < dmin) { dmin = d; meilleur = n; }
-  }
-  return meilleur;
 }
 
 function lienSous(x, y) {
   for (const l of liens) {
     const dx = l.b.x - l.a.x, dy = l.b.y - l.a.y;
-    const long2 = dx * dx + dy * dy;
-    if (long2 < 1) continue;
-    let u = ((x - l.a.x) * dx + (y - l.a.y) * dy) / long2;
+    const d2 = dx*dx + dy*dy;
+    if (d2 < 1) continue;
+    let u = ((x - l.a.x) * dx + (y - l.a.y) * dy) / d2;
     u = Math.max(0, Math.min(1, u));
-    const px = l.a.x + u * dx, py = l.a.y + u * dy;
-    if (Math.hypot(px - x, py - y) < 6) return l;
+    if (Math.hypot(l.a.x + u*dx - x, l.a.y + u*dy - y) < 7) return l;
   }
   return null;
 }
 
-/* ── Interaction ───────────────────────────────────────────────── */
-const fiche = document.getElementById("fiche");
-
-function montrerFiche(n, x, y) {
-  fiche.querySelector(".nom-app").textContent = n.nom;
-  const m = fiche.querySelector(".monde");
-  m.textContent = MONDES[n.monde].nom;
-  m.style.color = "var(" + MONDES[n.monde].jeton + ")";
-  fiche.querySelector(".fait").innerHTML = n.fait;
-  fiche.querySelector(".preuve").innerHTML =
-    (n.etat === "eprouve" ? "&#10003; " : n.etat === "echoue" ? "&#10007; " : "&#9675; ") + n.preuve;
-  fiche.classList.add("visible");
+/* ── Fiche et message ──────────────────────────────────────────── */
+function montrerFiche(a, x, y) {
+  fiche.querySelector(".f-nom").textContent = a.app.nom;
+  const s = fiche.querySelector(".f-src");
+  s.textContent = SOURCES[a.app.src].nom + (a.app.ep ? "" : "  ·  jamais exerce");
+  s.style.color = "var(" + SOURCES[a.app.src].jeton + ")";
+  fiche.querySelector(".f-txt").innerHTML = a.app.txt;
+  fiche.classList.add("vu");
   const b = fiche.getBoundingClientRect();
-  let fx = x + 20, fy = y + 16;
-  if (fx + b.width  > L - 12) fx = x - b.width - 20;
+  let fx = x + 22, fy = y + 16;
+  if (fx + b.width  > L - 12) fx = x - b.width - 22;
   if (fy + b.height > H - 12) fy = y - b.height - 16;
   fiche.style.left = Math.max(12, fx) + "px";
   fiche.style.top  = Math.max(12, fy) + "px";
 }
-function cacherFiche() { fiche.classList.remove("visible"); }
 
-let minuteurMsg = 0;
-function dire(txt) {
-  const m = document.getElementById("message");
-  m.textContent = txt;
-  m.classList.add("visible");
-  clearTimeout(minuteurMsg);
-  minuteurMsg = setTimeout(() => m.classList.remove("visible"), 2100);
+let tMot = 0;
+function dire(t) {
+  const m = document.getElementById("mot");
+  m.textContent = t; m.classList.add("vu");
+  clearTimeout(tMot);
+  tMot = setTimeout(() => m.classList.remove("vu"), 2100);
 }
 
-cv.addEventListener("pointermove", e => {
-  pointeur.x = e.clientX; pointeur.y = e.clientY;
-  if (saisi) {
-    saisi.x = e.clientX; saisi.y = e.clientY;
-    saisi.ax = e.clientX; saisi.ay = e.clientY;
-    saisiBouge = true;
-    reveiller();
-    return;
+/* ── Mise en place ─────────────────────────────────────────────── */
+function semer() {
+  scene.innerHTML = "";
+  astres = []; liens = []; choisi = null;
+  const cx = L / 2, cy = (H - 70) / 2;
+  const R = Math.min(L, H - 70) * 0.34;
+  const secteurs = { linux: -Math.PI/2, windows: Math.PI/6, android: Math.PI*5/6 };
+  const parSrc = { linux: [], windows: [], android: [] };
+  APPS.forEach(a => parSrc[a.src].push(a));
+
+  for (const src in parSrc) {
+    const g = parSrc[src];
+    g.forEach((app, i) => {
+      const a = secteurs[src] + (i / Math.max(1, g.length - 1) - 0.5) * 1.18;
+      const d = R * (0.55 + 0.45 * ((i * 0.61803) % 1));
+      creerAstre(app, cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.88);
+    });
   }
-  const n = sous(e.clientX, e.clientY);
-  if (n !== survole) {
-    survole = n;
-    cv.classList.toggle("survole", !!n || !!lienSous(e.clientX, e.clientY));
-    if (n) montrerFiche(n, e.clientX, e.clientY); else cacherFiche();
-    reveiller();
-  } else if (n) {
-    montrerFiche(n, e.clientX, e.clientY);
-  } else {
-    cv.classList.toggle("survole", !!lienSous(e.clientX, e.clientY));
+  rendreLiensOrigine();
+}
+
+function parId(id) { return astres.find(a => a.app.id === id); }
+
+function rendreLiensOrigine() {
+  liens = LIENS_ORIGINE.map(([x, y]) => ({ a: parId(x), b: parId(y) }))
+                       .filter(l => l.a && l.b);
+  tracerLiens();
+}
+
+function redimensionner() {
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  L = window.innerWidth; H = window.innerHeight;
+  for (const c of [cvF, cvL]) {
+    c.width = L * dpr; c.height = H * dpr;
+    c.style.width = L + "px"; c.style.height = H + "px";
   }
+  peindreFond();
+  if (!astres.length) semer(); else tracerLiens();
+}
+
+/* ── Le menu Demarrer ──────────────────────────────────────────── */
+const menu = document.getElementById("menu");
+const noyau = document.getElementById("noyau");
+const corps = document.getElementById("corps");
+const recherche = document.getElementById("recherche");
+let vue = "apps";
+
+function ouvrirMenu(o) {
+  menu.classList.toggle("ouvert", o);
+  noyau.classList.toggle("ouvert", o);
+  if (o) { recherche.value = ""; peindreVue(); setTimeout(() => recherche.focus(), 60); }
+}
+noyau.addEventListener("click", () => ouvrirMenu(!menu.classList.contains("ouvert")));
+noyau.addEventListener("keydown", e => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ouvrirMenu(!menu.classList.contains("ouvert")); }
 });
 
-cv.addEventListener("pointerdown", e => {
-  cv.setPointerCapture(e.pointerId);
-  pointeur.actif = true;
-  const n = sous(e.clientX, e.clientY);
-  if (n) { saisi = n; saisiBouge = false; cv.classList.add("saisit"); }
-  reveiller();
+document.querySelectorAll(".onglet").forEach(o => {
+  o.addEventListener("click", () => {
+    document.querySelectorAll(".onglet").forEach(x => x.classList.remove("actif"));
+    o.classList.add("actif");
+    vue = o.dataset.vue;
+    peindreVue();
+  });
 });
 
-cv.addEventListener("pointerup", e => {
-  pointeur.actif = false;
-  cv.classList.remove("saisit");
-  const n = saisi;
-  saisi = null;
+recherche.addEventListener("input", peindreVue);
 
-  if (n && saisiBouge) { reveiller(); return; }   /* c'etait un deplacement */
+function bulleHTML(app, cls) {
+  return '<span class="' + cls + (app.ep ? "" : " pose") + '" style="--teinte:var(' +
+         SOURCES[app.src].jeton + ')"><svg><use href="#' + app.ico + '"/></svg></span>';
+}
 
-  if (n) {
-    if (choisi === n) { choisi = null; dire("choix annule"); }
-    else if (choisi) {
-      const deja = liens.find(l => (l.a === choisi && l.b === n) || (l.a === n && l.b === choisi));
-      if (deja) { dire("ce lien existe deja"); }
-      else {
-        liens.push({ a: choisi, b: n, ne: 0 });
-        pulsations.push({ a: choisi, b: n, t: 0 });
-        dire(choisi.nom + " — " + n.nom + "  lies");
-      }
-      choisi = null;
-    } else {
-      choisi = n;
-      dire(n.nom + "  —  choisir une seconde etoile");
+function peindreVue() {
+  const q = recherche.value.trim().toLowerCase();
+  let h = "";
+
+  if (q) {
+    const trouves = APPS.filter(a => a.nom.toLowerCase().includes(q) ||
+                                     SOURCES[a.src].nom.toLowerCase().includes(q));
+    h += '<div class="section-titre">' + trouves.length + " resultat(s)</div>";
+    h += trouves.length
+       ? '<div class="grille">' + trouves.map(tuile).join("") + "</div>"
+       : '<div class="reglage">Rien ne correspond a &laquo; ' + q + " &raquo;.</div>";
+    corps.innerHTML = h; brancherMenu(); return;
+  }
+
+  if (vue === "apps") {
+    h += '<div class="section-titre">Epinglees</div><div class="grille">' +
+         APPS.filter(a => a.epingle).map(tuile).join("") + "</div>";
+    for (const src of ["linux", "windows", "android"]) {
+      h += '<div class="section-titre">' + SOURCES[src].nom + "</div><div class=\"grille\">" +
+           APPS.filter(a => a.src === src).map(tuile).join("") + "</div>";
     }
-  } else {
-    const l = lienSous(e.clientX, e.clientY);
-    if (l) {
-      liens.splice(liens.indexOf(l), 1);
-      dire("lien efface");
-    } else if (choisi) {
-      choisi = null; dire("choix annule");
-    }
   }
-  reveiller();
-});
 
-cv.addEventListener("pointerleave", () => {
-  survole = null; pointeur.actif = false; cacherFiche(); reveiller();
+  else if (vue === "dossiers") {
+    const d = [
+      ["i-maison",  "Dossier personnel", "/var/home/Ghis"],
+      ["i-doc",     "Documents",         "un seul, pour les trois mondes"],
+      ["i-image",   "Images",            ""],
+      ["i-telech",  "Telechargements",   ""],
+      ["i-note-mus","Musique",           ""],
+      ["i-video",   "Videos",            ""],
+      ["i-disque",  "Seagate",           "4,55 To"],
+      ["i-boite",   "Le Windows de S",   "prefixe Proton"]
+    ];
+    h += '<div class="section-titre">Emplacements</div><div class="liste">' +
+      d.map(([i, n, det]) =>
+        '<button class="rangee"><svg><use href="#' + i + '"/></svg>' + n +
+        (det ? '<span class="detail">' + det + "</span>" : "") + "</button>").join("") +
+      "</div>";
+  }
+
+  else if (vue === "reglages") {
+    h += '<div class="section-titre">Fond d\'ecran</div><div class="fonds" id="fonds"></div>';
+    h += '<div class="section-titre">Depuis un fichier</div><div class="liste">' +
+         '<button class="rangee" data-act="image"><svg><use href="#i-image"/></svg>' +
+         'Choisir une image&#8230;<span class="detail">jamais envoyee</span></button></div>';
+    h += '<div class="section-titre">Bureau</div><div class="liste">' +
+      '<label class="reglage"><svg style="width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7"><use href="#i-notes"/></svg>' +
+      'Noms toujours visibles<input type="checkbox" class="bascule" id="b-noms" style="margin-left:auto"></label>' +
+      '<button class="rangee" data-act="liens"><svg><use href="#i-recommence"/></svg>' +
+      'Rendre les liens d\'origine<span class="detail">' + LIENS_ORIGINE.length + " coutures</span></button>" +
+      '<button class="rangee" data-act="ranger"><svg><use href="#i-grille"/></svg>' +
+      'Ranger les etoiles</button>' +
+      "</div>";
+    h += '<div class="section-titre">Systeme</div><div class="liste">' +
+      '<button class="rangee"><svg><use href="#i-ecran"/></svg>Affichage<span class="detail">' +
+        window.innerWidth + "&#215;" + window.innerHeight + "</span></button>" +
+      '<button class="rangee"><svg><use href="#i-son"/></svg>Son</button>' +
+      '<button class="rangee"><svg><use href="#i-reseau"/></svg>Reseau</button>' +
+      '<button class="rangee"><svg><use href="#i-boite"/></svg>A propos<span class="detail">S</span></button>' +
+      "</div>";
+  }
+
+  else if (vue === "alim") {
+    h += '<div class="section-titre">Session</div><div class="liste">' +
+      '<button class="rangee"><svg><use href="#i-cadenas"/></svg>Verrouiller</button>' +
+      '<button class="rangee"><svg><use href="#i-sortie"/></svg>Se deconnecter</button>' +
+      "</div>";
+    h += '<div class="section-titre">Machine</div><div class="liste">' +
+      '<button class="rangee"><svg><use href="#i-recommence"/></svg>Redemarrer</button>' +
+      '<button class="rangee grave"><svg><use href="#i-alim"/></svg>Eteindre</button>' +
+      "</div>";
+  }
+
+  corps.innerHTML = h;
+  if (vue === "reglages" && !q) peindreVignettes();
+  brancherMenu();
+}
+
+function tuile(app) {
+  return '<button class="tuile" data-app="' + app.id + '">' +
+         bulleHTML(app, "bulle") + '<span class="nom">' + app.nom + "</span></button>";
+}
+
+function peindreVignettes() {
+  const hote = document.getElementById("fonds");
+  if (!hote) return;
+  hote.innerHTML = "";
+  for (const cle in FONDS) {
+    const b = document.createElement("button");
+    b.className = "vignette" + (cle === fondActuel && !imagePerso ? " actif" : "");
+    b.dataset.fond = cle;
+    const c = document.createElement("canvas");
+    c.width = 208; c.height = 130;
+    FONDS[cle].peindre(c.getContext("2d"), 208, 130);
+    b.appendChild(c);
+    const t = document.createElement("span");
+    t.className = "titre-v"; t.textContent = FONDS[cle].nom;
+    b.appendChild(t);
+    hote.appendChild(b);
+  }
+}
+
+function brancherMenu() {
+  corps.querySelectorAll("[data-app]").forEach(b => {
+    b.addEventListener("click", () => {
+      const app = APPS.find(a => a.id === b.dataset.app);
+      dire(app.nom + (app.ep ? "  —  lancee" : "  —  jamais exercee, ce serait un premier essai"));
+      ouvrirMenu(false);
+    });
+  });
+  corps.querySelectorAll("[data-fond]").forEach(b => {
+    b.addEventListener("click", () => {
+      fondActuel = b.dataset.fond; imagePerso = null;
+      peindreFond(); peindreVignettes();
+      dire("fond : " + FONDS[fondActuel].nom);
+    });
+  });
+  const bn = document.getElementById("b-noms");
+  if (bn) {
+    bn.checked = document.body.classList.contains("noms");
+    bn.addEventListener("change", () => document.body.classList.toggle("noms", bn.checked));
+  }
+  corps.querySelectorAll("[data-act]").forEach(b => {
+    b.addEventListener("click", () => {
+      const a = b.dataset.act;
+      if (a === "liens")  { rendreLiensOrigine(); dire("liens d'origine rendus"); }
+      if (a === "ranger") { semer(); dire("etoiles rangees"); }
+      if (a === "image")  { choisirImage(); }
+    });
+  });
+}
+
+/* Le fichier est lu DANS le navigateur, jamais envoye nulle part. */
+function choisirImage() {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = "image/*";
+  inp.addEventListener("change", () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    const lec = new FileReader();
+    lec.onload = () => {
+      const im = new Image();
+      im.onload = () => {
+        imagePerso = im; peindreFond(); peindreVignettes();
+        dire("fond : " + f.name);
+      };
+      im.onerror = () => dire("cette image n'a pas pu etre lue");
+      im.src = lec.result;
+    };
+    lec.readAsDataURL(f);
+  });
+  inp.click();
+}
+
+/* ── Clic sur le vide : effacer un lien, ou fermer le menu ─────── */
+document.addEventListener("pointerdown", e => {
+  if (menu.contains(e.target) || noyau.contains(e.target)) return;
+  if (menu.classList.contains("ouvert")) { ouvrirMenu(false); return; }
+  if (e.target.closest(".astre") || e.target.closest("#barre")) return;
+  const l = lienSous(e.clientX, e.clientY);
+  if (l) { liens.splice(liens.indexOf(l), 1); tracerLiens(); dire("lien efface"); }
+  else if (choisi) { deselectionner(); tracerLiens(); dire("choix annule"); }
 });
 
 addEventListener("keydown", e => {
+  if (e.target === recherche) { if (e.key === "Escape") ouvrirMenu(false); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
-  if (k === "t") {
-    const r = document.documentElement;
-    const sombreActuel = !r.getAttribute("data-theme")
-      ? !matchMedia("(prefers-color-scheme: light)").matches
-      : r.getAttribute("data-theme") === "dark";
-    r.setAttribute("data-theme", sombreActuel ? "light" : "dark");
-    relireCouleurs();
-    dire(sombreActuel ? "atlas — encre sur papier" : "nuit — le ciel");
-    reveiller();
-  } else if (k === "n") {
-    nomsVisibles = !nomsVisibles;
-    dire(nomsVisibles ? "noms toujours visibles" : "noms au survol seulement");
-    reveiller();
-  } else if (k === "r") {
-    rendreLiensOrigine();
-    choisi = null;
-    dire("liens d'origine rendus — les coutures reelles de S");
-    reveiller();
-  } else if (k === "c") {
-    for (const n of noeuds) { n.x += (n.ax - n.x) * 0.001; }
-    semer(); dire("ciel recentre"); reveiller();
-  } else if (k === "f") {
+  if (k === "escape") { if (menu.classList.contains("ouvert")) ouvrirMenu(false); else { deselectionner(); tracerLiens(); } }
+  else if (k === "n") { document.body.classList.toggle("noms"); dire(document.body.classList.contains("noms") ? "noms visibles" : "noms au survol"); }
+  else if (k === "r") { rendreLiensOrigine(); dire("liens d'origine rendus"); }
+  else if (k === "f") {
     if (document.fullscreenElement) document.exitFullscreen();
-    else document.documentElement.requestFullscreen().catch(() => dire("plein ecran refuse par le navigateur"));
-  } else if (k === "escape") {
-    choisi = null; dire("choix annule"); reveiller();
+    else document.documentElement.requestFullscreen().catch(() => dire("plein ecran refuse"));
   }
 });
 
 addEventListener("resize", redimensionner);
-matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
-  relireCouleurs(); reveiller();
-});
+
+/* ── La barre : les epinglees, plus l'heure ────────────────────── */
+function peindreBarre() {
+  const r = document.getElementById("raccourcis");
+  r.innerHTML = "";
+  APPS.filter(a => a.epingle).slice(0, 7).forEach(app => {
+    const b = document.createElement("button");
+    b.className = "raccourci";
+    b.style.setProperty("--teinte", "var(" + SOURCES[app.src].jeton + ")");
+    b.style.setProperty("--halo", couleurSource(app.src, 0.5));
+    b.title = app.nom;
+    b.innerHTML = '<svg><use href="#' + app.ico + '"/></svg>';
+    b.addEventListener("click", () => dire(app.nom + (app.ep ? "  —  lancee" : "  —  jamais exercee")));
+    r.appendChild(b);
+  });
+}
+
+function horloge() {
+  const d = new Date();
+  document.getElementById("horloge").textContent =
+    String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
 
 /* ── Depart ────────────────────────────────────────────────────── */
-function partir() {
-  relireCouleurs();
-  redimensionner();
-  setTimeout(() => dire("clic sur deux etoiles pour les lier"), 900);
-}
-
-if (document.fonts && document.fonts.ready) {
-  document.fonts.ready.then(partir);
-} else {
-  partir();
-}
+redimensionner();
+peindreBarre();
+horloge();
+setInterval(horloge, 20000);   /* la seule minuterie de la page */
+setTimeout(() => dire("clic sur deux etoiles pour les lier"), 900);
 </script>

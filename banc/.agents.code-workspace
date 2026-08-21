@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "../../Projet pc boost/.agents"
+		},
+		{
+			"path": "../../Projet pc boost/.claude"
+		},
+		{
+			"path": "../../Projet pc boost/PcBoostApp"
+		},
+		{
+			"path": "../../Projet pc boost/publish"
+		}
+	]
+}

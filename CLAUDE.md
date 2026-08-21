@@ -46,12 +46,63 @@ lancement).
 
 ---
 
-## Où on en est — 2026-08-20
+## Où on en est — 2026-08-21
+
+**S est écrit sur un vrai disque, et ce disque n'a jamais démarré.** La nuance
+porte tout : l'installation sur la Seagate est faite, vérifiée fichier par
+fichier, caches vidés. Le premier amorçage sur la M720q **n'a pas eu lieu**.
+Tant qu'il n'a pas eu lieu, le jalon 3 n'est pas atteint.
 
 **Le jalon 2 est atteint et prouvé.** S s'installe, démarre jusqu'à l'invite de
 connexion, se met à jour par `bootc upgrade`, et **porte huit logiciels installés
 aux bons chemins**. Le jalon 5 s'est ouvert le soir même : un double-clic installe
 désormais dans les trois mondes, et c'est éprouvé. CI vert, image publique.
+
+### La Seagate — écrite le 2026-08-21
+
+| | |
+|---|---|
+| Disque | Seagate Game Drive PS · **5 000 981 077 504 octets** · USB · HDD 512e · SMR probable |
+| Écriture | **25,91 Gio en 42 min**, 11–12 Mo/s tenus, sans effondrement SMR |
+| Structure | BIOS boot 1 Mio · ESP 512 Mio · racine **ext4 4,5 To** |
+| Noyau posé | **7.2.0-ogc4.1.fc44** (l'image est reconstruite chaque jour) |
+| Vérifié | `\EFI\BOOT\BOOTX64.EFI` · 8 gestes `s-*` · Proton 491 237 448 o · F-Droid · 13 associations · `binder` · origine `s-os:latest` |
+| `plasma-setup-done` | **absent** — l'assistant de compte s'ouvrira |
+| Caches | `sync` + `blockdev --flushbufs`, deux fois avec délai |
+
+**Le débit a monté pendant l'écriture**, de 6,75 à 12,5 Mo/s : `mkfs` sur 4,5 To
+coûte cher en métadonnées, les couches sont plus séquentielles. Ne pas lire le
+premier chiffre comme une tendance.
+
+### Le halt de QEMU, et ce qu'il apprend
+
+Le premier lancement s'est **halté à 1,46 s de temps noyau**. Signature :
+**0,00 s de CPU consommée sur 75 s**, les 8 threads en attente, zéro E/S sur le
+disque hôte — lequel restait sain. Un arrêt franc, pas une lenteur.
+
+La cause : j'avais introduit **trois changements d'un coup** sur un chemin
+éprouvé, pour gagner en performance — `if=none` + `-device virtio-blk-pci`, les
+tailles de bloc 512e, et `aio=threads`. Revenir à la syntaxe exacte qui avait
+marché a tout réglé du premier coup.
+
+**Et une passe contradictoire a réfuté ma propre explication** : `hdev_open()`
+refuse tout autre mode qu'`aio=threads` sous Windows, et QEMU n'implémente pas
+`.bdrv_probe_blocksizes` pour un `host_device` — l'alignement est figé à 512 côté
+hôte. **Deux de mes trois « optimisations » étaient inertes.** Elles ne pouvaient
+pas être la cause, et je les avais accusées avec assurance.
+
+`banc/seagate.ps1` porte désormais un paramètre `-Variante`, dont **le défaut est
+la syntaxe éprouvée**. Une seule variable à la fois.
+
+### Deux dossiers neufs, et leurs règles d'entrée
+
+- **`grimoire/`** — les mécanismes qui ont fonctionné, extraits et réutilisables.
+  Règle : **rien n'entre sans une ligne `PREUVE:` datée**. Dix pièces.
+  Son propre outil, lancé sur le dépôt, a trouvé sept scripts ayant perdu leur
+  bit d'exécution dans git — dont quatre dans `build_files/`.
+- **`galerie/`** — l'identité visuelle, jalon 6. Règle : **rien n'entre sans une
+  capture datée qui nomme la machine**. Une pièce, *Constellation*, en attente
+  de sa première photo.
 
 **La nuance porte tout le reste du carnet** : « installé » n'est pas « éprouvé ».
 Des huit logiciels, un seul a jamais été exécuté — Vivaldi, par un `--version`.
@@ -102,8 +153,14 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
 
 À dire nettement, parce que c'est l'essentiel de ce qui reste :
 
-- **Aucune machine réelle n'a démarré sur S.** Tout ce qui précède s'est passé
-  dans QEMU. Il manque le SSD externe — le seul achat du projet.
+- **Aucune machine réelle n'a démarré sur S.** C'est ce qui reste, et c'est tout
+  ce qui reste avant le jalon 3. Le disque n'est plus le verrou : la Seagate de
+  4,55 To porte S, écrit et vérifié le 2026-08-21. Ce n'était pas le SSD prévu
+  mais un **plateau USB**, ce qui suffit à répondre aux trois questions du jalon 3
+  et se paiera seulement en lenteur. **Le prochain geste est un F12.**
+  *Piège relevé le même jour :* le démarrage rapide de Windows est actif
+  (`HiberbootEnabled = 1`), donc « Arrêter » ne repasse pas par le firmware.
+  Il faut **« Redémarrer »**.
 - **Waydroid n'a jamais tourné.** `binder` est compilé dans le noyau, le
   lanceur est présent, la recette de Bazzite existe — mais aucune application
   Android n'a jamais démarré. C'est le différenciateur du projet, et il est
@@ -132,10 +189,10 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
 | 0 · La voie Waydroid | **fait** — `binder` compilé dans le noyau, prouvé à la construction |
 | 1 · Le dépôt et la chaîne | **fait** — CI vert, image publiée, reconstruction quotidienne |
 | 2 · L'image démarre | **fait et prouvé de l'intérieur** — 35 s, zéro service en échec |
-| 3 · Le vrai matériel | **bloqué** — attend un SSD externe (~40 €) |
+| 3 · Le vrai matériel | **à moitié** — S est écrit et vérifié sur la Seagate ; **aucune machine réelle n'a encore démarré dessus** |
 | 4 · Les trois mondes côte à côte | pas commencé — exige le jalon 3 |
 | 5 · Les coutures | **commencé** — l'installation des trois mondes est cousue et éprouvée ; le partage entre eux ne l'est pas |
-| 6 · L'identité | pas commencé — S s'annonce encore « Bazzite » |
+| 6 · L'identité | **commencé hors image** — `galerie/constellation` est un prototype qui tourne dans un navigateur. **Rien n'est encore posé dans l'image** : S s'annonce toujours « Bazzite », et l'entrée d'amorçage écrite sur la Seagate dit littéralement `title Bazzite (ostree:0)` |
 | 7 · L'usage quotidien | pas commencé |
 
 **Le jalon 3 est le seul verrou matériel**, et il ne se lève pas par du code : il
