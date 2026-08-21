@@ -93,7 +93,18 @@ echo "  ecriture : autorisee (secteurs 2048 et $DERNIER)"
 # "no space left on device" a la couche 84 sur 137, meme image. Il avait coute
 # le telechargement entier.
 LIBRE=$(df -B1 --output=avail /var/lib/containers | tail -1)
-REQUIS=30064771072
+if podman image exists "$IMAGE" 2>/dev/null; then
+    # L'image est deja au magasin : plus rien a tirer ni a decompresser, donc
+    # la contrainte tombe. Ne pas distinguer les deux cas ferait refuser une
+    # reprise qui, elle, ne demande rien -- exactement le cas rencontre le
+    # 2026-08-20 apres l'echec sur la cle SSH : 17 Go d'image en cache, 16 Go
+    # libres, et un garde-fou qui reclamait 28 Go pour ne rien telecharger.
+    REQUIS=2147483648
+    echo "  image    : deja au magasin, aucun telechargement"
+else
+    REQUIS=30064771072
+    echo "  image    : absente du magasin, il faudra la tirer"
+fi
 echo "  place    : $LIBRE octets libres, $REQUIS requis"
 if [ "$LIBRE" -lt "$REQUIS" ]; then
     echo "ARRET : pas assez de place dans la VM pour deposer l'image." >&2
@@ -119,10 +130,20 @@ echo "=== Ecriture ==="
 #
 # --target-imgref n'est pas facultative : sans elle, "bootc upgrade" ne sait
 # pas ou aller chercher la suite une fois la cle demarree.
+# PAS de --root-ssh-authorized-keys, et ce n'est pas un renoncement.
+#
+# L'essai du 2026-08-20 a 23h43 a rendu, apres avoir tire l'image entiere :
+#   error: Installing to disk: Reading /tmp/cle.pub: No such file or directory
+# Le montage --volume n'est pas visible la ou bootc lit le fichier.
+#
+# Mais surtout, l'option ne servirait a RIEN ici : elle donnerait un acces SSH a
+# la cle une fois demarree, or la cle demarre sur la machine de Ghis -- celle-la
+# meme depuis laquelle je travaille. Quand S tourne, Windows est eteint et je
+# n'ai aucune machine d'ou me connecter. On retire la cause plutot que de
+# contourner le symptome.
 podman run --rm --privileged --pid=host \
     -v /dev:/dev \
     -v /var/lib/containers:/var/lib/containers \
-    -v /root/.ssh/authorized_keys:/tmp/cle.pub:ro \
     --security-opt label=type:unconfined_t \
     "$IMAGE" \
     bootc install to-disk \
@@ -130,7 +151,6 @@ podman run --rm --privileged --pid=host \
         --generic-image \
         --filesystem btrfs \
         --target-imgref "$IMAGE" \
-        --root-ssh-authorized-keys /tmp/cle.pub \
         "$CIBLE"
 
 CODE=$?
