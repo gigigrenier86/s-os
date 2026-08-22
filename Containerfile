@@ -68,6 +68,13 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/30-premiere-connexion.sh
 
+# La machine s'annonce S — une retouche d'os-release, que tout le reste lit :
+# l'invite de console, l'entree du chargeur d'amorcage, le centre d'information.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/35-identite.sh
+
 # Ce qui se depose tel quel, sans logique : gestes, lanceurs, associations.
 #
 # Ce COPY est ICI, et pas en tete, parce qu'il porte les fichiers qui changent le
@@ -75,6 +82,11 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # soit VS Code, Antigravity, Zoom et Proton — a chaque virgule corrigee dans un
 # geste. Seul 40-coutures.sh en a besoin, donc il descend jusqu'a lui.
 COPY files/ /
+
+# Constellation, le bureau etoile — le prototype de galerie/ entre tel quel.
+# Une seule source : le fichier reste dans galerie/, l'image le recopie. Son
+# lanceur vit dans files/usr/share/applications/, meme forme que RapidO.
+COPY galerie/constellation/constellation.html /usr/share/s/constellation/constellation.html
 
 # Les coutures — la partie qui bouge le plus
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \

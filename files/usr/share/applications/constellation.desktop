@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Constellation
+GenericName=Bureau étoilé
+Comment=Le bureau de S : chaque logiciel est une étoile, son anneau dit son monde
+Exec=/usr/bin/vivaldi-stable --app=file:///usr/share/s/constellation/constellation.html --class=Constellation
+Icon=weather-clear-night
+Terminal=false
+StartupNotify=true
+StartupWMClass=Constellation
+Categories=Utility;
+Keywords=constellation;bureau;etoiles;s;

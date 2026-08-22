@@ -192,7 +192,7 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
 | 3 · Le vrai matériel | **à moitié** — S est écrit et vérifié sur la Seagate ; **aucune machine réelle n'a encore démarré dessus** |
 | 4 · Les trois mondes côte à côte | pas commencé — exige le jalon 3 |
 | 5 · Les coutures | **commencé** — l'installation des trois mondes est cousue et éprouvée ; le partage entre eux ne l'est pas |
-| 6 · L'identité | **commencé hors image** — `galerie/constellation` est un prototype qui tourne dans un navigateur. **Rien n'est encore posé dans l'image** : S s'annonce toujours « Bazzite », et l'entrée d'amorçage écrite sur la Seagate dit littéralement `title Bazzite (ostree:0)` |
+| 6 · L'identité | **commencé, deux pièces posées dans l'image le 2026-08-22** — le lanceur Constellation (le prototype de `galerie/` s'ouvre en fenêtre dédiée par Vivaldi) et l'os-release réécrit : la machine s'annonce « S », `ID` restant `bazzite` pour ne pas casser les recettes de l'amont. **Jamais vu sur une machine** ; l'entrée d'amorçage de la Seagate dira `Bazzite (ostree:0)` jusqu'au prochain déploiement, elle s'écrit au déploiement depuis `PRETTY_NAME` |
 | 7 · L'usage quotidien | pas commencé |
 
 **Le jalon 3 est le seul verrou matériel**, et il ne se lève pas par du code : il
