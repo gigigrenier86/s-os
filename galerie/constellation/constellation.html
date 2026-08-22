@@ -16,6 +16,25 @@
    Un anneau PLEIN = le logiciel a deja tourne, mesure.
    Un anneau POINTILLE = il est pose dans l'image, jamais exerce.
    C'est la discipline du carnet, rendue visible sans un mot.
+
+   2026-08-22 -- les etoiles sont MODULABLES et FUSIONNABLES :
+
+   Une etoile GROSSIT avec l'usage. Chaque lancement compte, l'echelle
+   est logarithmique et relative au plus utilise, bornee 30 a 60 px :
+   la hierarchie se voit, rien ne devient illisible. Le compte vit
+   dans le navigateur (localStorage) ; sur le vrai S il viendra de
+   kactivitymanagerd, qui note deja chaque lancement dans
+   ~/.local/share/kactivitymanagerd/resources/database.
+
+   Un DOUBLE-CLIC OUVRE LA CIBLE, directement et sans residu :
+   quand la cible reelle est une page web (RapidO -> MEWS, Gemini,
+   F-Droid...), elle s'ouvre aussitot. Sur le vrai S, le meme geste
+   executera le binaire. Aucune fenetre intermediaire.
+
+   Deux etoiles GLISSEES l'une sur l'autre FUSIONNENT en un amas.
+   L'anneau de l'amas garde les couleurs des mondes qu'il contient --
+   la fusion reste lisible, on ne perd jamais d'ou vient quoi.
+   Double-clic sur l'amas : il se defait.
    ═══════════════════════════════════════════════════════════════════ */
 
 :root {
@@ -60,8 +79,9 @@ html, body {
 /* ── Les spheres ───────────────────────────────────────────────── */
 .astre {
   position: absolute;
-  width: var(--sphere); height: var(--sphere);
-  margin: calc(var(--sphere) / -2) 0 0 calc(var(--sphere) / -2);
+  --d: var(--sphere);              /* le diametre, module par l'usage */
+  width: var(--d); height: var(--d);
+  margin: calc(var(--d) / -2) 0 0 calc(var(--d) / -2);
   border-radius: 50%;
   display: grid; place-items: center;
   cursor: grab;
@@ -75,7 +95,9 @@ html, body {
     #0b0b14;
   border: 2px solid var(--teinte);
   box-shadow: 0 0 0 0 transparent, inset 0 0 12px rgba(0,0,0,0.7);
-  transition: transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms ease;
+  transition: transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms ease,
+              width 300ms cubic-bezier(.2,.8,.2,1), height 300ms cubic-bezier(.2,.8,.2,1),
+              margin 300ms cubic-bezier(.2,.8,.2,1);
 }
 .astre:active { cursor: grabbing; }
 .astre.pose   { border-style: dashed; }          /* pose, jamais exerce */
@@ -84,7 +106,27 @@ html, body {
 .astre.choisi { transform: scale(1.22); border-width: 2.5px; }
 .astre:focus-visible { outline: 2px solid var(--texte); outline-offset: 4px; }
 
-.astre svg { width: 19px; height: 19px; fill: none; stroke: var(--teinte);
+/* Un amas : des etoiles fusionnees. Son anneau est un arc par monde
+   present, aux couleurs des mondes -- la fusion ne cache rien. */
+.astre.amas { border-color: transparent; }
+.astre.amas::before {
+  content: ""; position: absolute; inset: -2px; border-radius: 50%;
+  background: var(--anneau, conic-gradient(var(--bord-vif) 0deg 360deg));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.4px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.4px));
+  pointer-events: none;
+}
+.astre .compte {
+  position: absolute; right: -5px; top: -5px;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 999px;
+  background: var(--verre); border: 1px solid var(--bord-vif);
+  color: var(--texte); font-size: 9.5px; line-height: 14px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  text-align: center; pointer-events: none;
+}
+
+.astre svg { width: calc(var(--d) * 0.47); height: calc(var(--d) * 0.47); fill: none; stroke: var(--teinte);
              stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
              pointer-events: none; }
 
@@ -363,7 +405,9 @@ html, body {
 <div id="fiche"><div class="f-nom"></div><div class="f-src"></div><div class="f-txt"></div></div>
 <div id="mot"></div>
 <div id="aide">
-  <div><b>clic</b> choisir &#183; <b>2 clics</b> lier</div>
+  <div><b>clic sur deux etoiles</b> lier &#183; <b>double-clic</b> ouvrir</div>
+  <div>l'etoile <b>grossit avec l'usage</b></div>
+  <div><b>glisser sur une autre</b> fusionner &#183; <b>double-clic sur l'amas</b> defaire</div>
   <div><b>clic sur un lien</b> l'effacer</div>
   <div><b>N</b> noms &#183; <b>R</b> liens d'origine &#183; <b>F</b> plein ecran</div>
 </div>
@@ -449,6 +493,46 @@ const LIENS_ORIGINE = [
   ["fdroid","msg"], ["fdroid","photos"], ["play","musique"],
   ["fichiers","photos"], ["fichiers","term"]
 ];
+
+/* -- L'usage : chaque lancement compte, l'etoile grossit -----------
+   Valeurs de depart de vitrine. Sur le vrai S, le compteur est celui
+   de kactivitymanagerd (KDE), qui note deja chaque lancement. Ici il
+   vit dans localStorage : lancer une application la fait grossir, en
+   direct et durablement. */
+const USAGE_DEFAUT = { vivaldi:46, code:38, term:31, fichiers:24, claude:19,
+  rapido:14, retro:9, gemini:7, node:6, cmd:5, antigr:4, msg:3, photos:3,
+  zoom:2, fdroid:2, play:1, musique:1, tel:1, lineage:0, notepad:0 };
+let usage = chargerUsage();
+function chargerUsage() {
+  try { const s = JSON.parse(localStorage.getItem("s-usage")); if (s) return s; } catch (e) {}
+  return Object.assign({}, USAGE_DEFAUT);
+}
+function sauverUsage() { try { localStorage.setItem("s-usage", JSON.stringify(usage)); } catch (e) {} }
+
+/* L'echelle est logarithmique et RELATIVE au plus utilise : lineaire,
+   le premier ecraserait tous les autres ; bornee, rien ne devient
+   ni invisible ni envahissant. */
+const D_MIN = 30, D_MAX = 60;
+function usageDe(a) {
+  if (a.app.membres) return a.app.membres.reduce((t, m) => t + (usage[m.id] || 0), 0);
+  return usage[a.app.id] || 0;
+}
+function habillerTailles() {
+  const umax = Math.max(1, ...astres.map(usageDe));
+  for (const a of astres) {
+    const d = D_MIN + (D_MAX - D_MIN) * Math.log(1 + usageDe(a)) / Math.log(1 + umax);
+    a.r = d / 2;
+    a.el.style.setProperty("--d", Math.round(d) + "px");
+  }
+  tracerLiens();
+}
+function lancer(app) {
+  usage[app.id] = (usage[app.id] || 0) + 1;
+  sauverUsage();
+  habillerTailles();
+  if (CIBLES[app.id]) window.open(CIBLES[app.id], "_blank", "noopener");
+  dire(app.nom + (app.ep ? "  —  lancee" : "  —  jamais exercee, ce serait un premier essai"));
+}
 
 /* ── Etat ──────────────────────────────────────────────────────── */
 const scene = document.getElementById("scene");
@@ -587,16 +671,28 @@ function brancher(a) {
     const nx = e.clientX - ox, ny = e.clientY - oy;
     if (!bouge && Math.hypot(nx - a.x, ny - a.y) < 4) return;
     bouge = true;
-    a.x = Math.max(26, Math.min(L - 26, nx));
-    a.y = Math.max(26, Math.min(H - 96, ny));
+    const marge = (a.r || 20) + 6;
+    a.x = Math.max(marge, Math.min(L - marge, nx));
+    a.y = Math.max(marge, Math.min(H - 70 - marge, ny));
     a.el.style.left = a.x + "px"; a.el.style.top = a.y + "px";
     tracerLiens();
   });
 
   a.el.addEventListener("pointerup", e => {
     e.stopPropagation();
-    if (bouge) { bouge = false; return; }
+    if (bouge) {
+      bouge = false;
+      const cible = astres.find(x => x !== a &&
+        Math.hypot(x.x - a.x, x.y - a.y) < (x.r + a.r) * 0.62);
+      if (cible) fusionner(a, cible);
+      return;
+    }
     choisirAstre(a);
+  });
+
+  a.el.addEventListener("dblclick", e => {
+    e.stopPropagation();
+    if (a.app.membres) defaire(a); else lancer(a.app);
   });
 
   a.el.addEventListener("pointerenter", e => montrerFiche(a, e.clientX, e.clientY));
@@ -623,6 +719,82 @@ function choisirAstre(a) {
 function deselectionner() {
   if (choisi) choisi.el.classList.remove("choisi");
   choisi = null;
+}
+
+/* -- Le double-clic ouvre la cible, sans fenetre intermediaire :
+   quand la cible reelle est une page web, elle s'ouvre aussitot.
+   Sur le vrai S, le meme geste executera le binaire. */
+const CIBLES = {
+  rapido:  "https://app.mews.com/",
+  gemini:  "https://gemini.google.com/",
+  vivaldi: "https://vivaldi.com/",
+  code:    "https://code.visualstudio.com/",
+  claude:  "https://claude.com/claude-code",
+  node:    "https://nodejs.org/",
+  antigr:  "https://antigravity.google/",
+  retro:   "https://www.retroarch.com/",
+  zoom:    "https://zoom.us/",
+  fdroid:  "https://f-droid.org/",
+  play:    "https://play.google.com/",
+  lineage: "https://www.lineage2.com/"
+};
+/* ── La fusion : deux etoiles n'en font qu'une, sans rien cacher ── */
+let nAmas = 0;
+function membresDe(a) { return a.app.membres ? a.app.membres : [a.app]; }
+function retirer(a) { astres.splice(astres.indexOf(a), 1); a.el.remove(); }
+
+function fusionner(a, b) {
+  const membres = membresDe(b).concat(membresDe(a));
+  const amas = creerAmas(membres, (a.x + b.x) / 2, (a.y + b.y) / 2);
+  /* Les liens des membres suivent l'amas, sans doublon ni boucle. */
+  for (const l of liens) {
+    if (l.a === a || l.a === b) l.a = amas;
+    if (l.b === a || l.b === b) l.b = amas;
+  }
+  liens = liens.filter((l, i) => l.a !== l.b &&
+    liens.findIndex(m => (m.a === l.a && m.b === l.b) || (m.a === l.b && m.b === l.a)) === i);
+  retirer(a); retirer(b);
+  deselectionner();
+  habillerTailles();
+  dire("amas : " + membres.map(m => m.nom).join(" + "));
+}
+
+function creerAmas(membres, x, y) {
+  const gros = membres.slice().sort((m, n) => (usage[n.id] || 0) - (usage[m.id] || 0))[0];
+  const mondes = [...new Set(membres.map(m => m.src))];
+  const app = {
+    id: "amas-" + (++nAmas),
+    nom: membres.map(m => m.nom).join(" + "),
+    src: gros.src, ico: gros.ico,
+    ep: membres.every(m => m.ep) ? 1 : 0,
+    membres,
+    txt: membres.map(m => m.nom + " — " + SOURCES[m.src].nom +
+                          (m.ep ? "" : " · jamais exerce")).join("<br>")
+  };
+  const a = creerAstre(app, x, y);
+  a.el.classList.add("amas");
+  /* Un arc par monde present, aux couleurs des mondes. */
+  const part = 360 / mondes.length;
+  a.el.style.setProperty("--anneau", "conic-gradient(from -90deg, " +
+    mondes.map((s, i) => "var(" + SOURCES[s].jeton + ") " + i * part + "deg " + (i + 1) * part + "deg").join(", ") + ")");
+  const c = document.createElement("span");
+  c.className = "compte"; c.textContent = membres.length;
+  a.el.appendChild(c);
+  return a;
+}
+
+function defaire(a) {
+  const membres = a.app.membres, x = a.x, y = a.y;
+  liens = liens.filter(l => l.a !== a && l.b !== a);
+  retirer(a);
+  membres.forEach((m, i) => {
+    const t = (i / membres.length) * 2 * Math.PI - Math.PI / 2;
+    creerAstre(m,
+      Math.max(30, Math.min(L - 30, x + Math.cos(t) * 66)),
+      Math.max(30, Math.min(H - 106, y + Math.sin(t) * 66)));
+  });
+  habillerTailles();
+  dire("amas defait");
 }
 
 /* ── Les liens : redessines UNIQUEMENT sur evenement ───────────── */
@@ -660,8 +832,16 @@ function lienSous(x, y) {
 function montrerFiche(a, x, y) {
   fiche.querySelector(".f-nom").textContent = a.app.nom;
   const s = fiche.querySelector(".f-src");
-  s.textContent = SOURCES[a.app.src].nom + (a.app.ep ? "" : "  ·  jamais exerce");
-  s.style.color = "var(" + SOURCES[a.app.src].jeton + ")";
+  if (a.app.membres) {
+    const mondes = [...new Set(a.app.membres.map(m => m.src))];
+    s.textContent = "amas  ·  " + mondes.map(m => SOURCES[m].nom).join(" + ");
+    s.style.color = "var(--texte-2)";
+  } else {
+    const u = usage[a.app.id] || 0;
+    s.textContent = SOURCES[a.app.src].nom + (a.app.ep ? "" : "  ·  jamais exerce") +
+                    "  ·  " + u + (u > 1 ? " lancements" : " lancement");
+    s.style.color = "var(" + SOURCES[a.app.src].jeton + ")";
+  }
   fiche.querySelector(".f-txt").innerHTML = a.app.txt;
   fiche.classList.add("vu");
   const b = fiche.getBoundingClientRect();
@@ -699,6 +879,7 @@ function semer() {
     });
   }
   rendreLiensOrigine();
+  habillerTailles();
 }
 
 function parId(id) { return astres.find(a => a.app.id === id); }
@@ -860,7 +1041,7 @@ function brancherMenu() {
   corps.querySelectorAll("[data-app]").forEach(b => {
     b.addEventListener("click", () => {
       const app = APPS.find(a => a.id === b.dataset.app);
-      dire(app.nom + (app.ep ? "  —  lancee" : "  —  jamais exercee, ce serait un premier essai"));
+      lancer(app);
       ouvrirMenu(false);
     });
   });
@@ -944,7 +1125,7 @@ function peindreBarre() {
     b.style.setProperty("--halo", couleurSource(app.src, 0.5));
     b.title = app.nom;
     b.innerHTML = '<svg><use href="#' + app.ico + '"/></svg>';
-    b.addEventListener("click", () => dire(app.nom + (app.ep ? "  —  lancee" : "  —  jamais exercee")));
+    b.addEventListener("click", () => lancer(app));
     r.appendChild(b);
   });
 }
@@ -960,5 +1141,5 @@ redimensionner();
 peindreBarre();
 horloge();
 setInterval(horloge, 20000);   /* la seule minuterie de la page */
-setTimeout(() => dire("clic sur deux etoiles pour les lier"), 900);
+setTimeout(() => dire("les etoiles grossissent avec l'usage — glisser l'une sur l'autre pour fusionner"), 900);
 </script>
