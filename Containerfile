@@ -88,6 +88,11 @@ COPY files/ /
 # lanceur vit dans files/usr/share/applications/, meme forme que RapidO.
 COPY galerie/constellation/constellation.html /usr/share/s/constellation/constellation.html
 
+# Foudre gelee, le fond d'ecran de S — meme principe : l'oeuvre et son script
+# semeur vivent dans galerie/, l'image ne recoit que le rendu. Ses metadonnees
+# KDE vivent dans files/usr/share/wallpapers/FoudreGelee/.
+COPY galerie/foudre-gelee/foudre-gelee.png /usr/share/wallpapers/FoudreGelee/contents/images/3840x2160.png
+
 # Les coutures — la partie qui bouge le plus
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \

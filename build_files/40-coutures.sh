@@ -42,6 +42,10 @@ update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
 # verifier lui-meme. L'assertion vit ici. Sans cache reconstruit, une icone
 # nouvelle peut rester invisible jusqu'a la prochaine reindexation.
 test -s /usr/share/icons/hicolor/256x256/apps/s-logo.png || { echo "ECHEC : s-logo.png absent." >&2; exit 1; }
+# Meme raison pour le fond d'ecran : 35-identite.sh le declare par defaut
+# avant que le COPY ne le pose — c'est ici qu'on verifie qu'il est bien la.
+test -s /usr/share/wallpapers/FoudreGelee/contents/images/3840x2160.png || { echo "ECHEC : Foudre gelee absente." >&2; exit 1; }
+test -s /usr/share/wallpapers/FoudreGelee/metadata.json || { echo "ECHEC : metadata.json de Foudre gelee absent." >&2; exit 1; }
 gtk-update-icon-cache -f /usr/share/icons/hicolor >/dev/null 2>&1 || true
 
 # --- Controle : rien ne doit avoir atterri hors de /usr et /etc -------------

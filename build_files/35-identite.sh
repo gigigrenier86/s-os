@@ -53,3 +53,27 @@ grep -q '^NAME="S"$' /usr/lib/os-release
 grep -q '^PRETTY_NAME="S"$' /usr/lib/os-release
 grep -q '^ID=bazzite' /usr/lib/os-release
 grep -q '^LOGO=s-logo$' /usr/lib/os-release
+
+# --------------------------------------------------------------------------
+# Foudre gelee devient le fond d'ecran par defaut
+# --------------------------------------------------------------------------
+# Plasma choisit le fond des NOUVELLES sessions dans le fichier « defaults »
+# du paquet look-and-feel actif — bureau ET ecran de verrouillage y declarent
+# chacun leur ligne Image=. On ne suppose pas quel paquet est actif : on
+# retouche tous ceux que la base porte, et on ECRIT ce qu'on a trouve.
+# Le PNG lui-meme entre plus tard par COPY ; ecrire son nom ici ne demande
+# que le nom. Les comptes existants ne sont pas touches — un fond d'ecran
+# deja choisi par l'utilisateur est un reglage, pas un defaut.
+trouve=0
+for d in /usr/share/plasma/look-and-feel/*/contents/defaults; do
+  [ -f "$d" ] || continue
+  if grep -q '^Image=' "$d"; then
+    echo "look-and-feel : $d"
+    grep '^Image=' "$d"
+    sed -i 's|^Image=.*|Image=FoudreGelee|' "$d"
+    trouve=1
+  fi
+done
+# Aucun paquet trouve = la structure de KDE a change sous nos pieds. On
+# echoue bruyamment plutot que de livrer un defaut qui n'en est pas un.
+[ "$trouve" -eq 1 ] || { echo "ECHEC : aucun defaults de look-and-feel avec Image=." >&2; exit 1; }

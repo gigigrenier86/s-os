@@ -1,0 +1,13 @@
+{
+    "KPlugin": {
+        "Id": "FoudreGelee",
+        "Name": "Foudre gelée",
+        "Name[fr]": "Foudre gelée",
+        "License": "CC0-1.0",
+        "Authors": [
+            {
+                "Name": "Ghis"
+            }
+        ]
+    }
+}
