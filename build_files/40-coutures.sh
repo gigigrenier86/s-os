@@ -37,6 +37,12 @@ test -s /etc/xdg/mimeapps.list || { echo "ECHEC : mimeapps.list absent." >&2; ex
 
 update-mime-database /usr/share/mime >/dev/null 2>&1 || true
 update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+# Le logo s-logo entre par COPY dans hicolor, et os-release y fait reference
+# depuis 35-identite.sh — qui tourne AVANT le COPY et ne peut donc pas le
+# verifier lui-meme. L'assertion vit ici. Sans cache reconstruit, une icone
+# nouvelle peut rester invisible jusqu'a la prochaine reindexation.
+test -s /usr/share/icons/hicolor/256x256/apps/s-logo.png || { echo "ECHEC : s-logo.png absent." >&2; exit 1; }
+gtk-update-icon-cache -f /usr/share/icons/hicolor >/dev/null 2>&1 || true
 
 # --- Controle : rien ne doit avoir atterri hors de /usr et /etc -------------
 # Sur un systeme ostree, /var et /opt ne sont PAS transportes par l'image :

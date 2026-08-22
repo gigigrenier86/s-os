@@ -23,6 +23,15 @@ sed -i \
   -e 's|^HOME_URL=.*|HOME_URL="https://github.com/gigigrenier86/s-os"|' \
   /usr/lib/os-release
 
+# Le logo : l'icone s-logo entre par COPY dans hicolor, et LOGO= dit a KDE de
+# l'afficher dans le centre d'information. La ligne peut exister ou non selon
+# la base — on remplace si elle est la, on l'ajoute sinon.
+if grep -q '^LOGO=' /usr/lib/os-release; then
+  sed -i 's|^LOGO=.*|LOGO=s-logo|' /usr/lib/os-release
+else
+  echo 'LOGO=s-logo' >> /usr/lib/os-release
+fi
+
 # DEFAULT_HOSTNAME ne sert qu'aux machines dont personne ne choisit le nom ;
 # celles deja baptisees — ThinkCentre720Q — ne sont pas touchees.
 grep -q '^DEFAULT_HOSTNAME=' /usr/lib/os-release \
@@ -36,10 +45,11 @@ ls -l /etc/os-release
 test -L /etc/os-release
 
 echo "os-release apres :"
-grep -E '^(NAME|PRETTY_NAME|ID|DEFAULT_HOSTNAME|HOME_URL)=' /usr/lib/os-release
+grep -E '^(NAME|PRETTY_NAME|ID|DEFAULT_HOSTNAME|HOME_URL|LOGO)=' /usr/lib/os-release
 
 # Les assertions : une image qui ne s'annonce pas S ne sort pas d'ici,
 # et ID n'a pas bouge — c'est la promesse faite aux scripts de l'amont.
 grep -q '^NAME="S"$' /usr/lib/os-release
 grep -q '^PRETTY_NAME="S"$' /usr/lib/os-release
 grep -q '^ID=bazzite' /usr/lib/os-release
+grep -q '^LOGO=s-logo$' /usr/lib/os-release
