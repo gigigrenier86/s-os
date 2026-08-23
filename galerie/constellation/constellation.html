@@ -441,7 +441,7 @@ const SOURCES = {
 
 /* Les vrais logiciels de S, avec leurs vrais chiffres. "eprouve" dit
    si le binaire a deja tourne -- l'anneau devient pointille sinon. */
-const APPS = [
+let APPS = [
   { id:"vivaldi", nom:"Vivaldi",     src:"linux",   ico:"i-globe",     ep:1, epingle:1,
     txt:"8.1.4087.68 &#183; /usr/lib/opt/vivaldi &#183; 438 Mo" },
   { id:"code",    nom:"VS Code",     src:"linux",   ico:"i-code",      ep:1, epingle:1,
@@ -499,7 +499,7 @@ const LIENS_ORIGINE = [
    de kactivitymanagerd (KDE), qui note deja chaque lancement. Ici il
    vit dans localStorage : lancer une application la fait grossir, en
    direct et durablement. */
-const USAGE_DEFAUT = { vivaldi:46, code:38, term:31, fichiers:24, claude:19,
+let USAGE_DEFAUT = { vivaldi:46, code:38, term:31, fichiers:24, claude:19,
   rapido:14, retro:9, gemini:7, node:6, cmd:5, antigr:4, msg:3, photos:3,
   zoom:2, fdroid:2, play:1, musique:1, tel:1, lineage:0, notepad:0 };
 let usage = chargerUsage();
@@ -530,6 +530,15 @@ function lancer(app) {
   usage[app.id] = (usage[app.id] || 0) + 1;
   sauverUsage();
   habillerTailles();
+  if (PONT) {
+    /* Un amas n'est pas un programme : on lance ce qu'il contient. */
+    const cibles = app.membres ? app.membres : [app];
+    cibles.forEach(m => versLePont("/api/lancer", { id: m.id }).then(r => {
+      if (r && r.ok === false) dire(m.nom + "  —  " + (r.dit || "n'a pas pu etre lancee"));
+    }));
+    dire(app.nom + "  —  lancee");
+    return;
+  }
   if (CIBLES[app.id]) window.open(CIBLES[app.id], "_blank", "noopener");
   dire(app.nom + (app.ep ? "  —  lancee" : "  —  jamais exercee, ce serait un premier essai"));
 }
@@ -724,7 +733,7 @@ function deselectionner() {
 /* -- Le double-clic ouvre la cible, sans fenetre intermediaire :
    quand la cible reelle est une page web, elle s'ouvre aussitot.
    Sur le vrai S, le meme geste executera le binaire. */
-const CIBLES = {
+let CIBLES = {
   rapido:  "https://app.mews.com/",
   gemini:  "https://gemini.google.com/",
   vivaldi: "https://vivaldi.com/",
@@ -738,6 +747,32 @@ const CIBLES = {
   play:    "https://play.google.com/",
   lineage: "https://www.lineage2.com/"
 };
+
+/* ══════════════════════════════════════════════════════════════════
+   LE PONT — ce qui separe une maquette d'un bureau
+
+   Ouverte seule (file://), cette page garde ses donnees de vitrine et
+   ouvre des pages web : c'est le prototype, et il doit continuer de
+   vivre tel quel dans galerie/.
+
+   Servie par s-etoiles (http://127.0.0.1), elle recoit a la place
+   l'inventaire REEL de la machine, injecte au repere ci-dessous, et
+   chaque geste part vers le systeme : lancer un programme, verrouiller,
+   eteindre. Aucune ligne asynchrone, aucun etat de chargement — le
+   serveur ecrit dans la page avant de l'envoyer.
+   ══════════════════════════════════════════════════════════════════ */
+const PONT = location.protocol === "http:" ? location.origin : null;
+
+function versLePont(route, charge) {
+  if (!PONT) return Promise.resolve(null);
+  return fetch(PONT + route, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(charge)
+  }).then(r => r.json()).catch(() => null);
+}
+
+/*__S_ETOILES__*/
 /* ── La fusion : deux etoiles n'en font qu'une, sans rien cacher ── */
 let nAmas = 0;
 function membresDe(a) { return a.app.membres ? a.app.membres : [a.app]; }
@@ -999,12 +1034,12 @@ function peindreVue() {
 
   else if (vue === "alim") {
     h += '<div class="section-titre">Session</div><div class="liste">' +
-      '<button class="rangee"><svg><use href="#i-cadenas"/></svg>Verrouiller</button>' +
-      '<button class="rangee"><svg><use href="#i-sortie"/></svg>Se deconnecter</button>' +
+      '<button class="rangee" data-sess="verrouiller"><svg><use href="#i-cadenas"/></svg>Verrouiller</button>' +
+      '<button class="rangee" data-sess="deconnecter"><svg><use href="#i-sortie"/></svg>Se deconnecter</button>' +
       "</div>";
     h += '<div class="section-titre">Machine</div><div class="liste">' +
-      '<button class="rangee"><svg><use href="#i-recommence"/></svg>Redemarrer</button>' +
-      '<button class="rangee grave"><svg><use href="#i-alim"/></svg>Eteindre</button>' +
+      '<button class="rangee" data-sess="redemarrer"><svg><use href="#i-recommence"/></svg>Redemarrer</button>' +
+      '<button class="rangee grave" data-sess="eteindre"><svg><use href="#i-alim"/></svg>Eteindre</button>' +
       "</div>";
   }
 
@@ -1057,6 +1092,26 @@ function brancherMenu() {
     bn.checked = document.body.classList.contains("noms");
     bn.addEventListener("change", () => document.body.classList.toggle("noms", bn.checked));
   }
+  /* Les gestes de machine s'arment avant d'agir : un clic de trop ne doit
+     pas eteindre l'ordinateur de quelqu'un au milieu de son travail. Deux
+     clics valent mieux qu'une fenetre de confirmation, qui interromprait. */
+  corps.querySelectorAll("[data-sess]").forEach(b => {
+    const geste = b.dataset.sess;
+    const doux = (geste === "verrouiller");
+    b.addEventListener("click", () => {
+      if (!PONT) { dire(geste + " — sans effet hors de S"); return; }
+      if (!doux && b.dataset.arme !== "1") {
+        b.dataset.arme = "1";
+        b.classList.add("grave");
+        b.lastChild.textContent = " cliquer encore pour confirmer";
+        return;
+      }
+      versLePont("/api/session", { action: geste }).then(r => {
+        if (r && r.ok === false) dire(geste + " — " + (r.dit || "refuse"));
+      });
+      ouvrirMenu(false);
+    });
+  });
   corps.querySelectorAll("[data-act]").forEach(b => {
     b.addEventListener("click", () => {
       const a = b.dataset.act;

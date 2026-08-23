@@ -1,0 +1,59 @@
+#!/usr/bin/bash
+# La session S — ce que le greeter lance quand on choisit « S ».
+#
+# S N'ECRIT PAS SON PROPRE COMPOSITEUR, et ce n'est pas un renoncement.
+# Un compositeur est precisement le morceau qu'on ne voit jamais : il ne met
+# aucun nom a l'ecran, aucun logo, aucune couleur. Ce que l'utilisateur voit
+# d'un bureau, c'est sa COQUILLE — la barre, le menu, les icones, le fond — et
+# c'est elle que S remplace entierement par Constellation.
+#
+# Le compositeur retenu est celui de la base : il a deja affiche un bureau sur
+# cette machine, il connait son GPU, il gere Xwayland, la mise a l'echelle et
+# les manettes. En reecrire un donnerait moins bien, plus tard, et pour un
+# resultat identique a l'ecran. C'est la regle « on ne reimplemente pas ce que
+# l'amont maintient » appliquee la ou elle vaut.
+#
+# EN REVANCHE, RIEN DE LA COQUILLE D'ORIGINE NE DEMARRE : ni plasmashell, ni sa
+# barre des taches, ni son menu, ni ses fenetres de bienvenue. C'est la
+# difference entre habiller une base et en poser une autre par-dessus.
+set -uo pipefail
+
+# XDG_CURRENT_DESKTOP reste celui que la base connait, A DESSEIN : les portails
+# (dialogues de fichiers, partage d'ecran, ouverture de liens) choisissent leur
+# implementation par cette variable, et les applications Qt y lisent leur theme.
+# Mettre « S » ici ne changerait rien de visible et casserait les deux. Le nom
+# que l'utilisateur voit vient d'os-release et du fichier de session, pas d'ici.
+export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-KDE}"
+export XDG_SESSION_DESKTOP=S
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland;xcb}"
+export MOZ_ENABLE_WAYLAND=1
+
+JOURNAL="${XDG_STATE_HOME:-$HOME/.local/state}/s"
+mkdir -p "$JOURNAL"
+
+COMPOSITEUR=""
+for essai in kwin_wayland labwc; do
+    command -v "$essai" >/dev/null 2>&1 && { COMPOSITEUR="$essai"; break; }
+done
+if [[ -z "$COMPOSITEUR" ]]; then
+    echo "s-session : aucun compositeur trouve." >&2
+    exit 1
+fi
+
+# Un bus de session est indispensable : sans lui, ni notifications, ni portails,
+# ni loginctl utilisable depuis la coquille. Le greeter en fournit un le plus
+# souvent ; on ne le suppose pas.
+if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]] && command -v dbus-run-session >/dev/null 2>&1; then
+    exec dbus-run-session -- "$0" "$@"
+fi
+
+case "$COMPOSITEUR" in
+    kwin_wayland)
+        # L'application donnee en argument est lancee une fois le serveur
+        # Wayland et Xwayland prets ; quand elle rend la main, kwin s'arrete.
+        exec kwin_wayland --xwayland /usr/bin/s-coquille
+        ;;
+    labwc)
+        exec labwc -s /usr/bin/s-coquille
+        ;;
+esac

@@ -1,0 +1,522 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""Le pont de Constellation — ce qui relie une etoile a la machine.
+
+Constellation est une page. Une page ne peut pas lancer un programme, lire un
+menu d'applications ni eteindre un ordinateur : le navigateur l'en empeche, et
+c'est heureux. Il fallait donc un interlocuteur local, et le voici.
+
+CE QU'IL FAIT, ET C'EST TOUT :
+  - il sert la page, en y INJECTANT l'inventaire reel de la machine ;
+  - il lance une application quand la page le lui demande ;
+  - il compte les lancements, ce qui fait grossir les etoiles ;
+  - il verrouille, deconnecte, redemarre, eteint.
+
+POURQUOI L'INJECTION plutot qu'un appel asynchrone : la page reste alors
+strictement la meme qu'ouverte seule dans un navigateur. Aucune restructuration,
+aucun etat de chargement, et le prototype de galerie/ continue de fonctionner
+tel quel avec ses donnees de vitrine. Le pont remplace un commentaire-repere,
+rien d'autre.
+
+IL N'ECOUTE QUE 127.0.0.1, et il refuse toute requete dont l'en-tete Host n'est
+pas la sienne : sans cela, n'importe quelle page ouverte dans le navigateur de
+l'utilisateur pourrait, par reliaison DNS, demander a cette machine de s'eteindre.
+"""
+
+import http.server
+import json
+import os
+import re
+import shlex
+import socketserver
+import subprocess
+import sys
+import urllib.parse
+
+PORT = int(os.environ.get("S_ETOILES_PORT", "7373"))
+HOTE = "127.0.0.1"
+PAGE = "/usr/share/s/constellation/constellation.html"
+REPERE = "/*__S_ETOILES__*/"
+
+ETAT = os.path.join(
+    os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
+    "s")
+FICHIER_USAGE = os.path.join(ETAT, "usage.json")
+
+# --------------------------------------------------------------------------
+# L'inventaire : lire les .desktop de la machine, et n'en garder que des astres
+# --------------------------------------------------------------------------
+
+# Ce que S ne montre pas. Pas pour le cacher — le carnet nomme la base, le depot
+# est public — mais parce que l'utilisateur ouvre UN systeme, pas un empilement.
+# C'est la regle 9 du carnet : une couture ne montre jamais son moteur.
+TAIRE = ("bazzite", "fedora", "ublue", "plasma", "kde ", "waydroid", "distrobox",
+         "steam linux runtime", "proton", "wine")
+
+# Les gestes de S sont des GESTIONNAIRES de fichiers, pas des applications :
+# ils n'ont de sens que derriere un double-clic. Une etoile « Ouvrir un .exe »
+# n'aurait rien a lancer.
+#
+# ON FILTRE PAR IDENTIFIANT, ET LA NUANCE A COUTE UN DEFAUT REEL. Filtrer sur
+# la COMMANDE — tout .desktop dont l'Exec appelle s-ouvrir-exe — paraissait plus
+# sur et supprimait le monde Windows en entier : les raccourcis moissonnes par
+# s-menu-windows appellent TOUS s-ouvrir-exe, c'est leur raison d'etre. Trouve
+# au banc du 2026-08-22, ou « Lineage II » avait disparu du ciel sans un mot.
+IDENTIFIANTS_CACHES = ("s-ouvrir-", "s-menu-")
+
+
+def dossiers_applications():
+    """Les endroits ou vivent les .desktop, dans l'ordre de priorite XDG."""
+    maison = os.path.expanduser("~")
+    dirs = [os.path.join(os.environ.get("XDG_DATA_HOME") or
+                         os.path.join(maison, ".local/share"), "applications")]
+    for d in (os.environ.get("XDG_DATA_DIRS") or
+              "/usr/local/share:/usr/share").split(":"):
+        if d:
+            dirs.append(os.path.join(d, "applications"))
+    # Flatpak s'exporte ailleurs, et rien ne garantit qu'il soit dans XDG_DATA_DIRS
+    # au moment ou la session demarre.
+    dirs += ["/var/lib/flatpak/exports/share/applications",
+             os.path.join(maison, ".local/share/flatpak/exports/share/applications")]
+    vus, sortie = set(), []
+    for d in dirs:
+        r = os.path.realpath(d)
+        if r not in vus and os.path.isdir(r):
+            vus.add(r)
+            sortie.append(d)
+    return sortie
+
+
+def lire_desktop(chemin):
+    """Un analyseur minimal, volontairement : on ne lit que [Desktop Entry].
+
+    Les groupes suivants sont des « actions » (Nouvelle fenetre, Navigation
+    privee...) qui portent leurs propres Name= et Exec=. Les laisser entrer
+    donnerait des etoiles fantomes qui lancent la mauvaise chose.
+    """
+    champs, dedans = {}, False
+    try:
+        with open(chemin, "r", encoding="utf-8", errors="replace") as f:
+            for ligne in f:
+                ligne = ligne.strip()
+                if ligne.startswith("["):
+                    dedans = (ligne == "[Desktop Entry]")
+                    continue
+                if not dedans or "=" not in ligne or ligne.startswith("#"):
+                    continue
+                cle, _, val = ligne.partition("=")
+                champs.setdefault(cle.strip(), val.strip())
+    except OSError:
+        return None
+    return champs
+
+
+def vrai(champs, cle):
+    return (champs.get(cle, "") or "").lower() == "true"
+
+
+def nom_affiche(champs):
+    """Le francais d'abord — S parle francais, et les .desktop le savent."""
+    for cle in ("Name[fr_CA]", "Name[fr]", "Name"):
+        if champs.get(cle):
+            return champs[cle]
+    return ""
+
+
+def commentaire(champs):
+    for cle in ("Comment[fr_CA]", "Comment[fr]", "Comment", "GenericName"):
+        if champs.get(cle):
+            return champs[cle]
+    return ""
+
+
+CATEGORIE_ICONE = (
+    ("TerminalEmulator", "i-terminal"),
+    ("FileManager",      "i-dossier"),
+    ("FileTools",        "i-dossier"),
+    ("WebBrowser",       "i-globe"),
+    ("IDE",              "i-code"),
+    ("Development",      "i-code"),
+    ("Game",             "i-manette"),
+    ("Emulator",         "i-manette"),
+    ("Video",            "i-video"),
+    ("AudioVideo",       "i-video"),
+    ("Audio",            "i-note-mus"),
+    ("Music",            "i-note-mus"),
+    ("Photography",      "i-image"),
+    ("Graphics",         "i-image"),
+    ("Settings",         "i-reglages"),
+    ("System",           "i-reglages"),
+    ("PackageManager",   "i-magasin"),
+    ("InstantMessaging", "i-bulle"),
+    ("Chat",             "i-bulle"),
+    ("Telephony",        "i-tel"),
+    ("TextEditor",       "i-doc"),
+    ("WordProcessor",    "i-doc"),
+    ("Office",           "i-doc"),
+    ("Network",          "i-reseau"),
+    ("Utility",          "i-boite"),
+)
+
+# Les noms priment sur les categories : « Konsole » est un terminal quoi qu'en
+# dise sa liste de categories, et une icone juste vaut mieux qu'une categorie
+# exacte.
+NOM_ICONE = (
+    ("vivaldi", "i-globe"), ("firefox", "i-globe"), ("chrom", "i-globe"),
+    ("code", "i-code"), ("antigravity", "i-code"),
+    ("claude", "i-etincelle"), ("gemini", "i-etincelle"),
+    ("konsole", "i-terminal"), ("terminal", "i-terminal"), ("ptyxis", "i-terminal"),
+    ("dolphin", "i-dossier"), ("fichiers", "i-dossier"), ("files", "i-dossier"),
+    ("retroarch", "i-manette"), ("steam", "i-manette"), ("jeu", "i-manette"),
+    ("zoom", "i-video"), ("f-droid", "i-magasin"), ("fdroid", "i-magasin"),
+    ("magasin", "i-magasin"), ("store", "i-magasin"),
+    ("rapido", "i-fenetre"), ("android", "i-tel"),
+    ("reglage", "i-reglages"), ("parametre", "i-reglages"),
+)
+
+
+def choisir_icone(nom, categories):
+    n = nom.lower()
+    for cle, ico in NOM_ICONE:
+        if cle in n:
+            return ico
+    for cle, ico in CATEGORIE_ICONE:
+        if cle in categories:
+            return ico
+    return "i-boite"
+
+
+def choisir_monde(exec_ligne):
+    """De quel monde vient ce logiciel — c'est ce que dit l'anneau de l'etoile.
+
+    On le lit dans la commande, seul endroit ou la verite se trouve : un
+    raccourci Windows moissonne par s-menu-windows repasse par s-ouvrir-exe,
+    une application Android par waydroid. Tout le reste est natif.
+    """
+    e = exec_ligne.lower()
+    if "s-ouvrir-exe" in e or "umu-run" in e or "wine" in e or "proton" in e:
+        return "windows"
+    if "waydroid" in e or "s-android" in e:
+        return "android"
+    return "linux"
+
+
+def inventaire():
+    """Toutes les applications visibles de la machine, une seule fois chacune."""
+    trouves = {}
+    for dossier in dossiers_applications():
+        try:
+            noms = sorted(os.listdir(dossier))
+        except OSError:
+            continue
+        for nom_fichier in noms:
+            if not nom_fichier.endswith(".desktop"):
+                continue
+            ident = nom_fichier[:-len(".desktop")]
+            if ident in trouves:      # priorite XDG : le premier vu gagne
+                continue
+            champs = lire_desktop(os.path.join(dossier, nom_fichier))
+            if not champs:
+                continue
+            if champs.get("Type", "Application") != "Application":
+                continue
+            if vrai(champs, "NoDisplay") or vrai(champs, "Hidden"):
+                continue
+            ligne_exec = champs.get("Exec", "")
+            if not ligne_exec:
+                continue
+            if ident.startswith(IDENTIFIANTS_CACHES):
+                continue
+            # TryExec dit « ne me montre pas si ce binaire n'existe pas ». C'est
+            # exactement le defaut qui a casse Vivaldi sur la machine reelle : un
+            # lanceur qui pointe dans le vide. On l'honore.
+            essai = champs.get("TryExec")
+            if essai and not chemin_executable(essai):
+                continue
+            nom = nom_affiche(champs)
+            if not nom:
+                continue
+            bas = nom.lower()
+            if any(t in bas for t in TAIRE):
+                continue
+            # Constellation ne se met pas elle-meme dans le ciel.
+            if ident in ("constellation", "s-constellation"):
+                continue
+            categories = champs.get("Categories", "")
+            trouves[ident] = {
+                "id": ident,
+                "nom": nom,
+                "src": choisir_monde(ligne_exec),
+                "ico": choisir_icone(nom, categories),
+                "txt": commentaire(champs) or ligne_exec,
+                "fichier": os.path.join(dossier, nom_fichier),
+            }
+    return trouves
+
+
+def chemin_executable(cmd):
+    if cmd.startswith("/"):
+        return cmd if os.access(cmd, os.X_OK) else None
+    for d in (os.environ.get("PATH") or "/usr/bin").split(":"):
+        p = os.path.join(d, cmd)
+        if os.access(p, os.X_OK):
+            return p
+    return None
+
+
+# --------------------------------------------------------------------------
+# L'usage : ce qui fait grossir une etoile
+# --------------------------------------------------------------------------
+
+def charger_usage():
+    try:
+        with open(FICHIER_USAGE, "r", encoding="utf-8") as f:
+            u = json.load(f)
+        return {k: int(v) for k, v in u.items() if isinstance(v, (int, float))}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def sauver_usage(usage):
+    try:
+        os.makedirs(ETAT, exist_ok=True)
+        temporaire = FICHIER_USAGE + ".tmp"
+        with open(temporaire, "w", encoding="utf-8") as f:
+            json.dump(usage, f)
+        os.replace(temporaire, FICHIER_USAGE)   # jamais de fichier a moitie ecrit
+    except OSError as err:
+        print("s-etoiles : usage non sauve : %s" % err, file=sys.stderr)
+
+
+# --------------------------------------------------------------------------
+# Les gestes
+# --------------------------------------------------------------------------
+
+def lancer(entree):
+    """Lancer par le .desktop lui-meme, jamais par une commande recomposee.
+
+    « gio launch » applique les regles du fichier — repertoire de travail,
+    Terminal=true, variables — que reconstruire a la main ferait perdre. Le
+    repli n'existe que si gio manquait : on retire alors les codes de champ
+    (%f %u %i...), qui sinon arriveraient tels quels au programme.
+    """
+    fichier = entree["fichier"]
+    if chemin_executable("gio"):
+        cmd = ["gio", "launch", fichier]
+    else:
+        champs = lire_desktop(fichier) or {}
+        brut = re.sub(r"%[fFuUdDnNickvm]", "", champs.get("Exec", "")).strip()
+        if not brut:
+            return False, "aucune commande dans %s" % os.path.basename(fichier)
+        cmd = shlex.split(brut)
+    try:
+        subprocess.Popen(cmd, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as err:
+        return False, str(err)
+    return True, "lancee"
+
+
+GESTES_SESSION = {
+    "verrouiller": ["loginctl", "lock-session"],
+    "deconnecter": ["loginctl", "terminate-session", os.environ.get("XDG_SESSION_ID", "self")],
+    "redemarrer":  ["systemctl", "reboot"],
+    "eteindre":    ["systemctl", "poweroff"],
+}
+
+
+# Le temoin de sortie voulue. La coquille relance Constellation chaque fois
+# qu'elle se ferme — sans quoi un Alt+F4 malheureux deconnecterait l'utilisateur
+# au milieu de son travail, ce qu'aucun bureau ne fait. Il faut donc distinguer
+# « la fenetre s'est fermee » de « l'utilisateur veut partir », et seul ce
+# fichier fait la difference.
+TEMOIN_SORTIE = os.path.join(ETAT, "quitter")
+
+
+def geste_session(action):
+    cmd = GESTES_SESSION.get(action)
+    if not cmd:
+        return False, "geste inconnu"
+    if action in ("deconnecter", "redemarrer", "eteindre"):
+        try:
+            os.makedirs(ETAT, exist_ok=True)
+            with open(TEMOIN_SORTIE, "w", encoding="utf-8") as f:
+                f.write(action)
+        except OSError:
+            pass          # le geste doit partir meme si le temoin echoue
+    try:
+        subprocess.Popen(cmd, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as err:
+        return False, str(err)
+    return True, action
+
+
+# --------------------------------------------------------------------------
+# La page, avec la machine dedans
+# --------------------------------------------------------------------------
+
+def composer_page():
+    """Lire la page et remplacer le repere par l'inventaire reel.
+
+    Si le repere a disparu de la page — retouche de galerie/ sans lui — on ne
+    sert PAS une page de vitrine en silence : ce serait le « succes silencieux »
+    que ce projet s'interdit. On le dit dans le journal et on injecte quand meme
+    en tete du script, ce qui echouerait bruyamment plutot que de mentir.
+    """
+    with open(PAGE, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    # LE BUREAU NE DEMANDE RIEN AU RESEAU. La page, prototype publiable, tire
+    # ses polices de fonts.googleapis.com : acceptable pour une maquette, pas
+    # pour une coquille de session. Ce serait une requete vers Google a CHAQUE
+    # ouverture de session, et un bureau sans polices hors ligne. Les memes
+    # familles sont posees dans l'image (voir 36-constellation.sh) ; on retire
+    # donc les liens distants au moment de servir, et le fichier de galerie/
+    # reste intact pour sa vie de maquette.
+    html = re.sub(r'\s*<link rel="(?:preconnect|stylesheet)"[^>]*fonts\.g[^>]*>', "", html)
+
+    apps = inventaire()
+    usage = charger_usage()
+
+    # Les epinglees de la barre : les plus utilisees, decidees par les faits et
+    # non par une liste ecrite d'avance.
+    ordre = sorted(apps.values(), key=lambda a: -usage.get(a["id"], 0))
+    epinglees = {a["id"] for a in ordre[:7]}
+
+    etoiles = []
+    for a in ordre:
+        etoiles.append({
+            "id": a["id"], "nom": a["nom"], "src": a["src"], "ico": a["ico"],
+            # Un anneau plein dit « ca a tourne ici, mesure ». Sur la vraie
+            # machine, la mesure est le compteur de lancements de S lui-meme.
+            "ep": 1 if usage.get(a["id"], 0) > 0 else 0,
+            "epingle": 1 if a["id"] in epinglees else 0,
+            "txt": a["txt"],
+        })
+
+    injection = (
+        "\n/* --- injecte par s-etoiles : la machine reelle ------------- */\n"
+        "APPS = %s;\n"
+        "USAGE_DEFAUT = %s;\n"
+        "usage = chargerUsage();\n"
+        "LIENS_ORIGINE.length = 0;\n"
+        "CIBLES = {};\n"
+        % (json.dumps(etoiles, ensure_ascii=False),
+           json.dumps({k: v for k, v in usage.items()}, ensure_ascii=False))
+    )
+    if REPERE in html:
+        return html.replace(REPERE, injection).encode("utf-8")
+    print("s-etoiles : repere %s absent de la page." % REPERE, file=sys.stderr)
+    return html.replace("<script>", "<script>" + injection, 1).encode("utf-8")
+
+
+class Pont(http.server.BaseHTTPRequestHandler):
+    server_version = "s-etoiles"
+    sys_version = ""
+
+    def log_message(self, fmt, *args):
+        pass          # le journal de session n'a rien a gagner a chaque requete
+
+    # -- garde-fou -------------------------------------------------------
+    def hote_valide(self):
+        """Refuser tout ce qui ne vient pas de la coquille elle-meme.
+
+        Sans ce controle, une page quelconque ouverte dans le navigateur de
+        l'utilisateur pourrait, par reliaison DNS, demander a cette machine de
+        s'eteindre. Le pont n'ecoute que la boucle locale, ce qui ne suffit pas :
+        c'est l'en-tete Host qui trahit la manoeuvre.
+        """
+        hote = (self.headers.get("Host") or "").split(":")[0]
+        if hote not in ("127.0.0.1", "localhost"):
+            return False
+        origine = self.headers.get("Origin")
+        if origine and urllib.parse.urlparse(origine).hostname not in ("127.0.0.1", "localhost"):
+            return False
+        return True
+
+    def repondre(self, code, corps, type_mime="application/json; charset=utf-8"):
+        self.send_response(code)
+        self.send_header("Content-Type", type_mime)
+        self.send_header("Content-Length", str(len(corps)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            self.wfile.write(corps)
+        except BrokenPipeError:
+            pass
+
+    def json_out(self, code, obj):
+        self.repondre(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+
+    def do_GET(self):
+        if not self.hote_valide():
+            return self.repondre(403, b"non", "text/plain")
+        chemin = urllib.parse.urlparse(self.path).path
+        if chemin in ("/", "/index.html"):
+            try:
+                return self.repondre(200, composer_page(), "text/html; charset=utf-8")
+            except OSError as err:
+                return self.repondre(500, str(err).encode("utf-8"), "text/plain")
+        if chemin == "/api/etoiles":
+            return self.json_out(200, {"etoiles": list(inventaire().values()),
+                                       "usage": charger_usage()})
+        return self.repondre(404, b"rien ici", "text/plain")
+
+    def do_POST(self):
+        if not self.hote_valide():
+            return self.repondre(403, b"non", "text/plain")
+        chemin = urllib.parse.urlparse(self.path).path
+        try:
+            taille = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            taille = 0
+        if taille > 64 * 1024:
+            return self.json_out(413, {"ok": False, "dit": "requete trop grosse"})
+        try:
+            demande = json.loads(self.rfile.read(taille) or b"{}")
+        except ValueError:
+            return self.json_out(400, {"ok": False, "dit": "json illisible"})
+        if not isinstance(demande, dict):
+            return self.json_out(400, {"ok": False, "dit": "json illisible"})
+
+        if chemin == "/api/lancer":
+            ident = str(demande.get("id", ""))
+            apps = inventaire()
+            if ident not in apps:
+                return self.json_out(404, {"ok": False, "dit": "inconnue : " + ident})
+            ok, dit = lancer(apps[ident])
+            if ok:
+                usage = charger_usage()
+                usage[ident] = usage.get(ident, 0) + 1
+                sauver_usage(usage)
+            return self.json_out(200, {"ok": ok, "dit": dit})
+
+        if chemin == "/api/session":
+            ok, dit = geste_session(str(demande.get("action", "")))
+            return self.json_out(200, {"ok": ok, "dit": dit})
+
+        return self.repondre(404, b"rien ici", "text/plain")
+
+
+class Serveur(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+def main():
+    if not os.path.exists(PAGE):
+        print("s-etoiles : %s absente — le pont n'a rien a servir." % PAGE,
+              file=sys.stderr)
+        return 1
+    serveur = Serveur((HOTE, PORT), Pont)
+    print("s-etoiles : le pont ecoute sur http://%s:%d" % (HOTE, PORT))
+    try:
+        serveur.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=S — bureau de secours
+Comment=À n'utiliser que si Constellation ne démarre pas
+Exec=/usr/bin/startplasma-wayland
+TryExec=/usr/bin/startplasma-wayland
+DesktopNames=KDE
+Icon=s-logo

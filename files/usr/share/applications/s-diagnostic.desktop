@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Diagnostic
+GenericName=Mesure du démarrage
+Comment=Mesure le démarrage, nomme les services en échec, écrit un rapport
+Exec=/usr/bin/s-diagnostic
+Icon=s-logo
+Terminal=true
+Categories=System;
+Keywords=diagnostic;demarrage;lent;echec;rapport;

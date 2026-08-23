@@ -93,6 +93,18 @@ COPY galerie/constellation/constellation.html /usr/share/s/constellation/constel
 # KDE vivent dans files/usr/share/wallpapers/FoudreGelee/.
 COPY galerie/foudre-gelee/foudre-gelee.png /usr/share/wallpapers/FoudreGelee/contents/images/3840x2160.png
 
+# S-Constellation : la session propre de S.
+#
+# Elle vient APRES les COPY, parce qu'elle verifie ce qu'ils ont depose — la
+# page, ses trois gestes, ses deux entrees de session — et refuse de sortir une
+# image dont le bureau ne demarrerait pas. Elle vient AVANT les coutures parce
+# qu'elle ne bouge qu'a chaque refonte de la coquille, la ou les coutures
+# bougent a chaque geste corrige.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/36-constellation.sh
+
 # Les coutures — la partie qui bouge le plus
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \

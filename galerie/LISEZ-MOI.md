@@ -98,9 +98,18 @@ des tâches.
 
 **[constellation/](constellation/constellation.html)** — le bureau *Constellation*.
 
-Elle **existe et tourne**, mais elle n'a pas encore été photographiée sur une
-machine nommée, et la règle de cette Galerie ne se plie pas pour sa première
-pièce. Elle montera dans le tableau dès qu'une capture datée la portera.
+**Depuis le 2026-08-22, ce n'est plus une maquette : c'est la session de S.**
+Le greeter propose « S », et ce que S lance est cette page, servie par son pont
+`s-etoiles` qui y injecte l'inventaire réel de la machine. Le fichier de ce
+dossier reste **le même** — ouvert seul, il garde ses données de vitrine et sa
+vie de prototype ; servi par le pont, il devient un bureau. Une seule source.
+
+Le pont a été **exécuté** au banc du 2026-08-22 sur la machine de développement :
+sept étoiles tirées d'un vrai menu d'applications, les trois mondes classés
+juste, un lancement compté qui fait grossir son étoile et survit au
+rechargement. **Cela ne vaut pas capture** : la règle de cette Galerie demande
+une image prise sur la machine qui fait tourner l'œuvre, et **S n'a encore
+jamais ouvert cette session**. Elle montera dans le tableau ce jour-là, pas avant.
 
 Publiée aussi ici : <https://claude.ai/code/artifact/92657e1b-fac5-449d-a5a4-492f09e252a8>
 

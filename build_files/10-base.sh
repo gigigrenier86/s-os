@@ -52,5 +52,32 @@ cat > /usr/lib/systemd/system/bazzite-hardware-setup.service.d/10-s-limite.conf 
 TimeoutStartSec=900
 CONF
 
+# --------------------------------------------------------------------------
+# Le seul service observe SANS AUCUNE LIMITE au demarrage reel
+# --------------------------------------------------------------------------
+# Releve sur la machine le 2026-08-21 au soir, console a l'appui :
+#
+#   fedora-atomic-desktop-mandb-update.service/start running (2min 58s / no limit)
+#
+# C'est exactement la forme de defaut que « bazzite-hardware-setup » avait
+# semble avoir et n'avait pas : un travail long, place dans la transaction de
+# demarrage, et sans borne. Ici la borne manque VRAIMENT — « no limit » est
+# imprime par systemd lui-meme.
+#
+# CE QUE CETTE LIMITE FAIT, ET CE QU'ELLE NE FAIT PAS. Elle empeche qu'un
+# blocage rende la machine inaccessible sans fin. Elle NE REND PAS le demarrage
+# plus rapide : si ce service met trois minutes a reconstruire l'index des
+# pages de manuel sur un plateau USB, il les mettra toujours. Dire l'inverse
+# serait vendre un filet pour un moteur.
+#
+# La vraie mesure manque encore : un SECOND demarrage consecutif, sans rien
+# installer entre les deux, avec « systemd-analyze blame ». Le geste
+# « s-diagnostic » est la pour ca.
+install -d /usr/lib/systemd/system/fedora-atomic-desktop-mandb-update.service.d
+cat > /usr/lib/systemd/system/fedora-atomic-desktop-mandb-update.service.d/10-s-limite.conf <<'CONF'
+[Service]
+TimeoutStartSec=600
+CONF
+
 # Le reste de l'identite — nom affiche, theme, ecran d'amorcage — attend le
 # jalon 6.

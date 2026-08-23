@@ -1,0 +1,101 @@
+#!/usr/bin/bash
+# Transformer « le demarrage est lent » en une mesure.
+#
+# POURQUOI CE GESTE EXISTE. Le 2026-08-21, trois symptomes ont ete rapportes
+# depuis la machine reelle : asusd qui echoue et reessaie, un service inconnu
+# nomme « cardwired », et des demarrages d'environ trois minutes. Aucun des
+# trois n'etait mesure — et le carnet de ce projet a deja perdu quinze heures
+# a soigner une machine qui n'avait rien, faute d'avoir regarde avant.
+#
+# Ce script ne repare RIEN. Il repond a quatre questions, et il les repond
+# dans un fichier qu'on peut relire, coller ou photographier :
+#   1. combien de temps le demarrage a-t-il pris, et qui l'a fait attendre ;
+#   2. quelles unites ont echoue, et avec quel message ;
+#   3. d'ou vient chaque unite inconnue — c'est la reponse a « cardwired » ;
+#   4. ce que la machine porte en plus de l'image, c'est-a-dire ce que le
+#      portail de la base y a ajoute.
+#
+# LA MESURE QUI COMPTE EST LA SECONDE. Un demarrage qui suit une installation
+# est toujours long : l'editeur de liens se reconstruit, le chargeur d'amorcage
+# se met a jour, l'index des pages de manuel se refait. Lancer ce geste apres
+# DEUX demarrages consecutifs sans rien installer entre les deux est la seule
+# facon d'obtenir un chiffre qui veuille dire quelque chose.
+set -uo pipefail
+
+RAPPORT="${1:-$HOME/diagnostic-S.txt}"
+
+titre() { printf '\n=== %s ===\n' "$*"; }
+
+{
+printf 'Diagnostic de S — %s\n' "$(date '+%Y-%m-%d %H:%M')"
+printf 'Machine : %s\n' "$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || echo inconnu) $(cat /sys/class/dmi/id/product_name 2>/dev/null)"
+printf 'Systeme : %s\n' "$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")"
+printf 'Noyau   : %s\n' "$(uname -r)"
+
+titre "1. Le temps du demarrage"
+# « soft-reboot » et « firmware » ne sont pas toujours mesurables ; on prend
+# ce que systemd veut bien donner.
+systemd-analyze 2>&1 || true
+printf '\nDemarrages depuis l installation : %s\n' "$(journalctl --list-boots 2>/dev/null | wc -l)"
+printf 'ATTENTION : le premier demarrage apres une mise a jour est TOUJOURS long.\n'
+printf 'Seul un second demarrage consecutif, sans installation entre les deux,\n'
+printf 'donne un chiffre exploitable.\n'
+
+titre "2. Qui a fait attendre — les vingt plus lents"
+systemd-analyze blame 2>/dev/null | head -20 || true
+
+titre "3. La chaine critique"
+systemd-analyze critical-chain 2>/dev/null | head -25 || true
+
+titre "4. Les unites en echec"
+systemctl --failed --no-pager 2>&1 || true
+
+titre "5. Chaque unite en echec, en detail"
+# C'est ici que « cardwired » sera nomme pour de bon : le nom exact de l'unite,
+# le paquet qui l'a posee, et les dernieres lignes de son journal. Une unite
+# qu'on ne sait pas nommer ne se repare pas — et se masquer a l'aveugle serait
+# pire, puisque le symptome disparaitrait sans la cause.
+for u in $(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}'); do
+    printf '\n--- %s ---\n' "$u"
+    chemin="$(systemctl show -p FragmentPath --value "$u" 2>/dev/null)"
+    printf 'fichier : %s\n' "${chemin:-inconnu}"
+    if [[ -n "$chemin" && -e "$chemin" ]]; then
+        printf 'paquet  : %s\n' "$(rpm -qf "$chemin" 2>/dev/null || echo 'aucun paquet — pose a la main ou par un conteneur')"
+    fi
+    printf 'tentatives : %s\n' "$(systemctl show -p NRestarts --value "$u" 2>/dev/null)"
+    printf 'journal :\n'
+    journalctl -u "$u" -b --no-pager -n 12 2>/dev/null | sed 's/^/  /' || true
+done
+
+titre "6. Le materiel ASUS, s il est la"
+for u in asusd.service asusd-user.service supergfxd.service asus-shutdown.service; do
+    etat="$(systemctl is-enabled "$u" 2>/dev/null || echo absent)"
+    actif="$(systemctl is-active "$u" 2>/dev/null || echo -)"
+    printf '%-24s %-12s %s   redemarrages: %s\n' "$u" "$etat" "$actif" \
+        "$(systemctl show -p NRestarts --value "$u" 2>/dev/null || echo -)"
+done
+
+titre "7. Ce que la machine porte EN PLUS de l image"
+# La cause probable de la plupart des echecs vus le 2026-08-21 : des paquets
+# ajoutes apres coup par le portail de la base. Ils ne viennent pas de S, et
+# c est « rpm-ostree reset » qui les enleve tous d un coup.
+rpm-ostree status 2>&1 | head -30 || true
+
+titre "8. Le zram — normal ou pas"
+# « Added device: zram0 » a CHAQUE demarrage est le comportement normal : le
+# peripherique vit en memoire et n existe plus apres extinction. Il est
+# recree en quelques millisecondes. Ce message n est pas une panne.
+swapon --show 2>/dev/null || true
+systemctl is-active systemd-zram-setup@zram0.service 2>/dev/null || true
+printf 'temps pris par le zram : %s\n' \
+    "$(systemd-analyze blame 2>/dev/null | grep -m1 zram || echo 'non mesurable')"
+
+titre "9. Le disque, qui explique une part de la lenteur"
+lsblk -o NAME,SIZE,ROTA,TRAN,MOUNTPOINTS 2>/dev/null | head -15 || true
+printf '\nROTA=1 signifie plateau tournant. S vit sur un disque USB a plateaux :\n'
+printf 'un demarrage plus lent y est le disque, pas le systeme.\n'
+
+printf '\n=== fin du diagnostic ===\n'
+} 2>&1 | tee "$RAPPORT"
+
+printf '\nRapport ecrit dans %s\n' "$RAPPORT"

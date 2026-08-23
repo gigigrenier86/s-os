@@ -125,3 +125,95 @@ demarrage consecutif sans rien installer entre :
 et rapporter le resultat en photo. Si `fedora-atomic-desktop-mandb-update`
 (vu a 2 min 58, « no limit ») s'avere bloquant, lui poser la meme limite que
 `bazzite-hardware-setup` dans `10-base.sh`.
+
+## Trois symptomes examines le 2026-08-22 au soir — deux verdicts, une question ouverte
+
+Examines **sans la machine** : elle tourne sous Windows pendant que j'ecris.
+Ce qui suit distingue donc ce qui se deduit de ce qui se mesure.
+
+### « Added device zram » a chaque demarrage — NORMAL, et ce n'est pas un ralentissement
+
+Le peripherique zram est un disque compresse **en memoire vive**. Il n'existe
+plus quand la machine s'eteint, donc `systemd-zram-setup@zram0.service` le
+recree a chaque demarrage et le noyau l'annonce. C'est le fonctionnement voulu,
+pas une decouverte repetee ni une panne.
+
+Le cout est de l'ordre de la milliseconde — `s-diagnostic` le chiffre desormais
+(section 8) plutot que de le supposer. **Aucune correction posee** : corriger un
+comportement normal aurait supprime le swap compresse pour rien.
+
+*A ne pas confondre avec l'episode du 2026-08-21*, ou le zram a bel et bien fige
+une grosse ecriture sur la Seagate. Meme composant, probleme different : la, il
+absorbait des gigaoctets pendant un `bootc install` ; ici, il se contente
+d'exister.
+
+### `asusd` qui echoue et reessaie — la cause est le portail, pas S
+
+`asusd` vient d'**asusctl**, que S n'installe pas. Il est arrive sur la machine
+par le portail de la base — cask Homebrew `rog-control-center-linux` et
+`rpm-ostree` layering, dont les photos du 2026-08-21 montrent l'echec pendant
+l'installation (`recipe 'asus' failed with exit code 1`). Le service a donc ete
+pose a moitie : il existe, il est active, et il ne peut pas fonctionner.
+
+**Rien n'a ete masque dans l'image, et c'est deliberatoire.** Poser un
+`drop-in` qui coupe les tentatives ferait disparaitre le symptome en laissant la
+cause, et masquerait par la meme occasion un service que S n'a jamais installe.
+Le carnet appelle ca le succes silencieux.
+
+Ce qui enleve reellement asusd — et avec lui CoolerControl, Boxtron et le reste
+de ce que le portail a laisse — est une commande **sur la machine**, pas une
+retouche d'image :
+
+```bash
+rpm-ostree status      # d'abord regarder ce qui est superpose
+rpm-ostree reset       # puis tout retirer d'un coup, et redemarrer
+```
+
+C'est aussi ce que l'utilisateur demande sur le fond : ne plus passer par cette
+couche. `s-diagnostic` rend les deux visibles — section 6 pour les unites ASUS
+et leur nombre de redemarrages, section 7 pour ce que la machine porte en plus
+de l'image.
+
+### `cardwired` — introuvable, et je refuse de deviner
+
+Cherche le 2026-08-22 : **aucune trace**, ni dans l'arborescence complete du
+depot `ublue-os/bazzite` (1 168 chemins lus, rien qui contienne « cardwire »),
+ni sur le web. Ce n'est donc ni un service de Bazzite, ni un service documente.
+
+Trois lectures possibles, et **aucune n'est verifiable sans la machine** : un
+nom transcrit de travers depuis une photo de console, un service pose par une
+des installations du portail, ou une unite d'un paquet Fedora peu courant.
+
+**Rien n'a ete corrige.** Masquer une unite qu'on ne sait pas nommer serait la
+faute exacte que la regle 7 interdit. `s-diagnostic` la nommera pour de bon —
+section 5 : le nom exact de l'unite, le **paquet qui l'a posee** (`rpm -qf`), le
+nombre de tentatives et les douze dernieres lignes de son journal.
+
+### La seule correction posee dans l'image
+
+Un service, et un seul, a ete observe **sans aucune borne** au demarrage reel :
+
+```
+fedora-atomic-desktop-mandb-update.service/start running (2min 58s / no limit)
+```
+
+Il recoit une limite de dix minutes dans `10-base.sh`, du meme geste que
+`bazzite-hardware-setup` en avait recu une. **Cela borne un blocage, cela
+n'accelere rien** : si ce service met trois minutes a reconstruire l'index des
+pages de manuel sur un plateau USB, il les mettra toujours.
+
+### Ce qui bloque tout le reste, et qui n'est pas repare
+
+**`sudo` est inefficace pour le compte principal** — donc ni `bootc upgrade`, ni
+`rpm-ostree reset` ne peuvent etre lances. Le compte n'est probablement pas dans
+le groupe `wheel`, et cela **ne peut pas se corriger depuis l'image** : le compte
+n'existe pas au moment ou l'image se construit.
+
+La sortie est par `root`, que S rend joignable par SSH :
+
+```bash
+usermod -aG wheel RyuRex     # en root, une seule fois dans la vie de la machine
+```
+
+Il faut ensuite **fermer la session et la rouvrir** : l'appartenance a un groupe
+n'est lue qu'a la connexion.

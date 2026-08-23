@@ -46,12 +46,40 @@ lancement).
 
 ---
 
-## Où on en est — 2026-08-21
+## Où on en est — 2026-08-22
 
-**S est écrit sur un vrai disque, et ce disque n'a jamais démarré.** La nuance
-porte tout : l'installation sur la Seagate est faite, vérifiée fichier par
-fichier, caches vidés. Le premier amorçage sur la M720q **n'a pas eu lieu**.
-Tant qu'il n'a pas eu lieu, le jalon 3 n'est pas atteint.
+**S a démarré sur du vrai matériel, et personne n'a encore diagnostiqué ce qu'on
+y a vu.** Le premier amorçage a eu lieu le **2026-08-21 au soir** : bureau Plasma
+affiché, compte `RyuRex` créé, RetroArch qui fonctionne, Zoom qui s'ouvre. Le
+jalon 3 est franchi.
+
+**Et la machine n'est pas celle que ce carnet suppose.** Ce n'est pas la M720q
+mais **un portable ASUS** — la machine de développement elle-même, en double
+amorçage : Windows sur le disque interne, S sur la Seagate par F12. Il n'y a
+pas de seconde machine. Tout ce que ce fichier dit de l'i5-8400T, de l'UHD 630,
+du BIOS Lenovo et des 266 réinitialisations d'iGPU **est à relire sous cette
+lumière** ; rien de tout cela n'a été corrigé plus bas.
+
+**Ce qui a été vu n'a pas été soigné.** Une quinzaine de photos ont été prises,
+**non versionnées** — à redemander à l'utilisateur. Le relevé brut et leur
+transcription vivent dans
+[`banc/observations-2026-08-22-a-traiter.md`](banc/observations-2026-08-22-a-traiter.md).
+En résumé, et rien n'est vérifié sur la machine :
+
+- **`/usr/bin/vivaldi-stable` est introuvable**, ce qui casse d'un coup Vivaldi,
+  RapidO et Gemini — les trois lanceurs pointent dessus. Le `tmpfiles.d` qui
+  refait le pont `/var/opt/vivaldi → /usr/lib/opt/vivaldi` est le premier
+  suspect, pas le coupable.
+- **Presque toutes les autres pannes viennent du portail Bazzite** — `ujust`,
+  Homebrew, `rpm-ostree` layering : asusctl, CoolerControl, Bazzite CLI,
+  Boxtron, DaVinci Resolve. Ce n'est pas S qui échoue, c'est la couche amont —
+  et la demande de l'utilisateur est justement de ne plus passer par elle.
+- **Trois fenêtres de fin figent le bureau**, dont une a exigé un arrêt forcé.
+- **`sudo` est inefficace** pour le compte principal.
+- **Les démarrages sont longs** (~3 min). L'hypothèse — layerings en chaîne,
+  services ASUS en échec, plateau USB — **n'est pas une mesure** : il manque un
+  second démarrage consécutif sans rien installer entre, `systemd-analyze` à
+  l'appui.
 
 **Le jalon 2 est atteint et prouvé.** S s'installe, démarre jusqu'à l'invite de
 connexion, se met à jour par `bootc upgrade`, et **porte huit logiciels installés
@@ -153,14 +181,11 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
 
 À dire nettement, parce que c'est l'essentiel de ce qui reste :
 
-- **Aucune machine réelle n'a démarré sur S.** C'est ce qui reste, et c'est tout
-  ce qui reste avant le jalon 3. Le disque n'est plus le verrou : la Seagate de
-  4,55 To porte S, écrit et vérifié le 2026-08-21. Ce n'était pas le SSD prévu
-  mais un **plateau USB**, ce qui suffit à répondre aux trois questions du jalon 3
-  et se paiera seulement en lenteur. **Le prochain geste est un F12.**
-  *Piège relevé le même jour :* le démarrage rapide de Windows est actif
-  (`HiberbootEnabled = 1`), donc « Arrêter » ne repasse pas par le firmware.
-  Il faut **« Redémarrer »**.
+- **Aucune des pannes du premier démarrage réel n'a été diagnostiquée.** Elles
+  ont été observées le 2026-08-21 au soir, transcrites le 2026-08-22, et
+  **rien n'a été regardé sur la machine depuis**. C'est le premier travail qui
+  attend, et la règle 7 s'y applique en entier : regarder avant de chercher une
+  solution.
 - **Waydroid n'a jamais tourné.** `binder` est compilé dans le noyau, le
   lanceur est présent, la recette de Bazzite existe — mais aucune application
   Android n'a jamais démarré. C'est le différenciateur du projet, et il est
@@ -172,9 +197,12 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
   presse-papiers commun, associations croisées. L'*installation* dans les trois
   mondes, elle, est cousue et éprouvée depuis le 2026-08-20 au soir : c'est la
   première moitié du jalon 5, et la seconde attend le jalon 3.
-- **Aucun des huit logiciels de l'image n'a jamais servi.** Leur présence est
-  prouvée, leur fonctionnement non — seul Vivaldi a été exécuté, par un
-  `--version`. Les sept autres n'ont montré qu'un chemin de fichier.
+- **Les huit logiciels rendent leur version, et trois seulement ont vraiment
+  servi.** `git`, `node`, `npm`, `claude`, `gemini`, `code` et `antigravity`
+  répondent à un `--version` dans la machine installée (2026-08-21). Sur le vrai
+  matériel, **RetroArch fonctionne**, **Zoom s'ouvre**, **Antigravity est
+  déclaré bon** — et **Vivaldi ne se lance pas du tout**, son binaire étant
+  introuvable. Le reste n'a toujours ouvert aucune fenêtre.
 - **`bootc rollback` n'a jamais été exercé.** C'est pourtant le filet de sécurité
   du projet, et il est exerçable dès aujourd'hui dans la machine virtuelle : deux
   déploiements y coexistent. Cela coûte un redémarrage à froid, et changerait une
@@ -189,28 +217,30 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
 | 0 · La voie Waydroid | **fait** — `binder` compilé dans le noyau, prouvé à la construction |
 | 1 · Le dépôt et la chaîne | **fait** — CI vert, image publiée, reconstruction quotidienne |
 | 2 · L'image démarre | **fait et prouvé de l'intérieur** — 35 s, zéro service en échec |
-| 3 · Le vrai matériel | **à moitié** — S est écrit et vérifié sur la Seagate ; **aucune machine réelle n'a encore démarré dessus** |
+| 3 · Le vrai matériel | **fait — le 2026-08-21 au soir**, sur un **portable ASUS** en double amorçage, pas sur la M720q. Bureau affiché, compte créé, RetroArch et Zoom en marche. **Les pannes vues ce soir-là ne sont pas diagnostiquées** |
 | 4 · Les trois mondes côte à côte | pas commencé — exige le jalon 3 |
 | 5 · Les coutures | **commencé** — l'installation des trois mondes est cousue et éprouvée ; le partage entre eux ne l'est pas |
-| 6 · L'identité | **commencé, quatre pièces posées dans l'image le 2026-08-22** — le lanceur Constellation (le prototype de `galerie/` s'ouvre en fenêtre dédiée par Vivaldi), l'os-release réécrit — la machine s'annonce « S », `ID` restant `bazzite` pour ne pas casser les recettes de l'amont —, le logo (un S de verre fourni par l'utilisateur, découpé en icône `s-logo` 256×256, `LOGO=` d'os-release et icône de Constellation), et **Foudre gelée**, fond d'écran 4K entièrement procédural (`galerie/foudre-gelee/peindre.ps1`, semé), posé dans `/usr/share/wallpapers` et déclaré fond par défaut dans les `defaults` des look-and-feel — nouvelles sessions seulement, un fond déjà choisi est un réglage, pas un défaut. **Jamais vu sur une machine** ; l'entrée d'amorçage de la Seagate dira `Bazzite (ostree:0)` jusqu'au prochain déploiement, elle s'écrit au déploiement depuis `PRETTY_NAME` |
+| 6 · L'identité | **S a sa propre session depuis le 2026-08-22** — le greeter ne propose plus que « S » et « S — bureau de secours » ; ce que S lance n'est plus la coquille de l'amont mais la sienne, Constellation, servie par son pont `s-etoiles`. Plus l'os-release réécrit (la machine s'annonce « S », `ID` restant `bazzite` pour ne pas casser les recettes de l'amont), le logo, et **Foudre gelée**, fond d'écran 4K procédural. **Rien de tout cela n'a jamais été vu sur une machine** ; il reste le greeter et l'écran d'amorçage, qui portent encore un nom qui n'est pas le nôtre |
 | 7 · L'usage quotidien | pas commencé |
 
-**Le jalon 3 est le seul verrou matériel**, et il ne se lève pas par du code : il
-faut un vrai SSD externe, pas une clé — une mémoire flash s'effondre en écriture
-aléatoire. Tout le reste en découle : Waydroid à vitesse réelle, les jeux,
-l'iGPU, et le droit de dire que S fonctionne.
+**Le verrou matériel est levé, et il en reste un de vitesse.** La Seagate est un
+plateau USB, pas le SSD prévu : elle a suffi à démarrer, elle se paiera en
+lenteur tant qu'elle sera le support. Ce qui attend maintenant n'est plus un
+achat mais un **diagnostic** — Waydroid, les jeux, l'iGPU du portable ASUS, et
+le droit de dire que S *fonctionne* plutôt que *démarre*.
 
-**Un second prérequis n'est pas tranché, et il se règle avant l'achat, pas
-après** : Bazzite publie une procédure particulière pour les machines dont
-Secure Boot est actif. L'état du firmware de la M720q sur ce point n'a jamais
-été relevé. À faire avant de brancher quoi que ce soit.
+**Secure Boot est réglé par les faits** : le disque a démarré, donc rien ne le
+bloque sur cette machine. Le relevé de 2026-08-20 portait sur la M720q et ne dit
+rien de l'ASUS ; il n'a plus besoin de le dire.
 
 **Le jalon 5 s'est ouvert le 2026-08-20 au soir**, et il se divise en deux
 moitiés que rien n'obligeait à mener ensemble. La première — *installer* dans
 les trois mondes d'un seul double-clic — ne demande pas de matériel : elle est
 faite et éprouvée. La seconde — *partager* entre les mondes, un dossier
-personnel, un presse-papiers, des associations croisées — attend le jalon 3,
-puisqu'elle suppose que les trois mondes tournent en même temps.
+personnel, un presse-papiers, des associations croisées — attendait le jalon 3,
+puisqu'elle suppose que les trois mondes tournent en même temps. **Le jalon 3
+étant franchi, elle n'est plus bloquée** — elle attend seulement que le monde
+Windows et le monde Android aient tourné une fois sur cette machine.
 
 ### Les règles apprises, et qui tiennent tout
 
@@ -294,6 +324,122 @@ manifeste de l'image publiée : la couche des coutures pèse **9,6 Mo**, celle d
 marqueur qui désarme l'assistant de création de compte. S'il y entrait, toute
 installation neuve démarrerait sans compte utilisateur et sans moyen d'en créer
 un — et cela ne se verrait pas avant la machine suivante.
+## 2026-08-22, 21 h — S-Constellation : la maquette devient la session
+
+**Constatation de l'utilisateur, et elle était juste : « le système de bureau
+Constellation ne s'est pas implanté ».** Ce n'était pas un bureau. C'était une
+page HTML ouverte dans une fenêtre par-dessus la coquille de la base, par un
+lanceur pointant sur `/usr/bin/vivaldi-stable` — le binaire justement
+introuvable sur la machine réelle. **Une maquette derrière un lien mort.**
+
+Demande de fond, mot pour mot : *« je ne veux plus voir de Bazzite ou de Fedora
+ou Plasma, je veux que S ait sa propre architecture qui est S - Constellation »*.
+
+### Ce qui sépare habiller une base d'en poser une autre
+
+Un bureau, c'est deux choses, et une seule se voit.
+
+| | Qui la voit | Décision |
+|---|---|---|
+| Le **compositeur** — dessine les fenêtres, parle au GPU, gère Xwayland | personne, jamais | **gardé** : `kwin_wayland`, déjà dans la base, a déjà affiché un bureau sur cette machine |
+| La **coquille** — barre, menu, icônes, fond, gestes | **tout ce que l'utilisateur voit** | **remplacée entièrement** par Constellation |
+
+**Ce n'est pas un renoncement, et il faut le dire pour que personne ne le
+relise comme tel.** Un compositeur ne met aucun nom à l'écran, aucun logo,
+aucune couleur. En réécrire un donnerait moins bien, plus tard, pour un
+résultat identique à l'œil. C'est la règle « on ne réimplémente pas ce que
+l'amont maintient » appliquée là où elle vaut — et son exact opposé appliqué
+à la coquille, où **rien de l'amont ne démarre plus** : ni `plasmashell`, ni sa
+barre des tâches, ni son menu.
+
+### Les quatre pièces écrites
+
+| Fichier | Ce qu'il fait |
+|---|---|
+| `files/usr/share/wayland-sessions/s.desktop` | l'entrée « S » du greeter |
+| `s-session` | choisit le compositeur, prépare le bus de session, lance la coquille |
+| `s-coquille` | démarre le pont, puis Constellation en plein écran — **et porte le filet** |
+| `s-etoiles` | le pont : sert la page, inventorie la machine, lance, compte, éteint |
+
+### Le pont, et pourquoi il injecte au lieu d'appeler
+
+Une page ne peut ni lancer un programme, ni lire un menu d'applications, ni
+éteindre un ordinateur — le navigateur l'en empêche, et c'est heureux. Il
+fallait un interlocuteur local : `s-etoiles`, un serveur HTTP sur `127.0.0.1`.
+
+**Il réécrit la page avant de l'envoyer** plutôt que de la faire appeler une API.
+Conséquence : la page reste *strictement la même* qu'ouverte seule. Aucune
+restructuration asynchrone, aucun état de chargement — et **le prototype de
+`galerie/` continue de vivre tel quel** avec ses données de vitrine. Le pont ne
+remplace qu'un commentaire-repère, `/*__S_ETOILES__*/`.
+
+### Ce qui ne se voit plus, et ce qui se voit encore
+
+- **Les sessions de l'amont sont masquées** (`NoDisplay=true`), pas effacées.
+  Le greeter propose « S » et « S — bureau de secours ». Un bureau arraché ne
+  se remet pas d'un clic ; une session masquée, si.
+- **Les applications dont le nom porte Bazzite, Fedora, Plasma, Waydroid,
+  Distrobox, Proton ou Wine ne montent pas au ciel.** Pas pour les cacher — le
+  carnet les nomme, le dépôt est public — mais parce qu'on ouvre *un* système,
+  pas un empilement. C'est la règle 9 étendue au menu entier.
+- **Restent à peindre, et c'est écrit dans le journal de construction** : le
+  thème du greeter et l'écran d'amorçage graphique. Le second exige de refaire
+  l'initramfs. Ils portent encore un nom qui n'est pas le nôtre.
+
+### Trois défauts que seul le banc pouvait montrer
+
+Le pont a été **exécuté**, sur la machine de développement, avec un faux menu
+d'applications de douze entrées et la vraie page.
+
+1. **Le monde Windows disparaissait en entier.** Le filtre qui écarte les
+   gestionnaires de fichiers portait sur la *commande* : tout `.desktop` dont
+   l'`Exec` appelle `s-ouvrir-exe`. Or **les raccourcis moissonnés par
+   `s-menu-windows` appellent tous `s-ouvrir-exe`, c'est leur raison d'être.**
+   « Lineage II » avait disparu du ciel sans un mot — le succès silencieux, une
+   fois de plus. Le filtre porte désormais sur l'identifiant.
+2. **Le bureau demandait ses polices à Google à chaque ouverture de session.**
+   La page tire IBM Plex de `fonts.googleapis.com` : sans conséquence pour une
+   maquette, inacceptable pour une coquille — une requête vers Google à chaque
+   connexion, et un écran sans polices hors ligne. Les familles entrent dans
+   l'image ; le pont retire les liens distants en servant. Le fichier de
+   `galerie/` reste intact pour sa vie de maquette.
+3. **Alt+F4 aurait déconnecté l'utilisateur.** La coquille est une fenêtre : la
+   fermer rend un code 0, que la boucle lisait comme « sortie propre ». On
+   perdait sa session pour avoir manqué un raccourci. Le pont pose désormais un
+   témoin quand la sortie est *voulue* ; sans témoin, la coquille se rouvre.
+
+### Ce qui est éprouvé, et ce qui ne l'est pas
+
+**Éprouvé au banc, le 2026-08-22 — machine de développement, portable ASUS sous
+Windows, pont exécuté par Python, page rendue dans un vrai navigateur :**
+
+| | |
+|---|---|
+| Inventaire | 7 étoiles tirées de 12 `.desktop` — Bazzite, Fedora, `NoDisplay` et `TryExec` mort écartés |
+| Les trois mondes | `linux`, `windows` (via `s-ouvrir-exe`), `android` (via `waydroid`) classés juste |
+| La page | 7 astres créés, 7 raccourcis en barre, horloge vivante, **aucune erreur de console** |
+| Lancement réussi | `{"ok": true}`, compteur écrit dans `usage.json` |
+| Lancement impossible | `{"ok": false, "dit": "…introuvable"}` — l'échec se dit |
+| **La boucle complète** | après un lancement, l'étoile passe de 30 à **60 px**, son anneau devient plein, elle s'épingle à la barre — **et survit au rechargement** |
+| Garde-fou | `Host` étranger → **403**, `Origin` étranger → **403**, page normale → 200 |
+| Témoin de sortie | posé par « Éteindre », **pas** par « Verrouiller » |
+
+**Jamais exercé, et c'est l'essentiel de ce qui reste :**
+
+- **La session elle-même n'a jamais démarré.** `kwin_wayland /usr/bin/s-coquille`
+  n'a jamais été lancé nulle part. C'est le point de rupture unique de tout ce
+  travail : si cette invocation est fausse, la session meurt et le greeter
+  revient — d'où l'entrée de secours, qui rend cette panne réparable sans SSH.
+- **Le filet n'a jamais servi.** Trois chutes en moins d'une minute posent un
+  bureau de secours ; personne n'a vérifié qu'il se pose.
+- **Aucune capture sur S.** La règle de `galerie/` tient : Constellation ne
+  montera dans son tableau que photographiée sur la machine qui la fait tourner.
+- **Le greeter peut se souvenir de l'ancienne session.** Une session masquée ne
+  se choisit plus, mais rien ne dit ici comment SDDM traite un souvenir devenu
+  invisible. **À la première connexion, choisir « S » dans le menu des sessions.**
+
+---
+
 ## 2026-08-19 — le dépôt est créé *(dépassé, voir « Où on en est » plus haut)*
 
 **Le dépôt vient d'être créé. Rien n'a jamais été construit ni exécuté.**
@@ -455,7 +601,16 @@ OS qui démarre.
 
 ---
 
-## La machine — relevé du 2026-08-19
+## La machine — relevé du 2026-08-19 *(ce n'est PAS la machine qui fait tourner S)*
+
+> **Avertissement ajouté le 2026-08-22.** Tout ce relevé décrit une **M720q**,
+> et S n'a jamais démarré dessus. La machine qui a démarré S le 2026-08-21 au
+> soir est **un portable ASUS** — celui-là même qui sert au développement, en
+> double amorçage. Son matériel n'a **jamais été relevé** : ni processeur, ni
+> mémoire, ni iGPU, ni firmware. Les chiffres ci-dessous ne s'y appliquent pas,
+> et les 266 réinitialisations d'iGPU dont parle le carnet ont été mesurées sur
+> une autre machine que celle qu'on diagnostique. **Relever l'ASUS avant
+> d'interpréter quoi que ce soit.**
 
 | Point | Valeur |
 |---|---|
