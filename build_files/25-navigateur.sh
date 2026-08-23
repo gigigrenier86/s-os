@@ -83,6 +83,49 @@ TMP
 # suggererait le contraire.
 rm -f /etc/yum.repos.d/vivaldi.repo
 
+# --------------------------------------------------------------------------
+# Le .desktop du paquet vise /usr/bin/vivaldi-stable, et c'est le piege
+# --------------------------------------------------------------------------
+# Trouve sur la M720q le 2026-08-23 : /usr/bin/vivaldi-stable -> /opt/vivaldi/
+# vivaldi -> /var/opt/vivaldi/vivaldi, et ce dernier pont ne s'etait jamais
+# refait — /var/opt/vivaldi existait deja comme un vrai dossier (les codecs
+# proprietaires que Vivaldi y telecharge), si bien que le « L » de tmpfiles.d
+# refuse de poser un lien par-dessus. Consequence mesuree : « gio launch »
+# refuse meme de CHARGER le .desktop (pas seulement de l'executer), puisque
+# gio resout Exec des le chargement. Toute etoile Vivaldi de Constellation en
+# silence, et le menu KDE tout autant.
+#
+# Le correctif retenu par s-coquille pour son propre moteur s'applique ici :
+# viser le chemin de L'IMAGE, jamais le pont qui peut se rompre.
+F=/usr/share/applications/vivaldi-stable.desktop
+sed -i 's|^Exec=/usr/bin/vivaldi-stable|Exec=/usr/lib/opt/vivaldi/vivaldi|' "$F"
+# TryExec n'a le droit de vivre QUE dans [Desktop Entry] — un TryExec dans un
+# groupe [Desktop Action ...] est rejete par desktop-file-validate. Premiere
+# tentative en sed aveugle, corrigee au banc le 2026-08-23.
+python3 - "$F" <<'PY'
+import sys
+p = sys.argv[1]
+with open(p) as f:
+    lignes = f.readlines()
+sortie, section, pose = [], None, False
+for ligne in lignes:
+    s = ligne.strip()
+    if s.startswith("["):
+        section = s
+    sortie.append(ligne)
+    if section == "[Desktop Entry]" and s.startswith("Exec=") and not pose:
+        sortie.append("TryExec=/usr/lib/opt/vivaldi/vivaldi\n")
+        pose = True
+with open(p, "w") as f:
+    f.writelines(sortie)
+PY
+if grep -q '/usr/bin/vivaldi-stable' "$F"; then
+    echo "ECHEC : vivaldi-stable.desktop vise encore /usr/bin/vivaldi-stable." >&2
+    exit 1
+fi
+command -v desktop-file-validate >/dev/null 2>&1 && desktop-file-validate "$F"
+echo "  lanceur       : vivaldi-stable.desktop vise /usr/lib/opt/vivaldi/vivaldi directement"
+
 # On verifie le binaire REEL, pas /usr/bin/vivaldi-stable : celui-ci vise
 # /opt/vivaldi/vivaldi, qui ne resout pas pendant la construction puisque le
 # pont n'existe qu'au demarrage.

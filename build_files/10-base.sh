@@ -64,17 +64,25 @@ CONF
 # demarrage, et sans borne. Ici la borne manque VRAIMENT — « no limit » est
 # imprime par systemd lui-meme.
 #
-# CE QUE CETTE LIMITE FAIT, ET CE QU'ELLE NE FAIT PAS. Elle empeche qu'un
-# blocage rende la machine inaccessible sans fin. Elle NE REND PAS le demarrage
-# plus rapide : si ce service met trois minutes a reconstruire l'index des
-# pages de manuel sur un plateau USB, il les mettra toujours. Dire l'inverse
-# serait vendre un filet pour un moteur.
+# CE QUE CETTE LIMITE FAISAIT, ET CE QU'ELLE NE FAISAIT PAS — corrige le
+# 2026-08-23, mesure a l'appui sur la M720q : « systemd-analyze critical-chain »
+# montrait multi-user.target attendant CE SERVICE precis, via un
+# « Before=multi-user.target » que systemd ajoute tout seul des qu'une unite
+# porte « WantedBy=multi-user.target » (sauf si DefaultDependencies=no). Sur
+# cette machine, mandb a mis 2 min 51 s a lui seul — plus de la MOITIE des
+# 4 min 49 s que prenait tout le demarrage jusqu'a l'invite de connexion.
 #
-# La vraie mesure manque encore : un SECOND demarrage consecutif, sans rien
-# installer entre les deux, avec « systemd-analyze blame ». Le geste
-# « s-diagnostic » est la pour ca.
+# L'index des pages de manuel n'a besoin d'exister ni pour ouvrir une session
+# ni pour utiliser un logiciel : rien ne justifie qu'il retienne le bureau.
+# « DefaultDependencies=no » retire precisement ce Before= automatique — le
+# service tourne toujours (WantedBy le garde tire), mais en parallele du reste
+# du demarrage plutot qu'avant lui. TimeoutStartSec reste, en filet, au cas ou
+# le disque USB le ferait vraiment deraper.
 install -d /usr/lib/systemd/system/fedora-atomic-desktop-mandb-update.service.d
 cat > /usr/lib/systemd/system/fedora-atomic-desktop-mandb-update.service.d/10-s-limite.conf <<'CONF'
+[Unit]
+DefaultDependencies=no
+
 [Service]
 TimeoutStartSec=600
 CONF

@@ -42,6 +42,7 @@ ETAT = os.path.join(
     os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
     "s")
 FICHIER_USAGE = os.path.join(ETAT, "usage.json")
+FICHIER_PLACEES = os.path.join(ETAT, "placees.json")
 
 # --------------------------------------------------------------------------
 # L'inventaire : lire les .desktop de la machine, et n'en garder que des astres
@@ -289,6 +290,34 @@ def sauver_usage(usage):
 
 
 # --------------------------------------------------------------------------
+# Les etoiles PLACEES : ce que l'utilisateur a choisi de mettre au ciel
+# --------------------------------------------------------------------------
+# L'inventaire brut de la machine peut compter des dizaines d'entrees — sur
+# la M720q, 81 le 2026-08-23, EmuDeck et consorts compris. Les deverser toutes
+# sur le ciel d'un coup n'est pas une etoile choisie, c'est un fouillis. Ce que
+# le ciel affiche vient de la, jamais de l'inventaire entier.
+def charger_placees():
+    try:
+        with open(FICHIER_PLACEES, "r", encoding="utf-8") as f:
+            p = json.load(f)
+        return {str(k): {"x": float(v["x"]), "y": float(v["y"])}
+                for k, v in p.items() if isinstance(v, dict) and "x" in v and "y" in v}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
+def sauver_placees(placees):
+    try:
+        os.makedirs(ETAT, exist_ok=True)
+        temporaire = FICHIER_PLACEES + ".tmp"
+        with open(temporaire, "w", encoding="utf-8") as f:
+            json.dump(placees, f)
+        os.replace(temporaire, FICHIER_PLACEES)
+    except OSError as err:
+        print("s-etoiles : placement non sauve : %s" % err, file=sys.stderr)
+
+
+# --------------------------------------------------------------------------
 # Les gestes
 # --------------------------------------------------------------------------
 
@@ -378,6 +407,7 @@ def composer_page():
 
     apps = inventaire()
     usage = charger_usage()
+    placees = charger_placees()
 
     # Les epinglees de la barre : les plus utilisees, decidees par les faits et
     # non par une liste ecrite d'avance.
@@ -402,8 +432,10 @@ def composer_page():
         "usage = chargerUsage();\n"
         "LIENS_ORIGINE.length = 0;\n"
         "CIBLES = {};\n"
+        "PLACEES = %s;\n"
         % (json.dumps(etoiles, ensure_ascii=False),
-           json.dumps({k: v for k, v in usage.items()}, ensure_ascii=False))
+           json.dumps({k: v for k, v in usage.items()}, ensure_ascii=False),
+           json.dumps(placees, ensure_ascii=False))
     )
     if REPERE in html:
         return html.replace(REPERE, injection).encode("utf-8")
@@ -460,7 +492,8 @@ class Pont(http.server.BaseHTTPRequestHandler):
                 return self.repondre(500, str(err).encode("utf-8"), "text/plain")
         if chemin == "/api/etoiles":
             return self.json_out(200, {"etoiles": list(inventaire().values()),
-                                       "usage": charger_usage()})
+                                       "usage": charger_usage(),
+                                       "placees": charger_placees()})
         return self.repondre(404, b"rien ici", "text/plain")
 
     def do_POST(self):
@@ -495,6 +528,28 @@ class Pont(http.server.BaseHTTPRequestHandler):
         if chemin == "/api/session":
             ok, dit = geste_session(str(demande.get("action", "")))
             return self.json_out(200, {"ok": ok, "dit": dit})
+
+        if chemin == "/api/placer":
+            ident = str(demande.get("id", ""))
+            if ident not in inventaire():
+                return self.json_out(404, {"ok": False, "dit": "inconnue : " + ident})
+            try:
+                x = min(1.0, max(0.0, float(demande.get("x", 0.5))))
+                y = min(1.0, max(0.0, float(demande.get("y", 0.5))))
+            except (TypeError, ValueError):
+                return self.json_out(400, {"ok": False, "dit": "position invalide"})
+            placees = charger_placees()
+            placees[ident] = {"x": x, "y": y}
+            sauver_placees(placees)
+            return self.json_out(200, {"ok": True, "dit": "placee"})
+
+        if chemin == "/api/retirer":
+            ident = str(demande.get("id", ""))
+            placees = charger_placees()
+            if ident in placees:
+                del placees[ident]
+                sauver_placees(placees)
+            return self.json_out(200, {"ok": True, "dit": "retiree"})
 
         return self.repondre(404, b"rien ici", "text/plain")
 

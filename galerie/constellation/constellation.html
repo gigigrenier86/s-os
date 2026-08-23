@@ -238,12 +238,27 @@ html, body {
 
 .grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
 .tuile {
+  position: relative;
   appearance: none; background: none; border: none; color: var(--texte-2);
   font: inherit; font-size: 11px; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 7px;
   padding: 11px 4px 9px; border-radius: 9px;
   transition: background 140ms ease;
 }
+/* L'epingle : ce qui choisit si une application monte au ciel. Discrete tant
+   qu'elle n'est pas posee, nette des qu'elle l'est -- on doit voir d'un coup
+   d'oeil ce qui est deja place en parcourant le menu. */
+.tuile .pin {
+  position: absolute; top: 2px; right: 6px; z-index: 1;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer;
+  background: var(--verre-2); border: 1px solid var(--bord);
+  color: var(--texte-3);
+}
+.tuile .pin svg { width: 10px; height: 10px; fill: none; stroke: currentColor;
+                  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tuile .pin:hover { border-color: var(--bord-vif); color: var(--texte); }
+.tuile .pin.actif { background: rgba(255,255,255,0.14); border-color: var(--bord-vif); color: var(--texte); }
 .tuile:hover, .tuile:focus-visible { background: var(--verre-2); color: var(--texte); outline: none; }
 .tuile .bulle {
   width: 38px; height: 38px; border-radius: 50%;
@@ -405,10 +420,10 @@ html, body {
 <div id="fiche"><div class="f-nom"></div><div class="f-src"></div><div class="f-txt"></div></div>
 <div id="mot"></div>
 <div id="aide">
-  <div><b>clic sur deux etoiles</b> lier &#183; <b>double-clic</b> ouvrir</div>
-  <div>l'etoile <b>grossit avec l'usage</b></div>
+  <div><b>menu</b> choisir et epingler &#183; <b>double-clic sur une etoile</b> ouvrir</div>
+  <div><b>clic sur deux etoiles</b> lier &#183; l'etoile <b>grossit avec l'usage</b></div>
   <div><b>glisser sur une autre</b> fusionner &#183; <b>double-clic sur l'amas</b> defaire</div>
-  <div><b>clic sur un lien</b> l'effacer</div>
+  <div><b>clic sur un lien</b> l'effacer &#183; <b>Suppr</b> retirer du ciel</div>
   <div><b>N</b> noms &#183; <b>R</b> liens d'origine &#183; <b>F</b> plein ecran</div>
 </div>
 
@@ -503,6 +518,15 @@ let USAGE_DEFAUT = { vivaldi:46, code:38, term:31, fichiers:24, claude:19,
   rapido:14, retro:9, gemini:7, node:6, cmd:5, antigr:4, msg:3, photos:3,
   zoom:2, fdroid:2, play:1, musique:1, tel:1, lineage:0, notepad:0 };
 let usage = chargerUsage();
+
+/* PLACEES : les etoiles que l'UTILISATEUR a choisi de poser au ciel, avec
+   leur position (x,y en fraction 0..1 de l'ecran). null = mode vitrine
+   (galerie/, ouverte seule) : le ciel se remplit alors comme avant, avec
+   toute la demonstration. Un objet = mode reel, servi par s-etoiles : le
+   ciel ne montre plus que ce qui a ete place, jamais l'inventaire entier —
+   celui-ci peut compter des dizaines d'applications (81 sur la M720q le
+   2026-08-23), et les deverser toutes serait un fouillis, pas un choix. */
+let PLACEES = null;
 function chargerUsage() {
   try { const s = JSON.parse(localStorage.getItem("s-usage")); if (s) return s; } catch (e) {}
   return Object.assign({}, USAGE_DEFAUT);
@@ -541,6 +565,31 @@ function lancer(app) {
   }
   if (CIBLES[app.id]) window.open(CIBLES[app.id], "_blank", "noopener");
   dire(app.nom + (app.ep ? "  —  lancee" : "  —  jamais exercee, ce serait un premier essai"));
+}
+
+/* -- Le choix des etoiles : le menu liste TOUT, le ciel ne montre que ce
+   qu'on y a place. Une seule action, reversible, jamais destructrice --
+   retirer une etoile du ciel ne desinstalle rien. */
+function togglerPlacement(id) {
+  if (!PLACEES) return;
+  if (Object.prototype.hasOwnProperty.call(PLACEES, id)) {
+    delete PLACEES[id];
+    versLePont("/api/retirer", { id });
+    const a = parId(id);
+    if (a) { liens = liens.filter(l => l.a !== a && l.b !== a); retirer(a); tracerLiens(); }
+    dire("retiree du ciel");
+  } else {
+    const app = APPS.find(a => a.id === id);
+    if (!app) return;
+    const x = 0.5 + (Math.random() - 0.5) * 0.34;
+    const y = 0.5 + (Math.random() - 0.5) * 0.34;
+    PLACEES[id] = { x, y };
+    versLePont("/api/placer", { id, x, y });
+    creerAstre(app, x * L, y * (H - 70));
+    habillerTailles();
+    dire("placee sur le ciel");
+  }
+  peindreVue();
 }
 
 /* ── Etat ──────────────────────────────────────────────────────── */
@@ -693,7 +742,13 @@ function brancher(a) {
       bouge = false;
       const cible = astres.find(x => x !== a &&
         Math.hypot(x.x - a.x, x.y - a.y) < (x.r + a.r) * 0.62);
-      if (cible) fusionner(a, cible);
+      if (cible) { fusionner(a, cible); return; }
+      /* La position choisie se retient — « et tu choisis ou », pas seulement quoi. */
+      if (PLACEES && !a.app.membres && Object.prototype.hasOwnProperty.call(PLACEES, a.app.id)) {
+        const x = a.x / L, y = a.y / (H - 70);
+        PLACEES[a.app.id] = { x, y };
+        versLePont("/api/placer", { id: a.app.id, x, y });
+      }
       return;
     }
     choisirAstre(a);
@@ -899,6 +954,21 @@ function dire(t) {
 function semer() {
   scene.innerHTML = "";
   astres = []; liens = []; choisi = null;
+
+  if (PLACEES) {
+    /* Mode reel : uniquement les etoiles choisies, a la position choisie.
+       Rien d'automatique -- voir togglerPlacement() dans le menu. */
+    for (const id in PLACEES) {
+      const app = APPS.find(a => a.id === id);
+      if (!app) continue;   // l'application a pu disparaitre de la machine
+      const p = PLACEES[id];
+      creerAstre(app, p.x * L, p.y * (H - 70));
+    }
+    habillerTailles();
+    return;
+  }
+
+  /* Mode vitrine (galerie/, ouverte seule) : la mise en scene originale. */
   const cx = L / 2, cy = (H - 70) / 2;
   const R = Math.min(L, H - 70) * 0.34;
   const secteurs = { linux: -Math.PI/2, windows: Math.PI/6, android: Math.PI*5/6 };
@@ -1049,8 +1119,18 @@ function peindreVue() {
 }
 
 function tuile(app) {
-  return '<button class="tuile" data-app="' + app.id + '">' +
-         bulleHTML(app, "bulle") + '<span class="nom">' + app.nom + "</span></button>";
+  /* En mode reel, chaque tuile porte son epingle : le menu est ou l'on
+     CHOISIT ce qui monte au ciel, le ciel est ou l'on LANCE. Un clic sur la
+     tuile lance toujours (comme avant) ; l'epingle, elle, place ou retire. */
+  const placee = PLACEES ? Object.prototype.hasOwnProperty.call(PLACEES, app.id) : false;
+  const pin = PLACEES
+    ? '<span class="pin' + (placee ? " actif" : "") + '" data-pin="' + app.id +
+      '" role="button" tabindex="0" title="' +
+      (placee ? "Retirer du ciel" : "Placer sur le ciel") +
+      '"><svg><use href="#i-etincelle"/></svg></span>'
+    : "";
+  return '<div class="tuile" data-app="' + app.id + '" role="button" tabindex="0">' +
+         pin + bulleHTML(app, "bulle") + '<span class="nom">' + app.nom + "</span></div>";
 }
 
 function peindreVignettes() {
@@ -1073,11 +1153,26 @@ function peindreVignettes() {
 }
 
 function brancherMenu() {
-  corps.querySelectorAll("[data-app]").forEach(b => {
-    b.addEventListener("click", () => {
+  corps.querySelectorAll(".tuile[data-app]").forEach(b => {
+    b.addEventListener("click", (e) => {
+      if (e.target.closest(".pin")) return;   // l'epingle gere son propre clic
       const app = APPS.find(a => a.id === b.dataset.app);
       lancer(app);
       ouvrirMenu(false);
+    });
+    b.addEventListener("keydown", e => {
+      if ((e.key === "Enter" || e.key === " ") && !e.target.closest(".pin")) {
+        e.preventDefault();
+        const app = APPS.find(a => a.id === b.dataset.app);
+        lancer(app);
+        ouvrirMenu(false);
+      }
+    });
+  });
+  corps.querySelectorAll(".pin[data-pin]").forEach(p => {
+    p.addEventListener("click", e => { e.stopPropagation(); togglerPlacement(p.dataset.pin); });
+    p.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); togglerPlacement(p.dataset.pin); }
     });
   });
   corps.querySelectorAll("[data-fond]").forEach(b => {
@@ -1159,6 +1254,13 @@ addEventListener("keydown", e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if (k === "escape") { if (menu.classList.contains("ouvert")) ouvrirMenu(false); else { deselectionner(); tracerLiens(); } }
+  else if ((k === "delete" || k === "backspace") && choisi && PLACEES) {
+    const a = choisi;
+    if (!a.app.membres) { delete PLACEES[a.app.id]; versLePont("/api/retirer", { id: a.app.id }); }
+    liens = liens.filter(l => l.a !== a && l.b !== a);
+    deselectionner(); retirer(a); tracerLiens(); habillerTailles();
+    dire("retiree du ciel");
+  }
   else if (k === "n") { document.body.classList.toggle("noms"); dire(document.body.classList.contains("noms") ? "noms visibles" : "noms au survol"); }
   else if (k === "r") { rendreLiensOrigine(); dire("liens d'origine rendus"); }
   else if (k === "f") {
@@ -1196,5 +1298,11 @@ redimensionner();
 peindreBarre();
 horloge();
 setInterval(horloge, 20000);   /* la seule minuterie de la page */
-setTimeout(() => dire("les etoiles grossissent avec l'usage — glisser l'une sur l'autre pour fusionner"), 900);
+setTimeout(() => {
+  if (PLACEES && !Object.keys(PLACEES).length) {
+    dire("aucune etoile placee — ouvre le menu (en bas) et epingle ce que tu veux voir");
+  } else {
+    dire("les etoiles grossissent avec l'usage — glisser l'une sur l'autre pour fusionner");
+  }
+}, 900);
 </script>
