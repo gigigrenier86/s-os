@@ -49,9 +49,13 @@ fi
 
 case "$COMPOSITEUR" in
     kwin_wayland)
-        # L'application donnee en argument est lancee une fois le serveur
-        # Wayland et Xwayland prets ; quand elle rend la main, kwin s'arrete.
-        exec kwin_wayland --xwayland /usr/bin/s-coquille
+        # --exit-with-session=, PAS un argument positionnel nu. Un positionnel
+        # nu lance bien la coquille mais ne fait PAS terminer kwin quand elle
+        # sort : la session resterait pendue apres une deconnexion, ecran vide,
+        # rien a l'ecran, retour au greeter jamais fait. C'est exactement le
+        # genre de panne que la session n'a jamais eue l'occasion de montrer,
+        # puisqu'elle n'a jamais tourne avant le 2026-08-22.
+        exec kwin_wayland --xwayland --exit-with-session=/usr/bin/s-coquille
         ;;
     labwc)
         exec labwc -s /usr/bin/s-coquille

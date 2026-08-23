@@ -1,0 +1,72 @@
+#!/usr/bin/bash
+# S — ce qu'aucune image ne peut poser d'avance, parce que le compte
+# n'existe pas au moment de la construction.
+#
+# DEUX CORRECTIONS, TOUTES DEUX OBSERVEES SUR LA MACHINE REELLE LE 2026-08-21 :
+#
+#   1. Le compte cree par plasma-setup n'entre pas forcement dans « wheel »,
+#      et sans ce groupe, sudo echoue silencieusement. Note dans le carnet :
+#      « Sudo est inefficace, il faudrait que l'utilisateur principal soit
+#      root a la base ». Le correctif manuel etait `usermod -aG wheel <compte>`
+#      suivi d'une reconnexion — un geste qui ne survit a rien (regle du
+#      projet : ce qui est fait a la main apres installation ne survit pas).
+#      Il est donc pose ici, a chaque demarrage, de facon idempotente.
+#
+#   2. Le greeter peut se souvenir d'une session choisie avant l'existence de
+#      Constellation, ou d'une session desormais masquee (36-constellation.sh).
+#      On ne force JAMAIS un choix entre S et son bureau de secours — seule
+#      une session ETRANGERE aux deux est corrigee, pour que la premiere
+#      connexion tombe directement sur S sans qu'on ait a la choisir a la main.
+#
+# CE SCRIPT NE SUPPOSE PAS avoir verifie le format exact d'AccountsService sur
+# cette version precise de Bazzite : il ecrit la forme documentee du projet
+# (freedesktop.org Accounts), mais seul le banc dira si sddm la lit telle
+# quelle. A confirmer au prochain demarrage reel.
+set -uo pipefail
+
+dire() { printf 's-corriger-machine : %s\n' "$*" >&2; }
+
+# --- Trouver le ou les comptes humains --------------------------------------
+# UID entre 1000 et 60000, coquille de connexion reelle (pas nologin/false).
+# S n'a qu'un seul dossier personnel dans sa philosophie, mais rien n'empeche
+# plusieurs comptes sur la meme machine.
+mapfile -t COMPTES < <(awk -F: '$3>=1000 && $3<60000 && $7 !~ /(nologin|false)$/ {print $1}' /etc/passwd)
+
+if [[ ${#COMPTES[@]} -eq 0 ]]; then
+    dire "aucun compte humain trouve — rien a corriger"
+    exit 0
+fi
+
+for compte in "${COMPTES[@]}"; do
+    # --- 1. sudo : le groupe wheel ------------------------------------------
+    if id -nG "$compte" 2>/dev/null | tr ' ' '\n' | grep -qx wheel; then
+        dire "$compte est deja dans wheel"
+    elif usermod -aG wheel "$compte"; then
+        dire "$compte ajoute a wheel — sudo actif a la prochaine connexion"
+    else
+        dire "ECHEC : impossible d'ajouter $compte a wheel"
+    fi
+
+    # --- 2. La session par defaut, seulement si elle est etrangere a S -----
+    fichier="/var/lib/AccountsService/users/$compte"
+    if [[ -f "$fichier" ]] && grep -qE '^(Session|XSession)=(s|s-secours)$' "$fichier"; then
+        dire "$compte a deja une session S choisie — rien a corriger"
+        continue
+    fi
+
+    install -d -m 0700 /var/lib/AccountsService/users
+    if [[ -f "$fichier" ]] && grep -q '^\[User\]' "$fichier"; then
+        # Une session etrangere est enregistree (heritee d'avant Constellation,
+        # ou d'une session desormais masquee) : on la remplace par S, jamais
+        # l'inverse — un choix explicite entre S et son secours reste intouche.
+        sed -i -e 's/^Session=.*/Session=s/' -e 's/^XSession=.*/XSession=s/' "$fichier"
+        grep -q '^Session=' "$fichier" || sed -i '/^\[User\]/a Session=s' "$fichier"
+        dire "$compte : session par defaut corrigee vers S"
+    elif [[ -f "$fichier" ]]; then
+        dire "ATTENTION : $fichier existe sans section [User] — format inattendu, rien touche"
+    else
+        printf '[User]\nSession=s\nXSession=s\n' > "$fichier"
+        chmod 0644 "$fichier"
+        dire "$compte : session par defaut posee sur S"
+    fi
+done
