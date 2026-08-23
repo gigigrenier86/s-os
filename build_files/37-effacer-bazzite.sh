@@ -52,6 +52,7 @@ MOTS=(bazzite fedora ublue plasma "kde " waydroid distrobox "steam linux runtime
 
 echo "  menu trouve   : $(ls /usr/share/applications/*.desktop 2>/dev/null | wc -l) entrees"
 masquees=0
+FICHIERS_MASQUES=()
 for f in /usr/share/applications/*.desktop; do
     [[ -f "$f" ]] || continue
     grep -q '^NoDisplay=true' "$f" && continue
@@ -67,6 +68,7 @@ for f in /usr/share/applications/*.desktop; do
                 sed -i '/^\[Desktop Entry\]/a NoDisplay=true' "$f"
             fi
             echo "    $(basename "$f")  masquee (mot-cle : $mot)"
+            FICHIERS_MASQUES+=("$f")
             masquees=$((masquees + 1))
             break
         fi
@@ -77,9 +79,15 @@ echo "  entrees masquees : $masquees"
 # Garde-fou : si le filet a mordu sur quelque chose qui n'a rien a voir avec
 # la marque de l'amont, mieux vaut faire echouer la construction que livrer
 # un menu ampute d'une vraie fonctionnalite en silence.
-for f in /usr/share/applications/*.desktop; do
-    [[ -f "$f" ]] || continue
-    grep -q '^NoDisplay=true' "$f" || continue
+#
+# Ne rescanne QUE les fichiers que la boucle ci-dessus vient de masquer, pas
+# tout /usr/share/applications : un editeur peut deja livrer un .desktop
+# NoDisplay=true par conception (ex. un gestionnaire d'URL cache), et ce
+# script n'y est pour rien. Rescanner tout le systeme fait accuser ce script
+# d'un choix qui n'est pas le sien — c'est exactement ce qui a casse la
+# premiere construction : « Antigravity - URL Handler », deja cache par
+# Antigravity lui-meme, jamais touche par la boucle ci-dessus.
+for f in "${FICHIERS_MASQUES[@]}"; do
     nom="$(grep -m1 '^Name=' "$f" | cut -d= -f2-)"
     bas="$(echo "$nom" | tr '[:upper:]' '[:lower:]')"
     # « steam » seul, jamais en sous-chaine : « Steam Linux Runtime » DOIT

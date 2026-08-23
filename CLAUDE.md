@@ -53,12 +53,12 @@ y a vu.** Le premier amorçage a eu lieu le **2026-08-21 au soir** : bureau Plas
 affiché, compte `RyuRex` créé, RetroArch qui fonctionne, Zoom qui s'ouvre. Le
 jalon 3 est franchi.
 
-**Et la machine n'est pas celle que ce carnet suppose.** Ce n'est pas la M720q
-mais **un portable ASUS** — la machine de développement elle-même, en double
-amorçage : Windows sur le disque interne, S sur la Seagate par F12. Il n'y a
-pas de seconde machine. Tout ce que ce fichier dit de l'i5-8400T, de l'UHD 630,
-du BIOS Lenovo et des 266 réinitialisations d'iGPU **est à relire sous cette
-lumière** ; rien de tout cela n'a été corrigé plus bas.
+**Correction du 2026-08-23 : ce paragraphe s'est trompé, voir « La machine
+retrouvée » plus bas.** Il n'y a jamais eu de portable ASUS. C'est bien la
+**M720q** qui a démarré S le 2026-08-21, confirmé par l'utilisateur et par le
+matériel lui-même (`hostnamectl`, i5-8400T, UHD 630) relevé en direct depuis
+une session dessus. L'erreur venait d'une déduction non vérifiée d'une session
+précédente ; elle est corrigée, pas effacée, pour que la méthode reste lisible.
 
 **Ce qui a été vu n'a pas été soigné.** Une quinzaine de photos ont été prises,
 **non versionnées** — à redemander à l'utilisateur. Le relevé brut et leur
@@ -217,7 +217,7 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
 | 0 · La voie Waydroid | **fait** — `binder` compilé dans le noyau, prouvé à la construction |
 | 1 · Le dépôt et la chaîne | **fait** — CI vert, image publiée, reconstruction quotidienne |
 | 2 · L'image démarre | **fait et prouvé de l'intérieur** — 35 s, zéro service en échec |
-| 3 · Le vrai matériel | **fait — le 2026-08-21 au soir**, sur un **portable ASUS** en double amorçage, pas sur la M720q. Bureau affiché, compte créé, RetroArch et Zoom en marche. **Les pannes vues ce soir-là ne sont pas diagnostiquées** |
+| 3 · Le vrai matériel | **fait — le 2026-08-21 au soir**, sur la **M720q** en double amorçage (correction du 2026-08-23 : ce n'est pas un portable ASUS, voir « La machine retrouvée »). Bureau affiché, compte créé, RetroArch et Zoom en marche. GPU réel confirmé le 2026-08-23 : rendu Mesa `i915`, pas `llvmpipe` |
 | 4 · Les trois mondes côte à côte | pas commencé — exige le jalon 3 |
 | 5 · Les coutures | **commencé** — l'installation des trois mondes est cousue et éprouvée ; le partage entre eux ne l'est pas |
 | 6 · L'identité | **S a sa propre session depuis le 2026-08-22** — le greeter ne propose plus que « S » et « S — bureau de secours » ; ce que S lance n'est plus la coquille de l'amont mais la sienne, Constellation, servie par son pont `s-etoiles`. Plus l'os-release réécrit (la machine s'annonce « S », `ID` restant `bazzite` pour ne pas casser les recettes de l'amont), le logo, et **Foudre gelée**, fond d'écran 4K procédural. **Rien de tout cela n'a jamais été vu sur une machine** ; il reste le greeter et l'écran d'amorçage, qui portent encore un nom qui n'est pas le nôtre |
@@ -601,16 +601,27 @@ OS qui démarre.
 
 ---
 
-## La machine — relevé du 2026-08-19 *(ce n'est PAS la machine qui fait tourner S)*
+## La machine — relevé du 2026-08-19, et retrouvée le 2026-08-23
 
-> **Avertissement ajouté le 2026-08-22.** Tout ce relevé décrit une **M720q**,
-> et S n'a jamais démarré dessus. La machine qui a démarré S le 2026-08-21 au
-> soir est **un portable ASUS** — celui-là même qui sert au développement, en
-> double amorçage. Son matériel n'a **jamais été relevé** : ni processeur, ni
-> mémoire, ni iGPU, ni firmware. Les chiffres ci-dessous ne s'y appliquent pas,
-> et les 266 réinitialisations d'iGPU dont parle le carnet ont été mesurées sur
-> une autre machine que celle qu'on diagnostique. **Relever l'ASUS avant
-> d'interpréter quoi que ce soit.**
+> **L'avertissement du 2026-08-22 ci-dessous était une erreur, corrigée le
+> 2026-08-23.** Il affirmait que la machine qui fait tourner S était un
+> portable ASUS et non la M720q. C'est faux : l'utilisateur confirme n'avoir
+> jamais changé de machine, et une session ouverte en direct dessus le
+> 2026-08-23 le confirme matériellement — `hostnamectl` rend
+> `Hardware Model: ThinkCentre M720q`, `/proc/cpuinfo` rend
+> `i5-8400T @ 1.70GHz`, et `lspci` rend `UHD Graphics 630` avec le pilote
+> `i915` actif. **Ce relevé du 2026-08-19 s'applique donc bel et bien** à la
+> machine qui fait tourner S. Ce que l'avertissement erroné disait — texte
+> original conservé pour la méthode, pas pour le fait :
+>
+> *« Tout ce relevé décrit une M720q, et S n'a jamais démarré dessus. La
+> machine qui a démarré S le 2026-08-21 au soir est un portable ASUS — celui-là
+> même qui sert au développement, en double amorçage. Son matériel n'a jamais
+> été relevé : ni processeur, ni mémoire, ni iGPU, ni firmware. »*
+>
+> Voir « Le GPU réel, confirmé le 2026-08-23 » plus bas pour ce que la session
+> en direct a appris de neuf — notamment que le rendu est **matériel**
+> (`i915`/Mesa), pas `llvmpipe`, une première pour le projet.
 
 | Point | Valeur |
 |---|---|
@@ -1934,3 +1945,58 @@ scripts, sept lanceurs dont « Android » et « Magasin Android », treize assoc
 **La leçon vaut au-delà du cas** : sur un système atomique, l'état d'une machine ne dit pas
 l'état de l'image. Interroger l'image directement — `podman run` sur le tag publié — est le
 seul contrôle qui réponde à la question posée.
+
+## 2026-08-23 — la machine retrouvée, et le GPU réel
+
+**Ce carnet s'était trompé le 2026-08-22 en écartant la M720q.** Une session ouverte en
+direct sur la machine qui fait tourner S — pas une supposition — rend :
+
+```
+hostnamectl : Hardware Vendor: Lenovo · Hardware Model: ThinkCentre M720q
+              Static hostname: LenovoGhis · OS Image: bazzite-44.20260820
+/proc/cpuinfo : Intel(R) Core(TM) i5-8400T CPU @ 1.70GHz
+lspci         : 00:02.0 VGA … Intel UHD Graphics 630 [8086:3e92], pilote i915 actif
+```
+
+**C'est exactement le relevé du 2026-08-19**, à la lettre. L'utilisateur confirme n'avoir
+jamais changé de machine ; l'avertissement du 2026-08-22 était une déduction non vérifiée
+d'une session précédente, jamais recoupée avec le matériel — exactement ce que la règle 7
+demande de ne plus faire, et que cette entrée corrige sans effacer l'erreur.
+
+### Le GPU réel, confirmé pour la première fois
+
+Chaque test jusqu'ici — VM QEMU, banc de clé virtuelle — tombait sur `llvmpipe`, le rendu
+logiciel de Mesa, faute de GPU. Sur cette session réelle :
+
+```
+OpenGL renderer string: Mesa Intel(R) UHD Graphics 630 (CFL GT2)
+OpenGL version string: 4.6 (Compatibility Profile) Mesa 26.2.1
+```
+
+**Rendu matériel, pilote `i915`, pas de repli logiciel.** C'est la première fois que le
+projet voit son iGPU réel accepter d'afficher quoi que ce soit — la question ouverte
+depuis le jalon 3 (« l'iGPU n'a pas été jugé ») a une première réponse partielle : il
+fonctionne, au moins pour le rendu 2D d'un bureau Plasma.
+
+**Les 266 réinitialisations mesurées sous Windows restent sans réponse.** `dmesg` est
+restreint aux non-root (`kernel.dmesg_restrict=1`) et le journal noyau accessible sans
+`sudo` ne remonte que 10 lignes `i915` sur 34 minutes d'uptime — bien trop court pour dire
+quoi que ce soit sur un défaut mesuré à l'échelle du mois. Aucun reset ni hang dans cette
+fenêtre, mais l'absence de preuve n'est pas une preuve d'absence ici : à réévaluer après
+plusieurs jours d'usage réel, et avec `sudo` fonctionnel pour lire le journal complet.
+
+### Ce que cette session a trouvé, en clair
+
+| | |
+|---|---|
+| Disque racine de S | `sda`, 4,5 To, ext4 — la Seagate, comme prévu |
+| Windows | `nvme0n1`, 238,5 Go, partitions NTFS — le NVMe interne de la M720q, intact |
+| Session en cours | **KDE Plasma standard** (`plasmashell`, `kwin_wayland`) — **pas Constellation** |
+| `sudo -n` | échoue encore — le correctif du 2026-08-23 (`s-corriger-machine`) n'est pas encore déployé sur cette machine au moment du relevé |
+| Uptime | 34 min — démarrage récent, le même que celui annoncé par l'utilisateur en ouverture de cette conversation |
+
+**Donc non, Constellation n'a toujours jamais tourné sur cette machine** — le greeter a
+choisi la session KDE de l'amont, pas « S ». Rien d'étonnant : les correctifs qui forcent
+la session par défaut vers S sont ceux que cette même conversation vient de pousser vers
+`ghcr.io`, encore en construction au moment de ce relevé. C'est un `bootc upgrade` et un
+redémarrage de plus qui trancheront, pas une supposition de plus.
