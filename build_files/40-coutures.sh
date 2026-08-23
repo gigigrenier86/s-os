@@ -11,7 +11,8 @@ echo "=== 40-coutures : les gestes qui manquaient ==="
 # ici plutot que de dependre de ce que git a bien voulu enregistrer.
 chmod 0755 /usr/bin/s-monde /usr/bin/s-ouvrir-* /usr/bin/s-menu-windows \
            /usr/bin/s-android /usr/bin/s-play-store \
-           /usr/bin/s-diagnostic
+           /usr/bin/s-diagnostic /usr/bin/s-nettoyer \
+           /usr/bin/s-magasin-android
 
 # --- Un magasin de secours, a provenance certaine ---------------------------
 # Le Play Store arrive avec l'image GAPPS de Waydroid, telechargee au premier

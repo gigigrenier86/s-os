@@ -1,0 +1,184 @@
+#!/usr/bin/bash
+# S — installer une application Android sans jamais ouvrir Android.
+#
+# LE DEFAUT QUE CE GESTE CONTOURNE, OBSERVE LE 2026-08-23. L'utilisateur a
+# lance F-Droid dans Waydroid et tente d'installer une application : le bureau
+# a gele sur l'ecran « autoriser l'installation depuis des sources inconnues »,
+# et rien ne s'est installe.
+#
+# Cet ecran n'appartient pas a F-Droid : c'est « packageinstaller », un
+# composant d'Android. Et le gel n'est pas un defaut catalogue de Waydroid —
+# l'hypothese la plus plausible est que la boite s'ouvre dans une nouvelle
+# fenetre, et que le multi-fenetrage de Waydroid a plusieurs defauts connus de
+# fenetres invisibles ou de taille nulle. Une fenetre invisible qui a le focus
+# ressemble EXACTEMENT a un gel.
+#
+# ON NE REPARE DONC PAS CETTE BOITE : on ne l'ouvre plus.
+# « waydroid app install » passe par WayDroidService, qui tourne DANS
+# system_server avec la permission INSTALL_PACKAGES : la session d'installation
+# est validee sans aucune confirmation. C'est deja ce que fait s-android pour
+# poser F-Droid lui-meme, et ca a toujours marche.
+#
+# F-Droid reste le catalogue — c'est son autre metier, et son interface web a
+# une API. On l'interroge depuis l'hote, on telecharge l'APK, on l'installe en
+# silence. La regle 9 du carnet, appliquee au monde Android : une couture ne
+# montre jamais son moteur, et surtout pas la boite de dialogue du moteur.
+set -uo pipefail
+source /usr/bin/s-monde
+
+RECHERCHE=https://search.f-droid.org/api/search_apps
+API=https://f-droid.org/api/v1/packages
+DEPOT=https://f-droid.org/repo
+
+demander_texte() {
+    if command -v kdialog >/dev/null 2>&1; then
+        kdialog --title "Magasin Android" --inputbox "$1" ""
+    elif command -v zenity >/dev/null 2>&1; then
+        zenity --entry --title="Magasin Android" --text="$1"
+    else
+        s_echec "Aucune fenetre de dialogue" "Ni kdialog ni zenity sur cette machine."
+    fi
+}
+
+choisir() {
+    # kdialog --menu attend des paires « cle libelle ». On les lui donne sur la
+    # ligne de commande, en developpant un tableau prepare par l'appelant.
+    if command -v kdialog >/dev/null 2>&1; then
+        kdialog --title "Magasin Android" --menu "$1" "${@:2}"
+    else
+        zenity --list --title="Magasin Android" --text="$1" \
+               --column="id" --column="Application" "${@:2}"
+    fi
+}
+
+# --- Le monde Android doit tourner ------------------------------------------
+# On ne le demarre pas d'autorite : s-android sait le faire, avec ses
+# notifications et son verrou. Ici on constate, et on renvoie vers lui.
+if ! waydroid status 2>/dev/null | grep -qi 'RUNNING'; then
+    s_dire "Android n'est pas demarre" "Ouverture d'Android, puis relancer le magasin." phone
+    s-android >/dev/null 2>&1 &
+    s_echec "Android demarre" "Relancer « Magasin Android » quand le bureau Android est la."
+fi
+
+s_verrou magasin-android
+
+TERME="$(demander_texte "Quelle application Android chercher ?")"
+[ -n "${TERME:-}" ] || exit 0
+
+s_dire "Magasin Android" "Recherche de « $TERME »…" phone
+
+# --- Chercher ---------------------------------------------------------------
+# L'API de recherche rend un JSON compact. On ne prend pas l'index complet de
+# F-Droid : il pese 57 Mo, la ou deux requetes de quelques kilo-octets
+# suffisent. Le prix a payer est nomme franchement dans le rapport qui a servi
+# a ecrire ce geste : cette API n'est pas signee, seul HTTPS garantit l'origine.
+BRUT="$(curl -fsS --max-time 20 --get --data-urlencode "q=$TERME" "$RECHERCHE" 2>/dev/null)" \
+    || s_echec "Recherche impossible" "F-Droid n'a pas repondu. Verifier le reseau."
+
+mapfile -t LIGNES < <(printf '%s' "$BRUT" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+for a in (d.get("apps") or [])[:15]:
+    # « url » est du type https://f-droid.org/packages/org.videolan.vlc/ ;
+    # le nom de paquet en est le dernier segment.
+    url = (a.get("url") or "").rstrip("/")
+    paquet = url.rsplit("/", 1)[-1]
+    nom = (a.get("name") or paquet).replace("\t", " ")
+    resume = (a.get("summary") or "").replace("\t", " ")[:60]
+    if paquet and "." in paquet:
+        print("%s\t%s — %s" % (paquet, nom, resume))
+')
+
+if [ "${#LIGNES[@]}" -eq 0 ]; then
+    s_echec "Rien trouve" "Aucune application ne correspond a « $TERME »."
+fi
+
+MENU=()
+for ligne in "${LIGNES[@]}"; do
+    MENU+=("${ligne%%$'\t'*}" "${ligne#*$'\t'}")
+done
+
+PAQUET="$(choisir "Choisir l'application a installer :" "${MENU[@]}")"
+[ -n "${PAQUET:-}" ] || exit 0
+
+# --- Trouver la version conseillee ------------------------------------------
+VC="$(curl -fsS --max-time 20 "$API/$PAQUET" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+vc = d.get("suggestedVersionCode")
+if vc:
+    print(vc)
+else:
+    # Pas de version conseillee : prendre le plus grand code publie.
+    codes = [p.get("versionCode") for p in (d.get("packages") or [])
+             if isinstance(p.get("versionCode"), int)]
+    if codes:
+        print(max(codes))
+')"
+[ -n "${VC:-}" ] || s_echec "Version introuvable" "F-Droid ne publie pas de version pour $PAQUET."
+
+# --- Telecharger, puis installer en silence ---------------------------------
+APK="$(mktemp -t "s-apk-XXXXXX.apk")"
+trap 'rm -f "$APK"' EXIT
+
+s_dire "$PAQUET" "Telechargement…" phone
+curl -fsSL --max-time 300 -o "$APK" "$DEPOT/${PAQUET}_${VC}.apk" \
+    || s_echec "Telechargement echoue" "$DEPOT/${PAQUET}_${VC}.apk"
+
+# Un APK est une archive ZIP : deux octets suffisent a ecarter une page
+# d'erreur HTML enregistree sous un nom d'APK. Sans ce controle, l'echec
+# n'apparaitrait qu'au fond de Waydroid, avec un message incomprehensible.
+[ "$(head -c2 "$APK")" = "PK" ] \
+    || s_echec "Fichier invalide" "Ce que F-Droid a renvoye n'est pas un APK."
+
+s_dire "$PAQUET" "Installation…" phone
+
+# On PHOTOGRAPHIE le menu avant, plutot que de deviner le nom du lanceur.
+# Waydroid nomme ses .desktop d'apres le paquet, mais ce n'est pas un contrat :
+# reconstruire le nom de tete, c'est supposer une structure au lieu de la
+# chercher — et l'etoile ne monterait pas, en silence, le jour ou la convention
+# changerait.
+AVANT="$(mktemp)"
+find "$S_LANCEURS" -maxdepth 1 -name '*.desktop' 2>/dev/null | sort > "$AVANT"
+
+if ! waydroid app install "$APK" >"$S_ETAT/android-install.log" 2>&1; then
+    rm -f "$AVANT"
+    s_echec "Installation echouee" "Detail dans $S_ETAT/android-install.log"
+fi
+
+# Waydroid pose son lanceur de facon asynchrone, apres l'installation.
+for _ in $(seq 1 10); do
+    find "$S_LANCEURS" -maxdepth 1 -name '*.desktop' 2>/dev/null | sort > "$APK.apres"
+    comm -13 "$AVANT" "$APK.apres" | grep -q . && break
+    sleep 1
+done
+
+s_rafraichir_menu
+
+# Faire monter l'etoile : l'utilisateur vient de dire qu'il voulait cette
+# application, en l'installant.
+NEUFS=0
+while IFS= read -r nouveau; do
+    [ -n "$nouveau" ] || continue
+    ident="$(basename "$nouveau" .desktop)"
+    s_placer_etoile "$ident"
+    NEUFS=$((NEUFS + 1))
+done < <(comm -13 "$AVANT" "$APK.apres" 2>/dev/null)
+rm -f "$AVANT" "$APK.apres"
+
+if [ "$NEUFS" -eq 0 ]; then
+    # Installe, mais rien dans le menu : le dire plutot que de laisser
+    # l'utilisateur chercher une icone qui n'existe pas.
+    s_dire "$PAQUET" \
+"Installe, mais aucune icone n'est apparue. L'application est peut-etre sans \
+interface. Elle est visible dans le bureau Android." dialog-warning
+    exit 0
+fi
+
+s_dire "$PAQUET" "Installe. L'application est dans le menu et au ciel." phone

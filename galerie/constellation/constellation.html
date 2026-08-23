@@ -130,6 +130,18 @@ html, body {
              stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
              pointer-events: none; }
 
+/* L'ICONE REELLE DU PROGRAMME, quand la machine en a une.
+   Les glyphes dessines ici disent le GENRE d'un logiciel ; l'icone du
+   programme dit LEQUEL. Une etoile VLC doit porter le cone de VLC, pas une
+   note de musique generique. Le glyphe reste le repli : servi seul dans
+   galerie/, ou quand aucun fichier d'icone n'existe sur la machine.
+   « object-fit: contain » evite d'ecraser une icone qui n'est pas carree. */
+.ico-app { object-fit: contain; pointer-events: none; display: block; }
+.astre .ico-app     { width: calc(var(--d) * 0.54); height: calc(var(--d) * 0.54);
+                      filter: drop-shadow(0 0 5px var(--halo)); }
+.tuile .ico-app     { width: 19px; height: 19px; }
+.raccourci .ico-app { width: 18px; height: 18px; }
+
 .etiquette {
   position: absolute; top: calc(100% + 8px); left: 50%;
   transform: translateX(-50%);
@@ -690,6 +702,26 @@ function peindreFond() {
 }
 
 /* ── Les spheres ───────────────────────────────────────────────── */
+/* ── L'icone d'un logiciel : la sienne si la machine en a une ──────
+   « app.img » est une adresse servie par le pont (/icone?id=…), posee
+   seulement quand un vrai fichier d'icone a ete trouve sur la machine.
+   Ouverte seule dans galerie/, elle est toujours vide et l'on retombe
+   sur le glyphe dessine — la vitrine reste identique a elle-meme. */
+function iconeRatee(img, ico) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  const use = document.createElementNS(NS, "use");
+  use.setAttribute("href", "#" + ico);
+  svg.appendChild(use);
+  img.replaceWith(svg);
+}
+
+function vignetteHTML(app) {
+  if (!app.img) return '<svg><use href="#' + app.ico + '"/></svg>';
+  return '<img class="ico-app" src="' + app.img + '" alt="" ' +
+         "onerror=\"iconeRatee(this,'" + app.ico + "')\">";
+}
+
 function creerAstre(app, x, y) {
   const el = document.createElement("div");
   el.className = "astre" + (app.ep ? "" : " pose");
@@ -697,7 +729,7 @@ function creerAstre(app, x, y) {
   el.style.setProperty("--teinte", "var(" + SOURCES[app.src].jeton + ")");
   el.style.setProperty("--halo", couleurSource(app.src, 0.55));
   el.style.left = x + "px"; el.style.top = y + "px";
-  el.innerHTML = '<svg><use href="#' + app.ico + '"/></svg>' +
+  el.innerHTML = vignetteHTML(app) +
                  '<span class="etiquette">' + app.nom + "</span>";
   scene.appendChild(el);
 
@@ -825,6 +857,55 @@ function versLePont(route, charge) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(charge)
   }).then(r => r.json()).catch(() => null);
+}
+
+/* ── Le rafraichissement : ce qu'on installe doit apparaitre ──────
+   Constate sur la M720q le 2026-08-23 : VLC installe depuis un .exe
+   n'apparaissait nulle part. L'inventaire etait fige au moment ou le
+   pont avait servi la page, et rien ne le relisait jamais -- la seule
+   minuterie etait l'horloge. Il fallait fermer la session pour voir
+   une application nouvelle. C'est un bureau qui ne remarque pas ce
+   qu'on installe dessus.
+
+   ON NE RE-SEME PAS LE CIEL. « semer() » vide la scene et recree tout :
+   l'appeler ici ferait disparaitre les amas que l'utilisateur a
+   fusionnes, a chaque fois qu'un fichier .desktop bouge sur la machine.
+   On ne touche donc qu'aux etoiles qui ont vraiment change. */
+let signatureCiel = null;
+
+function synchroniserCiel(placees) {
+  for (const id in placees) {
+    if (parId(id)) continue;
+    /* Une etoile absorbee dans un amas est toujours au ciel, autrement. */
+    if (astres.some(a => a.app.membres && a.app.membres.some(m => m.id === id))) continue;
+    const app = APPS.find(a => a.id === id);
+    if (app) creerAstre(app, placees[id].x * L, placees[id].y * (H - 70));
+  }
+  for (const a of astres.slice()) {
+    if (a.app.membres) continue;   /* un amas ne se retire pas d'ici */
+    if (!Object.prototype.hasOwnProperty.call(placees, a.app.id)) retirer(a);
+  }
+  habillerTailles();
+  tracerLiens();
+}
+
+function rafraichirInventaire() {
+  if (!PONT) return;             /* ouverte seule : la vitrine ne bouge pas */
+  fetch(PONT + "/api/etoiles").then(r => r.json()).then(d => {
+    if (!d || !Array.isArray(d.etoiles) || !d.placees) return;
+    const sig = JSON.stringify([d.etoiles.map(a => a.id + "|" + a.epingle + "|" + a.ep),
+                                d.placees]);
+    if (sig === signatureCiel) return;      /* rien n'a bouge : ne rien redessiner */
+    const premier = signatureCiel === null;
+    signatureCiel = sig;
+    APPS = d.etoiles;
+    usage = d.usage || usage;
+    if (premier) return;         /* la page vient d'etre servie : deja a jour */
+    PLACEES = d.placees;
+    synchroniserCiel(PLACEES);
+    if (menu.classList.contains("ouvert")) peindreVue();
+    peindreBarre();
+  }).catch(() => {});
 }
 
 /*__S_ETOILES__*/
@@ -1036,7 +1117,7 @@ recherche.addEventListener("input", peindreVue);
 
 function bulleHTML(app, cls) {
   return '<span class="' + cls + (app.ep ? "" : " pose") + '" style="--teinte:var(' +
-         SOURCES[app.src].jeton + ')"><svg><use href="#' + app.ico + '"/></svg></span>';
+         SOURCES[app.src].jeton + ')">' + vignetteHTML(app) + "</span>";
 }
 
 function peindreVue() {
@@ -1281,7 +1362,7 @@ function peindreBarre() {
     b.style.setProperty("--teinte", "var(" + SOURCES[app.src].jeton + ")");
     b.style.setProperty("--halo", couleurSource(app.src, 0.5));
     b.title = app.nom;
-    b.innerHTML = '<svg><use href="#' + app.ico + '"/></svg>';
+    b.innerHTML = vignetteHTML(app);
     b.addEventListener("click", () => lancer(app));
     r.appendChild(b);
   });
@@ -1297,7 +1378,17 @@ function horloge() {
 redimensionner();
 peindreBarre();
 horloge();
-setInterval(horloge, 20000);   /* la seule minuterie de la page */
+setInterval(horloge, 20000);
+
+/* La seconde minuterie, et la seule qui parle au systeme. Quinze secondes :
+   assez court pour qu'une installation se voie pendant qu'on la regarde,
+   assez long pour ne pas relire les dossiers d'applications sans arret --
+   S vit sur un disque a plateaux. Le pont ne redessine rien tant que rien
+   n'a change ; le cout d'un tour ou tout est identique est nul a l'ecran.
+   Ouverte seule dans galerie/, la fonction sort immediatement. */
+rafraichirInventaire();
+setInterval(rafraichirInventaire, 15000);
+window.addEventListener("focus", rafraichirInventaire);
 setTimeout(() => {
   if (PLACEES && !Object.keys(PLACEES).length) {
     dire("aucune etoile placee — ouvre le menu (en bas) et epingle ce que tu veux voir");

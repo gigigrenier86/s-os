@@ -31,6 +31,7 @@ import shlex
 import socketserver
 import subprocess
 import sys
+import time
 import urllib.parse
 
 PORT = int(os.environ.get("S_ETOILES_PORT", "7373"))
@@ -187,6 +188,90 @@ def choisir_icone(nom, categories):
     return "i-boite"
 
 
+_ICONES = {}          # nom d'icone -> (chemin trouve ou "", instant)
+_ICONES_TTL = 30.0    # une icone posee par une installation doit finir par etre vue
+
+
+def dossiers_icones():
+    """Ou chercher le fichier d'une icone, du plus grand au plus petit.
+
+    On ne fait pas une vraie resolution de theme freedesktop — elle demande de
+    remonter les heritages de « index.theme » et n'apporterait rien ici. On
+    parcourt les emplacements ou une application POSE son icone, ce qui est
+    exactement ce dont on a besoin : Wine ecrit dans hicolor du dossier
+    personnel, les RPM dans celui du systeme, Flatpak dans ses exports.
+    """
+    maison = os.path.expanduser("~")
+    racines = [os.path.join(maison, ".local/share/icons"),
+               os.path.join(maison, ".icons"),
+               "/usr/share/icons",
+               "/usr/local/share/icons",
+               os.path.join(maison, ".local/share/flatpak/exports/share/icons"),
+               "/var/lib/flatpak/exports/share/icons"]
+
+    def rang(taille):
+        # Le vectoriel passe apres les tres grandes tailles : un PNG de 512 est
+        # plus sur qu'un SVG que le rendu pourrait mal servir, et plus net
+        # qu'un PNG de 48 agrandi sur une etoile de 60 pixels.
+        if taille == "scalable":
+            return 400
+        try:
+            return int(taille.split("x")[0])
+        except (ValueError, IndexError):
+            return 0
+
+    dossiers = []
+    for racine in racines:
+        for theme in ("hicolor", "breeze", "Adwaita"):
+            base = os.path.join(racine, theme)
+            try:
+                tailles = os.listdir(base)
+            except OSError:
+                continue
+            for taille in sorted(tailles, key=rang, reverse=True):
+                chemin = os.path.join(base, taille, "apps")
+                if os.path.isdir(chemin):
+                    dossiers.append(chemin)
+    for nu in ("/usr/share/pixmaps", os.path.join(maison, ".local/share/pixmaps")):
+        if os.path.isdir(nu):
+            dossiers.append(nu)
+    return dossiers
+
+
+def chemin_icone(nom):
+    """Le fichier de l'icone d'une application, ou "" s'il n'y en a pas.
+
+    POURQUOI CETTE FONCTION EXISTE. Les glyphes dessines dans la page disent le
+    GENRE d'un logiciel — une note de musique, une boite. L'icone du programme
+    dit LEQUEL. Une etoile VLC doit porter le cone de VLC. Demande de
+    l'utilisateur le 2026-08-23.
+
+    On ne rend que du PNG ou du SVG : un .xpm ne s'affiche dans aucun
+    navigateur, et le servir ne ferait que declencher le repli cote page.
+    """
+    if not nom:
+        return ""
+    if nom.startswith("/"):
+        return nom if os.path.isfile(nom) else ""
+
+    vu = _ICONES.get(nom)
+    if vu is not None and (time.monotonic() - vu[1]) < _ICONES_TTL:
+        if not vu[0] or os.path.isfile(vu[0]):
+            return vu[0]
+
+    trouve = ""
+    for dossier in dossiers_icones():
+        for ext in (".png", ".svg"):
+            essai = os.path.join(dossier, nom + ext)
+            if os.path.isfile(essai):
+                trouve = essai
+                break
+        if trouve:
+            break
+    _ICONES[nom] = (trouve, time.monotonic())
+    return trouve
+
+
 def choisir_monde(exec_ligne):
     """De quel monde vient ce logiciel — c'est ce que dit l'anneau de l'etoile.
 
@@ -249,6 +334,10 @@ def inventaire():
                 "nom": nom,
                 "src": choisir_monde(ligne_exec),
                 "ico": choisir_icone(nom, categories),
+                # Le nom de l'icone declaree par le logiciel. Il n'est pas
+                # resolu ici : la resolution coute des acces disque, et
+                # l'inventaire est relu toutes les quinze secondes.
+                "icone": champs.get("Icon", ""),
                 "txt": commentaire(champs) or ligne_exec,
                 "fichier": os.path.join(dossier, nom_fichier),
             }
@@ -385,6 +474,44 @@ def geste_session(action):
 # La page, avec la machine dedans
 # --------------------------------------------------------------------------
 
+def composer_etoiles():
+    """L'inventaire mis en forme pour la page — UNE SEULE fois, pour deux voies.
+
+    POURQUOI CETTE FONCTION EXISTE. Jusqu'au 2026-08-23, deux chemins
+    fabriquaient cette liste : celui qui l'injecte dans la page, qui ajoutait
+    « ep » et « epingle », et la route /api/etoiles, qui rendait l'inventaire
+    brut sans eux. Tant que la page ne relisait jamais l'API, la difference ne
+    se voyait pas. Des lors qu'elle la relit pour se rafraichir, elle perdrait
+    sa barre des taches et ses anneaux a chaque tour. Une seule source, donc.
+    """
+    apps = inventaire()
+    usage = charger_usage()
+    placees = charger_placees()
+
+    # Les epinglees de la barre : les plus utilisees, decidees par les faits et
+    # non par une liste ecrite d'avance.
+    ordre = sorted(apps.values(), key=lambda a: -usage.get(a["id"], 0))
+    epinglees = {a["id"] for a in ordre[:7]}
+
+    etoiles = []
+    for a in ordre:
+        etoiles.append({
+            "id": a["id"], "nom": a["nom"], "src": a["src"], "ico": a["ico"],
+            # Un anneau plein dit « ca a tourne ici, mesure ». Sur la vraie
+            # machine, la mesure est le compteur de lancements de S lui-meme.
+            "ep": 1 if usage.get(a["id"], 0) > 0 else 0,
+            "epingle": 1 if a["id"] in epinglees else 0,
+            # L'adresse de l'icone VRAIE du programme, et seulement si un
+            # fichier existe : la page retombe sur son glyphe dessine sinon.
+            # On sert une adresse plutot qu'une image en clair dans la page —
+            # 81 icones en data: pesaient plusieurs megaoctets a chaque tour.
+            "img": ("/icone?id=" + urllib.parse.quote(a["id"])
+                    if chemin_icone(a.get("icone", "")) else ""),
+            "txt": a["txt"],
+        })
+    return etoiles, usage, placees
+
+
 def composer_page():
     """Lire la page et remplacer le repere par l'inventaire reel.
 
@@ -405,25 +532,7 @@ def composer_page():
     # reste intact pour sa vie de maquette.
     html = re.sub(r'\s*<link rel="(?:preconnect|stylesheet)"[^>]*fonts\.g[^>]*>', "", html)
 
-    apps = inventaire()
-    usage = charger_usage()
-    placees = charger_placees()
-
-    # Les epinglees de la barre : les plus utilisees, decidees par les faits et
-    # non par une liste ecrite d'avance.
-    ordre = sorted(apps.values(), key=lambda a: -usage.get(a["id"], 0))
-    epinglees = {a["id"] for a in ordre[:7]}
-
-    etoiles = []
-    for a in ordre:
-        etoiles.append({
-            "id": a["id"], "nom": a["nom"], "src": a["src"], "ico": a["ico"],
-            # Un anneau plein dit « ca a tourne ici, mesure ». Sur la vraie
-            # machine, la mesure est le compteur de lancements de S lui-meme.
-            "ep": 1 if usage.get(a["id"], 0) > 0 else 0,
-            "epingle": 1 if a["id"] in epinglees else 0,
-            "txt": a["txt"],
-        })
+    etoiles, usage, placees = composer_etoiles()
 
     injection = (
         "\n/* --- injecte par s-etoiles : la machine reelle ------------- */\n"
@@ -491,10 +600,51 @@ class Pont(http.server.BaseHTTPRequestHandler):
             except OSError as err:
                 return self.repondre(500, str(err).encode("utf-8"), "text/plain")
         if chemin == "/api/etoiles":
-            return self.json_out(200, {"etoiles": list(inventaire().values()),
-                                       "usage": charger_usage(),
-                                       "placees": charger_placees()})
+            # EXACTEMENT la meme forme que ce qui est injecte dans la page :
+            # c'est ce qui permet a la page de remplacer son inventaire entier
+            # sans rien perdre. Voir composer_etoiles().
+            etoiles, usage, placees = composer_etoiles()
+            return self.json_out(200, {"etoiles": etoiles,
+                                       "usage": usage,
+                                       "placees": placees})
+        if chemin == "/icone":
+            return self.servir_icone(urllib.parse.urlparse(self.path).query)
         return self.repondre(404, b"rien ici", "text/plain")
+
+    def servir_icone(self, requete):
+        """L'icone reelle d'un logiciel, servie par identifiant.
+
+        ON NE SERT JAMAIS UN CHEMIN VENU DE LA REQUETE. L'identifiant est
+        cherche dans l'inventaire, et c'est l'inventaire qui dit quel fichier
+        lire. Une page qui demanderait « /icone?id=../../etc/shadow » ne
+        trouverait aucune entree et recevrait 404 — la page ne choisit pas ce
+        qu'elle lit, elle nomme une application.
+        """
+        ident = (urllib.parse.parse_qs(requete).get("id") or [""])[0]
+        entree = inventaire().get(ident)
+        if not entree:
+            return self.repondre(404, b"inconnue", "text/plain")
+        fichier = chemin_icone(entree.get("icone", ""))
+        if not fichier:
+            return self.repondre(404, b"sans icone", "text/plain")
+        try:
+            with open(fichier, "rb") as f:
+                octets = f.read()
+        except OSError:
+            return self.repondre(404, b"illisible", "text/plain")
+        mime = "image/svg+xml" if fichier.endswith(".svg") else "image/png"
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(octets)))
+        # Une icone ne change pas dans la seconde, et la page en redemande a
+        # chaque redessin du menu : sans cache, c'est 81 lectures de disque
+        # par ouverture, sur un plateau USB.
+        self.send_header("Cache-Control", "private, max-age=300")
+        self.end_headers()
+        try:
+            self.wfile.write(octets)
+        except BrokenPipeError:
+            pass
 
     def do_POST(self):
         if not self.hote_valide():

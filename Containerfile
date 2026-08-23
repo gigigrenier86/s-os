@@ -118,6 +118,25 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/38-partage-windows.sh
 
+# Des demons pour le materiel present, et lui seul : cardwired desactive
+# (gestionnaire de GPU sans objet sur un iGPU unique), condition DMI posee
+# d'avance sur les unites ASUS, reglage zram decide par S.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/39-materiel.sh
+
+# L'ecran de connexion aux couleurs de S, et la session preselectionnee.
+# APRES les COPY, puisqu'il verifie le fond d'ecran et la session qu'ils posent.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/42-greeter.sh
+
+# 43-amorcage.sh n'est PAS branche ici, et c'est delibere : il regenere
+# l'initramfs, seul changement de ce depot qui puisse empecher la machine de
+# demarrer. Lire son en-tete avant de le brancher.
+
 # Les coutures — la partie qui bouge le plus
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \

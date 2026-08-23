@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Nettoyer S
+GenericName=Retirer ce qui a été ajouté par-dessus S
+Comment=Montre ce qui a été installé par-dessus S, puis le retire — c'est de là que viennent les services qui échouent au démarrage
+Exec=/usr/bin/s-nettoyer
+Icon=s-logo
+Terminal=false
+Categories=System;
+Keywords=nettoyer;reparer;echec;demarrage;asusd;superpose;

@@ -46,6 +46,8 @@ preuve.** Pas la construction verte, pas le code écrit : la mesure.
 | [banc-controler-scripts.sh](banc-controler-scripts.sh) | Quatre contrôles à une seconde qui évitent quatre cycles perdus | 2026-08-21 |
 | [ci-trouver-execution.sh](ci-trouver-execution.sh) | Retrouver la bonne exécution de CI sous `paths-ignore` | 2026-08-20 |
 | [qemu-observer-sans-casser.sh](qemu-observer-sans-casser.sh) | Diagnostiquer un QEMU « figé » sans aggraver son cas | 2026-08-21 |
+| [desktop-echapper-exec.sh](desktop-echapper-exec.sh) | Écrire un chemin dans un `Exec=` sans que GLib rejette la ligne | 2026-08-23 |
+| [windows-lire-cible-lnk.sh](windows-lire-cible-lnk.sh) | Lire la cible d'un raccourci `.lnk` sans bibliothèque | 2026-08-23 |
 
 ---
 

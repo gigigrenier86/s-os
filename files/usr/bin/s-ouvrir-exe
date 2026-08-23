@@ -48,25 +48,56 @@ fi
 # --- Lancer ----------------------------------------------------------------
 s_dire "$NOM" "Ouverture…" application-x-executable
 
-AVANT="$(mktemp)"; find "$S_LANCEURS/wine" -name '*.desktop' 2>/dev/null | sort > "$AVANT"
-
 case "${CIBLE,,}" in
     *.msi) umu-run "$WINEPREFIX/drive_c/windows/system32/msiexec.exe" /i "$CIBLE" ;;
     *)     umu-run "$CIBLE" ;;
 esac
 CODE=$?
 
-# --- Moisonner les raccourcis que Wine vient de poser ----------------------
-# Sans cette etape, les icones existent mais ne lancent RIEN : winemenubuilder
-# les ecrit avec « Exec=… wine … », et « wine » n'est pas sur ce systeme.
-APRES="$(mktemp)"; find "$S_LANCEURS/wine" -name '*.desktop' 2>/dev/null | sort > "$APRES"
-NOUVEAUX="$(comm -13 "$AVANT" "$APRES" | wc -l)"
-rm -f "$AVANT" "$APRES"
+# --- Attendre que Wine ait FINI d'ecrire ------------------------------------
+# CE QUI ETAIT FAUX AVANT, et que seul un vrai installateur pouvait montrer :
+# on photographiait le menu juste avant, puis juste apres le retour d'umu-run,
+# et on ne moissonnait que si la difference etait non nulle. Or umu-run rend la
+# main des que le PROCESSUS PRINCIPAL sort, tandis que winemenubuilder tourne a
+# cote et que l'installateur Windows ecrit ses raccourcis dans ses dernieres
+# secondes. La comparaison se faisait donc regulierement trop tot — et comme
+# elle conditionnait la moisson, il n'y avait aucun rattrapage : ni minuterie,
+# ni second passage, ni message. VLC installe le 2026-08-23 n'est apparu nulle
+# part pour cette raison, entre autres.
+#
+# « wineserver -w » attend que TOUS les processus du prefixe soient sortis.
+# C'est la primitive faite pour ca, et elle rend la main tout de suite quand il
+# n'y a plus rien a attendre.
+umu-run wineserver -w >/dev/null 2>&1 || true
 
-if [ "$NOUVEAUX" -gt 0 ]; then
-    s-menu-windows --silencieux
-    s_dire "$NOM" "Installe. $NOUVEAUX raccourci(s) ajoute(s) au menu." application-x-executable
-elif [ "$CODE" -ne 0 ]; then
+# --- Moisonner, DANS TOUS LES CAS ------------------------------------------
+# Sans cette etape, les icones de Wine existent mais ne lancent RIEN :
+# winemenubuilder les ecrit avec « Exec=… wine … », et « wine » n'est pas sur
+# ce systeme. Et on l'appelle meme quand rien n'a l'air d'avoir bouge : lui
+# seul sait lire les .lnk du prefixe, et le cas ou winemenubuilder n'a rien
+# ecrit du tout est precisement celui qui nous echappait.
+LU="$(s-menu-windows --silencieux 2>/dev/null | tail -n1)"
+read -r _POSES NEUFS _IGNORES <<<"${LU:-0 0 0}"
+NEUFS="${NEUFS:-0}"
+
+# --- Dire ce qui s'est passe. Toujours. -------------------------------------
+if [ "$CODE" -ne 0 ]; then
     s_dire "$NOM" "S'est termine sur une erreur (code $CODE)." dialog-warning
+elif [ "$NEUFS" -gt 0 ]; then
+    s_dire "$NOM" "Installe. $NEUFS programme(s) ajoute(s) au menu et au ciel." \
+           application-x-executable
+else
+    # Rien de neuf. Deux lectures possibles, et une seule merite un
+    # avertissement : relancer un programme deja installe est normal, une
+    # INSTALLATION qui ne produit aucun raccourci ne l'est pas.
+    case "${NOM,,}" in
+        *setup*|*install*|*.msi)
+            s_dire "$NOM" \
+"Termine, mais aucun raccourci n'a ete trouve. Le programme est peut-etre \
+installe sans entree de menu — chercher dans le dossier Windows de S." \
+                   dialog-warning ;;
+        *)
+            s_dire "$NOM" "Termine." application-x-executable ;;
+    esac
 fi
 exit "$CODE"

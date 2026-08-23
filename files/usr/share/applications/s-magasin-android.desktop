@@ -1,8 +1,11 @@
 [Desktop Entry]
 Type=Application
+Version=1.0
 Name=Magasin Android
-Comment=Telecharger une application Android
-Exec=/usr/bin/s-android --magasin
-Icon=system-software-install
+GenericName=Installer une application Android
+Comment=Cherche et installe une application Android sans ouvrir Android — aucune autorisation à donner
+Exec=/usr/bin/s-magasin-android
+Icon=phone
 Terminal=false
 Categories=System;
+Keywords=android;application;installer;magasin;fdroid;apk;

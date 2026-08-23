@@ -186,10 +186,13 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
   **rien n'a été regardé sur la machine depuis**. C'est le premier travail qui
   attend, et la règle 7 s'y applique en entier : regarder avant de chercher une
   solution.
-- **Waydroid n'a jamais tourné.** `binder` est compilé dans le noyau, le
-  lanceur est présent, la recette de Bazzite existe — mais aucune application
-  Android n'a jamais démarré. C'est le différenciateur du projet, et il est
-  entièrement non éprouvé.
+- **Waydroid a tourné le 2026-08-23** — cette ligne disait le contraire jusque
+  là. Android a démarré sur la M720q, affiché son interface et lancé F-Droid.
+  Restent deux défauts : **l'écran glitche**, et **l'installation depuis
+  F-Droid gèle** sur l'autorisation « sources inconnues ». Le second est
+  contourné (« Magasin Android » installe depuis l'hôte, sans jamais ouvrir
+  l'installateur d'Android) ; **le premier n'est pas diagnostiqué**, et rien
+  n'a été changé pour lui.
 - **Lineage 2 n'a jamais été lancé**, ni aucun jeu.
 - **L'iGPU n'a pas été jugé.** Les 266 réinitialisations relevées sous Windows
   n'ont pas d'équivalent mesuré sous Linux.
@@ -2122,3 +2125,251 @@ maintenant vérifié.
   `bootc upgrade` et un redémarrage — le même qui exercera enfin
   `s-monter-windows` et `s-corriger-machine` de bout en bout.
 - **Waydroid n'a toujours jamais tourné**, et reste le différenciateur du projet.
+
+## 2026-08-23, soir — huit observations de l'utilisateur, et ce qu'elles ont trouvé
+
+Huit remarques rapportées de l'usage réel. Elles ont fait tomber **trois
+hypothèses de fond de ce carnet**, dont une qui rendait tout un pan du jalon 6
+inatteignable sans que personne s'en aperçoive.
+
+### Le greeter n'est pas SDDM — et le journal de construction le disait depuis le premier jour
+
+*« À l'écran de mot de passe, c'est encore la maudite photo Bazzite. »*
+
+Fedora 44 a basculé ses variantes KDE de SDDM vers **Plasma Login Manager**.
+Bazzite ne réinstalle SDDM que sur ses images « deck ». Tout ce que ce carnet
+appelait « le thème du greeter, reste à peindre » visait donc un logiciel
+**absent de l'image**.
+
+Et la preuve était imprimée à chaque construction depuis le 2026-08-22, par
+`36-constellation.sh` lui-même :
+
+```
+greeter : aucun theme sddm
+```
+
+Ce message était juste, et personne ne l'a lu. `/usr/share/sddm/themes` n'existe
+pas ici. **Un `echo` bien placé avait la réponse ; il a fallu quatre jours pour
+la regarder** — la convention du dépôt qui veut qu'un script écrive ce qu'il
+découvre a fonctionné, c'est sa relecture qui a manqué.
+
+La photo elle-même vient de `/usr/lib/plasmalogin/defaults.conf`, livré par
+Bazzite, qui pointe sur son fond maison. **C'est le seul vecteur de sa marque à
+cet écran** : le QML du greeter n'affiche ni nom de distribution ni logo.
+
+`42-greeter.sh` réécrit ce fichier et double dans `/etc/plasmalogin.conf`, qui
+gagne dans tous les cas — le support de `plasmalogin.conf.d` est récent et a été
+rapporté comme ignoré sur des versions publiées, on ne parie pas dessus.
+
+**Et la même clé règle la deuxième plainte** — *« je dois choisir mon bureau, je
+ne veux pas avoir à faire ça »* :
+
+```ini
+[Greeter]
+PreselectedSession=s.desktop
+```
+
+Elle l'emporte sur la session mémorisée. Au passage : **Plasma Login Manager
+n'honore pas `NoDisplay`** dans la liste des sessions, contrairement à SDDM — le
+masquage posé par `36-constellation.sh` est inopérant *ici*. On ne supprime pas
+les sessions de l'amont pour autant ; la préselection rend la question sans
+objet, puisqu'on ne choisit plus.
+
+**Troisième découverte du même fil :** `/etc/xdg/kcm-about-distrorc`, livré par
+Bazzite, réécrit en dur le nom, le logo et le site du panneau « À propos ».
+**Tout le travail de `35-identite.sh` sur `os-release` était annulé à l'endroit
+même où l'utilisateur va vérifier le nom de son système.**
+
+**Ce qui reste à la base :** l'écran d'amorçage. `43-amorcage.sh` est écrit et
+**n'est pas branché** — il régénère l'initramfs, seul changement de ce dépôt qui
+puisse empêcher la machine de démarrer, et `bootc rollback` n'a toujours jamais
+été exercé. Son en-tête dit ce qu'il faut faire avant de le brancher.
+
+### Les trois démons du démarrage — trois causes différentes
+
+*« asusd est toujours refusé, je n'ai pas un appareil ASUS. »*
+
+`asusd` **ne vient pas de S**, et le carnet l'avait établi le 2026-08-22 : le
+portail l'a superposé à moitié. Le masquer dans l'image serait le succès
+silencieux. Ce qui l'enlève est `rpm-ostree reset`, **sur la machine** — devenu
+un geste à double-clic, **`s-nettoyer`**, qui montre ce qu'il va retirer avant
+de le retirer.
+
+Ce que l'image gagne quand même, c'est une **condition matérielle posée
+d'avance** sur les trois unités ASUS :
+
+```ini
+ConditionFirmware=smbios-field(sys_vendor $= "ASUS*")
+```
+
+C'est la même règle que celle qu'`asusctl` applique en udev, portée là où elle
+manque — car `asus-shutdown.service`, lui, porte `WantedBy=multi-user.target` et
+`Requires=asusd.service` : il tire `asusd` là où udev ne l'aurait jamais fait.
+Avec `StartLimitBurst=5`, cela donne exactement les six lignes en échec de la
+photo du 2026-08-21. Un drop-in visant une unité absente est ignoré : il est
+donc déjà là si quelqu'un relance `ujust asus`.
+
+**Piège vérifié au passage, et le carnet croyait l'inverse :** dans systemd,
+plusieurs conditions sont combinées en **ET**, jamais en OU. Le OU se demande
+explicitement, par une barre verticale après le signe égal.
+
+*« cardwire Daemon échoue toujours. »*
+
+**Trouvé.** C'est `cardwired.service`, dont la `Description=` est littéralement
+`Cardwire Daemon` — la transcription du 2026-08-21 était exacte au caractère
+près. L'entrée « `cardwired` — introuvable, et je refuse de deviner » était
+correcte pour sa méthode et fausse dans sa conclusion : le nom est absent du
+dépôt Bazzite parce que **c'est un paquet externe**, entré le 2026-08-20 en
+remplacement de `switcheroo-control` et `supergfxctl`.
+
+C'est un gestionnaire de GPU qui masque une carte aux applications par des
+crochets eBPF, activé par preset **sans aucune condition matérielle**, et qui
+refuse de démarrer si `/sys/kernel/security/lsm` ne contient pas `bpf`.
+Contrairement à `asusd`, **il vient de l'image** — donc de celle de S. Sur une
+machine à GPU intégré unique, il n'a rien à masquer : `39-materiel.sh` le
+désactive.
+
+*« zram0 indique à chaque fois qu'elle n'est pas là et la place, perte de
+temps. »*
+
+**Celui-là n'est pas une panne, et il ne sera pas « réparé ».** Le message vient
+du noyau. Un périphérique zram est un disque compressé **en mémoire vive** : il
+n'existe plus quand la machine s'éteint, il est recréé à chaque démarrage par
+construction, et **aucune image ne peut le pré-cuire** — ce serait pré-cuire de
+la RAM. Le coût est de l'ordre de la milliseconde.
+
+Ce qui est fait à la place : le réglage devient **celui de S**, décidé dans
+l'image plutôt qu'hérité. Détail peu connu et utile — un fragment de
+`zram-generator.conf.d/` l'emporte sur le fichier principal **quel que soit son
+dossier**. S bat donc le réglage de Bazzite depuis `/usr`, sans toucher `/etc`.
+Et sur un disque USB à plateaux, le swap compressé n'est pas un luxe : c'est ce
+qui évite l'effondrement.
+
+### Le VLC installé qui n'apparaissait nulle part — cinq défauts, pas un
+
+*« J'ai installé VLC en .exe, installation réussie, mais il n'apparaissait pas
+dans mes apps du menu démarrer, aucune étoile bleue. »*
+
+Cinq causes indépendantes, trouvées en relisant le chemin entier. **Chacune
+suffisait à elle seule.**
+
+1. **Constellation ne relisait jamais son inventaire.** Il était figé au moment
+   où le pont avait servi la page ; la seule minuterie était l'horloge. Il
+   fallait fermer la session pour voir une application nouvelle. *C'est un
+   bureau qui ne remarque pas ce qu'on installe dessus.* La page relit
+   maintenant `/api/etoiles` toutes les quinze secondes — et **ne redessine que
+   si quelque chose a changé**, en ne touchant qu'aux étoiles concernées :
+   re-semer le ciel détruirait les amas fusionnés à chaque tour.
+2. **L'API et la page n'avaient pas la même forme.** `/api/etoiles` rendait
+   l'inventaire brut, sans `epingle` ni `ep`, là où l'injection les ajoutait.
+   Tant que la page ne relisait jamais l'API, la différence ne se voyait pas ;
+   dès qu'elle la relit, elle perdrait sa barre des tâches à chaque tour. Une
+   seule source désormais, `composer_etoiles()`.
+3. **Tout reposait sur `winemenubuilder`, que Proton désactive couramment.**
+   Quand il ne tourne pas, `applications/wine/` reste vide et il n'y a rien à
+   moissonner. D'où une **seconde source qui ne dépend de personne** : les
+   `.lnk` du menu Démarrer, lus directement dans le préfixe.
+4. **La photo du menu était prise trop tôt.** `umu-run` rend la main dès que le
+   processus principal sort, alors que l'installateur écrit ses raccourcis dans
+   ses dernières secondes. Et comme la comparaison conditionnait la moisson, il
+   n'y avait **aucun rattrapage**. On attend maintenant `wineserver -w`, et on
+   moissonne dans tous les cas.
+5. **`printf %q` produisait un `.desktop` invalide.** Sur « Program Files », il
+   écrit une barre inverse suivie d'un espace — qui n'est pas une séquence
+   d'échappement valide, et GLib rejette alors **la valeur entière**. Le lanceur
+   existait et rien ne le lançait.
+
+**Et un sixième point, qui n'est pas un défaut mais une conséquence :** depuis
+le 2026-08-23, le ciel ne montre que ce qu'on y épingle. Une application
+*qu'on vient d'installer* n'y montait donc pas non plus — or celle-là,
+l'utilisateur vient justement de dire qu'il la voulait, en l'installant. La
+distinction retenue : **le ciel ne se remplit pas tout seul du passé, mais il
+accueille tout de suite ce qu'on y ajoute.**
+
+### L'icône du programme dans l'étoile
+
+Demande de l'utilisateur. Les glyphes dessinés disent le *genre* d'un logiciel ;
+l'icône dit *lequel*. Le pont résout maintenant le fichier d'icône déclaré par
+le `.desktop` et le sert par une route `/icone?id=…` — une adresse plutôt qu'une
+image en clair dans la page, parce que 81 icônes en `data:` pèseraient plusieurs
+mégaoctets à chaque tour. **La route ne lit jamais un chemin venu de la
+requête** : elle prend un identifiant, le cherche dans l'inventaire, et c'est
+l'inventaire qui dit quel fichier lire. Le glyphe reste le repli — et le
+prototype de `galerie/`, ouvert seul, ne change pas d'un pixel.
+
+### Waydroid a tourné, et ce que le gel apprend
+
+*« J'ai lancé F-Droid et l'écran glitch ; j'ai tenté d'installer une app mais ça
+a figé à l'autorisation de sources inconnues, rien ne s'est installé. »*
+
+**Première nouvelle, et le carnet disait le contraire depuis le premier jour :
+Waydroid a tourné.** « Waydroid n'a jamais tourné » est faux depuis cette
+soirée-là. Le différenciateur du projet a démarré, affiché une interface
+Android, et lancé F-Droid.
+
+**Le gel est contourné, pas réparé — et c'est délibéré.** L'écran d'autorisation
+n'appartient pas à F-Droid : c'est `packageinstaller`, un composant d'Android.
+Le gel n'est pas un défaut catalogué de Waydroid ; l'hypothèse la plus plausible
+est qu'il s'ouvre dans une fenêtre que le multi-fenêtrage n'affiche pas — *une
+fenêtre invisible qui a le focus ressemble exactement à un gel*.
+
+On ne l'ouvre donc plus. **`waydroid app install` installe en silence**, par un
+service qui tourne dans `system_server` avec la permission `INSTALL_PACKAGES` :
+aucune confirmation n'est demandée. C'est déjà ce que S fait pour poser F-Droid
+lui-même, et ça a toujours marché. Le nouveau geste **« Magasin Android »**
+cherche dans le catalogue F-Droid depuis l'hôte, télécharge, installe, et fait
+monter l'étoile. F-Droid reste le catalogue ; son interface ne sert plus à
+installer. C'est la règle 9 portée au monde Android : *une couture ne montre
+jamais son moteur, et surtout pas la boîte de dialogue du moteur.*
+
+En complément, `s-android` accorde d'avance l'autorisation à F-Droid pour ceux
+qui voudront quand même passer par lui — par `appops`, car `pm grant` ne peut
+pas : la permission est déclarée `signature|appop` dans AOSP. **Réserve : cela
+retire l'écran qui a gelé, pas la confirmation finale.**
+
+**Le glitch d'affichage n'est PAS corrigé, et rien n'a été touché.** Aucun
+rapport connu ne vise un Intel Gen 9.5 mono-GPU ; le corpus est presque
+entièrement AMD, et les deux cas Intel sont des portables hybrides. Poser une
+propriété au hasard serait la faute du halt de QEMU refaite à l'identique. Ce
+qu'il faut d'abord : `ls /dev/dri/renderD*`, `waydroid prop get
+ro.hardware.gralloc`, et un `waydroid bugreport` **pendant** que le glitch se
+produit — il capture cinq minutes de `logcat` et de `dmesg`, ce qu'un relevé
+après coup ne peut pas donner. Puis une variable à la fois :
+`gralloc.gbm.legacy=true`, sinon `persist.waydroid.multi_windows false`.
+
+*Correction au carnet en passant :* Aurora Store avait été écarté « faute de
+provenance ». **C'est faux — il est sur `f-droid.org`**, et l'URL répond. La
+raison de l'écarter, si on l'écarte, doit être une autre.
+
+### Ce qui est éprouvé au banc, et ce qui ne l'est pas
+
+**Éprouvé, sur la machine de développement, le 2026-08-23 :**
+
+| | |
+|---|---|
+| L'échappement d'une ligne `Exec` | **6 chemins sur 6** relus à l'identique, dont un portant à la fois la barre inverse, le dollar, l'accent grave, le guillemet et l'espace — vérifié contre les règles de `g_shell_parse_argv`, **pas** contre `shlex` de Python, qui n'est pas un modèle fidèle et faisait échouer un échappement correct |
+| Le lecteur de `.lnk` | cible rendue depuis la forme ANSI, depuis la forme **UTF-16 seule** (celle que le motif ANSI manquerait), et rien rendu — sans erreur — sur un fichier de 200 octets nuls |
+| La conversion vers `dosdevices` | correcte |
+| Syntaxe | tous les scripts shell, le Python de `s-etoiles`, zéro CRLF |
+
+Les deux premières pièces entrent au grimoire, avec leur ligne `PREUVE:`.
+
+**Une leçon de méthode, et elle a failli me coûter deux corrections fausses.**
+Le premier banc a déclaré l'échappement cassé sur les six chemins. Il avait
+tort deux fois : Git Bash réécrit `/usr/bin/...` en `C:/Program Files/Git/...`
+en passant à un Python natif Windows, ce qui découpait la ligne en trois ; et
+`shlex` de Python n'applique pas les règles du shell dans les guillemets
+doubles. **Un banc qui échoue accuse le code par défaut, et il faut le
+soupçonner lui d'abord** — c'est la règle 7 retournée vers l'outil de mesure.
+
+**Jamais exercé, et c'est l'essentiel de ce qui reste :**
+
+- **Aucun de ces correctifs n'a tourné sur la machine.** Ni le greeter, ni les
+  démons, ni la moisson, ni les icônes, ni le magasin Android. Le banc prouve
+  que le code fait ce qu'il dit ; il ne prouve pas que la machine le fera.
+- **`s-nettoyer` n'a jamais retiré quoi que ce soit** — `rpm-ostree reset` n'a
+  jamais été lancé ici.
+- **Le glitch de Waydroid n'est pas diagnostiqué**, et rien n'a été changé pour
+  lui.
+- **L'écran d'amorçage porte toujours le nom de la base**, et le script qui le
+  changerait n'est pas branché.

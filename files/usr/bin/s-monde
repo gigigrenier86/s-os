@@ -47,3 +47,36 @@ s_verrou() {
 s_rafraichir_menu() {
     update-desktop-database "$S_LANCEURS" 2>/dev/null || true
 }
+
+# Faire monter une etoile au ciel de Constellation.
+#
+# POURQUOI CE N'EST PAS UN DETAIL. Depuis le 2026-08-23, le ciel ne montre que
+# ce que l'utilisateur y a epingle — il le fallait, l'inventaire reel de la
+# machine compte 81 entrees et les deverser toutes donnait un fouillis. Mais la
+# regle a un effet de bord qu'il faut corriger ici : une application QU'ON VIENT
+# D'INSTALLER n'apparaissait nulle part non plus. Or celle-la, l'utilisateur
+# vient justement de dire qu'il la voulait — en l'installant.
+#
+# La distinction est donc : le ciel ne se remplit pas tout seul du passe, mais
+# il accueille tout de suite ce qu'on y ajoute.
+#
+# On passe par le pont plutot que d'ecrire placees.json directement : c'est lui
+# qui possede ce fichier, et deux ecrivains sur un meme fichier finissent
+# toujours par se marcher dessus. S'il ne repond pas — session KDE de secours,
+# bureau ferme — il n'y a rien a placer, et l'echec est sans consequence.
+s_placer_etoile() {
+    local ident="$1"
+    local port="${S_ETOILES_PORT:-7373}"
+    command -v curl >/dev/null 2>&1 || return 0
+    # Une position pseudo-aleatoire mais STABLE pour un identifiant donne : deux
+    # installations de suite ne posent pas deux etoiles au meme endroit, et
+    # replacer la meme application la remet ou elle etait.
+    local graine x y
+    graine="$(printf '%s' "$ident" | cksum | cut -d' ' -f1)"
+    x="0.$(( 20 + graine % 60 ))"
+    y="0.$(( 20 + (graine / 60) % 55 ))"
+    curl -fsS --max-time 3 -X POST \
+         -H 'Content-Type: application/json' \
+         -d "{\"id\":\"${ident}\",\"x\":${x},\"y\":${y}}" \
+         "http://127.0.0.1:${port}/api/placer" >/dev/null 2>&1 || true
+}

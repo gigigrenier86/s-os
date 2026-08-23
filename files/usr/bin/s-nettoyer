@@ -1,0 +1,154 @@
+#!/usr/bin/bash
+# S — rendre la machine a son image.
+#
+# POURQUOI CE GESTE EXISTE, ET POURQUOI IL N'EST PAS UNE RETOUCHE D'IMAGE.
+#
+# Le 2026-08-21, le premier demarrage reel a montre « asusd.service » en echec,
+# repete six fois, sur une machine qui n'a rien d'ASUS. Le reflexe aurait ete de
+# masquer l'unite dans l'image. C'aurait ete une faute, et le carnet la nomme :
+# le succes silencieux. Car asusd NE VIENT PAS DE S — S n'installe pas asusctl.
+# Il est arrive par le portail de la base, moitie par un cask Homebrew
+# (rog-control-center-linux), moitie par un « rpm-ostree » layering, et
+# l'installation a echoue en cours de route. Le service existe, il est active,
+# et il ne peut pas fonctionner. Masquer l'unite aurait fait disparaitre le
+# symptome en laissant la cause — et aurait masque, dans l'image de TOUT LE
+# MONDE, un service que S n'a jamais pose.
+#
+# Ce qui l'enleve vraiment est une commande sur LA MACHINE, pas dans l'image :
+# « rpm-ostree reset » retire d'un coup tout ce qui a ete superpose au systeme.
+# Ce geste ne fait qu'une chose de plus que cette commande, et c'est tout son
+# interet : il MONTRE ce qui va partir avant de le retirer.
+#
+# CE QU'IL NE TOUCHE PAS, ET IL FAUT LE DIRE. Les logiciels de S sont dans
+# l'image : ils ne peuvent pas etre retires par ce geste, quoi qu'il arrive. Le
+# dossier personnel non plus. Ce qui part, c'est exactement ce qui a ete ajoute
+# PAR-DESSUS — et cela se reinstalle si on le veut vraiment.
+set -uo pipefail
+source /usr/bin/s-monde
+
+s_verrou nettoyage
+
+# --- Poser une question, avec ce que le bureau a sous la main ---------------
+# kdialog vient de la base ; zenity peut manquer. On ne fait JAMAIS le
+# nettoyage sans reponse : une suppression sans consentement serait pire que
+# le defaut qu'elle repare.
+demander() {
+    local titre="$1" texte="$2"
+    if command -v kdialog >/dev/null 2>&1; then
+        kdialog --title "$titre" --yesno "$texte"
+    elif command -v zenity >/dev/null 2>&1; then
+        zenity --question --title="$titre" --text="$texte" --width=520
+    else
+        s_echec "Aucune fenetre de dialogue disponible" \
+                "Ni kdialog ni zenity. Lancer « s-nettoyer » depuis un terminal."
+    fi
+}
+
+informer() {
+    local titre="$1" texte="$2"
+    if command -v kdialog >/dev/null 2>&1; then
+        kdialog --title "$titre" --msgbox "$texte"
+    elif command -v zenity >/dev/null 2>&1; then
+        zenity --info --title="$titre" --text="$texte" --width=520
+    else
+        printf '%s\n%s\n' "$titre" "$texte"
+    fi
+}
+
+# --- Ce que la machine porte en plus de S ----------------------------------
+# On lit le JSON plutot que la sortie lisible : le format lisible de
+# rpm-ostree change entre versions, le JSON beaucoup moins.
+if ! command -v rpm-ostree >/dev/null 2>&1; then
+    s_echec "Geste indisponible" "rpm-ostree est absent de cette machine."
+fi
+
+SUPERPOSE="$(rpm-ostree status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    etat = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+deploiements = etat.get("deployments") or []
+# Le deploiement actif est celui marque "booted" ; a defaut, le premier.
+actif = next((d for d in deploiements if d.get("booted")), deploiements[0] if deploiements else {})
+vus = []
+for cle in ("requested-packages", "packages",
+            "requested-local-packages", "requested-modules"):
+    for p in actif.get(cle) or []:
+        nom = p if isinstance(p, str) else str(p)
+        if nom not in vus:
+            vus.append(nom)
+for nom in vus:
+    print(nom)
+' 2>/dev/null)"
+
+NB="$(printf '%s' "$SUPERPOSE" | grep -c . || true)"
+
+# --- Rien a faire : le dire, et ne pas inventer un probleme ----------------
+if [ "${NB:-0}" -eq 0 ]; then
+    informer "S est deja propre" \
+"Rien n'a ete ajoute par-dessus S sur cette machine.
+
+Si un service echoue quand meme au demarrage, ce n'est pas du superpose :
+lancer « Diagnostic de S », qui nommera l'unite et le paquet d'ou elle vient."
+    exit 0
+fi
+
+LISTE="$(printf '%s' "$SUPERPOSE" | sed 's/^/    • /')"
+
+demander "Nettoyer S" \
+"Cette machine porte ${NB} element(s) installe(s) PAR-DESSUS S :
+
+${LISTE}
+
+Ils ne viennent pas de S. C'est de la qu'arrivent les services qui echouent a
+chaque demarrage — asusd sur une machine qui n'est pas ASUS, par exemple.
+
+Les retirer ?
+
+Ce qui NE sera PAS touche : les logiciels de S, qui sont dans l'image, et le
+dossier personnel. Seul part ce qui a ete ajoute par-dessus." || {
+    s_dire "Nettoyage annule" "Rien n'a ete touche."
+    exit 0
+}
+
+# --- Retirer ---------------------------------------------------------------
+# pkexec et non sudo : « sudo -n » refuse par construction de demander un mot
+# de passe, et une session graphique n'a pas de terminal pour le taper. pkexec
+# ouvre une fenetre, ce qui est le comportement normal d'un geste systeme.
+s_dire "Nettoyage de S" "Retrait en cours. Cela peut prendre une minute." system-run
+
+JOURNAL="$S_ETAT/nettoyage.log"
+if pkexec rpm-ostree reset >"$JOURNAL" 2>&1; then
+    informer "S est nettoye" \
+"Les ${NB} element(s) superpose(s) ont ete retires.
+
+Ils ne disparaitront vraiment qu'au PROCHAIN DEMARRAGE : sur un systeme
+atomique, un changement est prepare puis prend effet au demarrage suivant.
+C'est aussi ce qui permet de revenir en arriere si besoin.
+
+Detail : ${JOURNAL}"
+    s_dire "Redemarrer pour finir" "Le nettoyage prend effet au prochain demarrage."
+else
+    s_echec "Le nettoyage a echoue" \
+"rpm-ostree n'a pas pu retirer ce qui est superpose.
+Detail dans ${JOURNAL}"
+fi
+
+# --- Ce que ce geste ne peut PAS retirer, et qu'il faut nommer -------------
+# Homebrew ne passe pas par rpm-ostree : il vit dans le dossier personnel, donc
+# hors de portee d'un « reset ». On ne le supprime pas d'autorite — c'est le
+# dossier de l'utilisateur — mais se taire ferait croire le nettoyage complet.
+if [ -d /var/home/linuxbrew ] || [ -d "$HOME/.linuxbrew" ]; then
+    informer "Il reste Homebrew" \
+"Homebrew a aussi ete installe sur cette machine, et il ne passe pas par le
+mecanisme que ce geste vient d'utiliser : il vit dans le dossier personnel.
+
+Il ne fait echouer aucun service au demarrage, donc rien ne presse. Pour le
+retirer completement, un jour, il faut effacer son dossier :
+
+    /var/home/linuxbrew
+
+Ce geste ne le fait pas tout seul : c'est le dossier personnel, et S n'y
+touche pas sans qu'on le lui demande."
+fi

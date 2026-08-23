@@ -46,6 +46,32 @@ if [ ! -f "$MARQUE" ]; then
         s_dire "Android" "Installation du magasin F-Droid…" phone
         waydroid app install "$APK_MAISON/fdroid.apk" >>"$S_ETAT/android-init.log" 2>&1 || true
     fi
+
+    # AUTORISER F-DROID A INSTALLER, PAR AVANCE.
+    #
+    # Le 2026-08-23, une installation depuis F-Droid a GELE le bureau sur
+    # l'ecran « autoriser l'installation depuis des sources inconnues ». Cet
+    # ecran est dessine par « packageinstaller », un composant d'Android, et
+    # l'hypothese la plus plausible est qu'il s'ouvre dans une fenetre que le
+    # multi-fenetrage de Waydroid n'affiche pas — une fenetre invisible qui a
+    # le focus ressemble exactement a un gel.
+    #
+    # On accorde donc l'autorisation d'avance, pour que la boite ne s'ouvre
+    # jamais. « pm grant » NE MARCHE PAS ici : REQUEST_INSTALL_PACKAGES est
+    # declaree « signature|appop » dans AOSP, et pm grant ne traite que les
+    # permissions demandees a l'execution. C'est « appops » qu'il faut.
+    #
+    # RESERVE, ET ELLE COMPTE : cela supprime l'ecran d'autorisation — celui
+    # qui a gele — mais PAS la confirmation finale « voulez-vous installer
+    # cette application ? », dessinee par le meme composant. Le chemin qui
+    # n'ouvre aucune boite du tout est « Magasin Android » (s-magasin-android),
+    # qui installe depuis l'hote.
+    pkexec waydroid shell -- cmd appops set org.fdroid.fdroid \
+        REQUEST_INSTALL_PACKAGES allow >>"$S_ETAT/android-init.log" 2>&1 || \
+        s_dire "Android" \
+"F-Droid n'a pas pu recevoir l'autorisation d'installer. Utiliser plutot \
+« Magasin Android », qui installe sans passer par Android." dialog-warning
+
     touch "$MARQUE"
 fi
 

@@ -1,57 +1,242 @@
 #!/usr/bin/bash
-# Moissonne les raccourcis que Wine pose lui-meme et les rend cliquables.
+# Moissonne les raccourcis du monde Windows et les rend cliquables.
 #
-# Le probleme qu'il resout, et qu'on ne voit qu'a l'usage : winemenubuilder
-# ecrit de vrais .desktop dans applications/wine/, mais leur ligne Exec appelle
-# « wine », qui n'existe pas ici — Proton est fourni par umu, pas par un paquet
-# systeme. Les icones apparaissent donc dans le menu et ne lancent rien.
-# On les reecrit pour qu'elles repassent par s-ouvrir-exe.
+# LE DEFAUT D'ORIGINE. winemenubuilder ecrit de vrais .desktop dans
+# applications/wine/, mais leur ligne Exec appelle « wine », qui n'existe pas
+# ici — Proton est fourni par umu, pas par un paquet systeme. Les icones
+# apparaissent donc dans le menu et ne lancent rien. On les reecrit pour
+# qu'elles repassent par s-ouvrir-exe.
+#
+# LE DEFAUT TROUVE LE 2026-08-23, ET IL ETAIT PLUS GRAVE. L'utilisateur a
+# installe VLC depuis un .exe : installation reussie, et RIEN dans le menu.
+# Toute cette moisson reposait sur une hypothese jamais verifiee — que
+# winemenubuilder tourne. Proton le desactive couramment (Valve ne veut pas
+# qu'un jeu deverse des icones dans le menu Linux du joueur). Quand il ne
+# tourne pas, applications/wine/ reste vide et il n'y a rien a moissonner.
+# Le carnet appelle ca le succes silencieux : l'installation reussit, et le
+# resultat est invisible.
+#
+# D'OU UNE SECONDE SOURCE, QUI NE DEPEND DE PERSONNE : les .lnk que
+# l'installateur a poses dans le menu Demarrer du prefixe. Ils sont la quoi
+# qu'il arrive — c'est l'installateur Windows qui les ecrit, pas Wine. On lit
+# la cible directement dans le fichier. Les deux sources se completent : la
+# premiere donne de meilleurs noms et de vraies icones, la seconde ne manque
+# rien.
 set -uo pipefail
 source /usr/bin/s-monde
 
 SILENCIEUX=0
 [ "${1:-}" = "--silencieux" ] && SILENCIEUX=1
 
-SOURCE="$S_LANCEURS/wine"
-[ -d "$SOURCE" ] || exit 0
-
-# 134 est le code octal de la barre inverse. L'ecrire ainsi evite toute
-# question d'echappement, qui a deja coute une passe ici. Elle est DOUBLEE
-# parce que « tr » interprete lui-meme les echappements : une barre seule le
-# fait avertir sur la sortie que voit l'utilisateur.
-BARRE=$(printf '\134\134')
+PREFIXE="${WINEPREFIX:-$S_PREFIXE}"
 
 POSES=0
-while IFS= read -r -d '' fichier; do
-    dossier="$(grep -m1 '^Path=' "$fichier" 2>/dev/null | cut -d= -f2-)"
-    ligne="$(grep -m1 '^Exec=' "$fichier" 2>/dev/null)"
-    [ -n "$dossier" ] && [ -n "$ligne" ] || continue
+NEUFS=0
+IGNORES=0
+IDENTS_NEUFS=()
 
-    # Le nom du binaire est ce qui suit la derniere barre inverse. On ne cherche
-    # pas a reconstituer tout le chemin Windows : « Path » donne deja le dossier
-    # cote Linux, et c'est plus sur que de defaire les echappements de Wine.
-    binaire="$(printf '%s' "$ligne" | tr "$BARRE" '\n' | tail -n1 | sed 's/[[:space:]]*$//')"
-    exe="$dossier/$binaire"
-    [ -f "$exe" ] || continue
+# --------------------------------------------------------------------------
+# Ecrire un chemin dans une ligne Exec, correctement
+# --------------------------------------------------------------------------
+# CE QUI ETAIT FAUX AVANT : « printf %q » produisait « Program\ Files ». La
+# barre inverse suivie d'un espace n'est PAS une sequence d'echappement valide
+# dans un fichier .desktop — la specification n'admet que \s \n \t \r \\ — et
+# GLib rejette alors la valeur entiere. Le lanceur existait, et rien ne le
+# lancait.
+#
+# La regle reelle est a deux etages, et c'est ce qui la rend piegeuse :
+#   1. dans le champ Exec, un argument a espaces se met entre guillemets, et
+#      les caracteres " ` $ \ s'y protegent par une barre inverse ;
+#   2. cette barre inverse vit dans une valeur de .desktop, ou toute barre
+#      inverse s'ecrit DOUBLEE.
+# Une barre inverse du chemin ressort donc en quatre.
+echapper_exec() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\\\\\/g' \
+                           -e 's/"/\\\\"/g' \
+                           -e 's/\$/\\\\$/g' \
+                           -e 's/`/\\\\`/g'
+}
 
-    nom="$(grep -m1 '^Name=' "$fichier" | cut -d= -f2-)"
-    icone="$(grep -m1 '^Icon=' "$fichier" | cut -d= -f2-)"
-    cible="$S_LANCEURS/s-windows-$(printf '%s' "$exe" | sha256sum | cut -c1-12).desktop"
+# --------------------------------------------------------------------------
+# Poser un lanceur pour un .exe, une seule fois
+# --------------------------------------------------------------------------
+poser_lanceur() {
+    local exe="$1" nom="$2" icone="$3" dossier ident cible deja=0
+    [ -f "$exe" ] || { IGNORES=$((IGNORES + 1)); return 1; }
+    dossier="$(dirname "$exe")"
+
+    ident="s-windows-$(printf '%s' "$exe" | sha256sum | cut -c1-12)"
+    cible="$S_LANCEURS/$ident.desktop"
+    [ -f "$cible" ] && deja=1
 
     cat > "$cible" <<DESK
 [Desktop Entry]
 Type=Application
-Name=${nom:-$binaire}
+Name=${nom}
 Comment=Programme Windows
-Exec=/usr/bin/s-ouvrir-exe $(printf '%q' "$exe")
-Path=$dossier
+Exec=/usr/bin/s-ouvrir-exe "$(echapper_exec "$exe")"
+Path=${dossier}
 Icon=${icone:-application-x-executable}
 Terminal=false
-Categories=Application;
+Categories=Utility;
 X-S-Monde=Windows
 DESK
+
     POSES=$((POSES + 1))
-done < <(find "$SOURCE" -name '*.desktop' -print0 2>/dev/null)
+    if [ "$deja" -eq 0 ]; then
+        NEUFS=$((NEUFS + 1))
+        IDENTS_NEUFS+=("$ident")
+    fi
+    return 0
+}
+
+# --------------------------------------------------------------------------
+# Source 1 — ce que winemenubuilder a bien voulu ecrire
+# --------------------------------------------------------------------------
+# On regarde AUSSI le Bureau : winemenubuilder y ecrit les raccourcis « creer
+# une icone sur le bureau », qui ne passent pas par applications/wine/. Un
+# installateur qui ne propose que cette case-la etait invisible jusqu'ici.
+SOURCES=("$S_LANCEURS/wine")
+for d in "$(xdg-user-dir DESKTOP 2>/dev/null)" "$HOME/Bureau" "$HOME/Desktop"; do
+    [ -n "$d" ] && [ -d "$d" ] && SOURCES+=("$d")
+done
+
+# 134 est le code octal de la barre inverse, DOUBLEE parce que « tr »
+# interprete lui-meme les echappements : une barre seule le fait avertir sur
+# la sortie que voit l'utilisateur.
+BARRE=$(printf '\134\134')
+
+for source in "${SOURCES[@]}"; do
+    [ -d "$source" ] || continue
+    while IFS= read -r -d '' fichier; do
+        ligne="$(grep -m1 '^Exec=' "$fichier" 2>/dev/null)"
+        # Sur le Bureau, ne moissonner que ce qui vient de Wine : les lanceurs
+        # de S eux-memes n'ont rien a faire ici.
+        case "$ligne" in *wine*) ;; *) continue ;; esac
+
+        dossier="$(grep -m1 '^Path=' "$fichier" 2>/dev/null | cut -d= -f2-)"
+        if [ -z "$dossier" ] || [ -z "$ligne" ]; then
+            IGNORES=$((IGNORES + 1)); continue
+        fi
+
+        # Le nom du binaire est ce qui suit la derniere barre inverse. On ne
+        # cherche pas a reconstituer tout le chemin Windows : « Path » donne
+        # deja le dossier cote Linux, et c'est plus sur que de defaire les
+        # echappements de Wine.
+        binaire="$(printf '%s' "$ligne" | tr "$BARRE" '\n' | tail -n1)"
+        # Couper ce qui suit l'extension. Un Exec porte souvent des arguments
+        # (« vlc.exe %U », « setup.exe -install »), et « vlc.exe %U » n'est pas
+        # un nom de fichier : le test « -f » echouait alors sans un mot.
+        binaire="$(printf '%s' "$binaire" \
+            | sed -E 's/(\.([eE][xX][eE]|[mM][sS][iI]|[bB][aA][tT]|[cC][oO][mM]))([[:space:]].*)?$/\1/' \
+            | sed 's/[[:space:]]*$//')"
+        if [ -z "$binaire" ]; then
+            IGNORES=$((IGNORES + 1)); continue
+        fi
+
+        nom="$(grep -m1 '^Name=' "$fichier" | cut -d= -f2-)"
+        icone="$(grep -m1 '^Icon=' "$fichier" | cut -d= -f2-)"
+        poser_lanceur "$dossier/$binaire" "${nom:-$binaire}" "$icone" || true
+    done < <(find "$source" -name '*.desktop' -print0 2>/dev/null)
+done
+
+# --------------------------------------------------------------------------
+# Source 2 — les .lnk du menu Demarrer, lus dans le prefixe
+# --------------------------------------------------------------------------
+# Celle-ci ne depend ni de winemenubuilder, ni de Wine : le .lnk est ecrit par
+# l'installateur Windows lui-meme. C'est le filet.
+#
+# On ne parse pas le format Shell Link en entier — il a une demi-douzaine de
+# variantes, la moitie optionnelles, et une bibliotheque de plus serait une
+# dependance de plus. On cherche dans les octets le chemin absolu d'un .exe,
+# en ANSI et en UTF-16, et on garde le plus long : c'est le chemin complet
+# plutot qu'un fragment.
+lire_cible_lnk() {
+    python3 - "$1" <<'PY' 2>/dev/null
+import re
+import sys
+
+try:
+    donnees = open(sys.argv[1], "rb").read()
+except OSError:
+    sys.exit(0)
+
+trouves = set()
+
+motif = (rb'[A-Za-z]:\\(?:[^\x00-\x1f\\/:*?"<>|]+\\)*'
+         rb'[^\x00-\x1f\\/:*?"<>|]+\.[eE][xX][eE]')
+for m in re.finditer(motif, donnees):
+    trouves.add(m.group().decode("latin-1"))
+
+# La meme chose en UTF-16LE : un octet nul apres chaque caractere.
+motif16 = rb'[A-Za-z]\x00:\x00\\\x00(?:[^\x00]\x00)+?\.\x00[eE]\x00[xX]\x00[eE]\x00'
+for m in re.finditer(motif16, donnees):
+    try:
+        trouves.add(m.group().decode("utf-16-le"))
+    except (UnicodeDecodeError, ValueError):
+        pass
+
+if trouves:
+    # Le plus long est le chemin complet, pas un fragment de nom de dossier.
+    print(max(trouves, key=len))
+PY
+}
+
+# Chemin Windows -> chemin Linux par dosdevices : c'est la table de
+# correspondance que Wine tient lui-meme, donc elle vaut pour TOUS les
+# lecteurs mappes, pas seulement C:.
+vers_linux() {
+    local win="$1" lettre reste
+    lettre="$(printf '%s' "${win:0:1}" | tr 'A-Z' 'a-z')"
+    reste="$(printf '%s' "${win:3}" | tr "$BARRE" '/')"
+    printf '%s/dosdevices/%s:/%s' "$PREFIXE" "$lettre" "$reste"
+}
+
+if [ -d "$PREFIXE/drive_c" ]; then
+    while IFS= read -r -d '' lnk; do
+        cible_win="$(lire_cible_lnk "$lnk")"
+        if [ -z "$cible_win" ]; then
+            IGNORES=$((IGNORES + 1)); continue
+        fi
+        exe="$(vers_linux "$cible_win")"
+        # Un desinstalleur n'a rien a faire dans le menu : l'utilisateur a
+        # installe un logiciel, pas un desinstalleur.
+        case "${exe,,}" in
+            *uninst*|*unins0*|*/setup.exe|*remove*) continue ;;
+        esac
+        poser_lanceur "$exe" "$(basename "$lnk" .lnk)" "" || true
+    done < <(find "$PREFIXE/drive_c" -ipath '*start menu/programs*' \
+                  -iname '*.lnk' -print0 2>/dev/null)
+fi
 
 s_rafraichir_menu
-[ "$SILENCIEUX" -eq 1 ] || s_dire "Menu Windows" "$POSES raccourci(s) a jour."
+
+# --------------------------------------------------------------------------
+# Faire monter au ciel ce qui vient d'arriver
+# --------------------------------------------------------------------------
+# Seulement les NOUVEAUX : rejouer ce geste ne doit pas repousser au ciel ce
+# que l'utilisateur en avait retire.
+if [ "${#IDENTS_NEUFS[@]}" -gt 0 ]; then
+    for ident in "${IDENTS_NEUFS[@]}"; do
+        s_placer_etoile "$ident"
+    done
+fi
+
+# --------------------------------------------------------------------------
+# Dire ce qui s'est passe — y compris quand il ne s'est rien passe
+# --------------------------------------------------------------------------
+# CE SILENCE ETAIT LE VRAI DEFAUT. Quand la moisson ne trouvait rien, ce
+# script sortait sans un mot et son appelant se taisait aussi. L'utilisateur
+# voyait une installation reussie et aucune icone, sans la moindre piste.
+if [ "$SILENCIEUX" -eq 0 ]; then
+    if [ "$POSES" -eq 0 ]; then
+        s_dire "Menu Windows" \
+               "Aucun raccourci trouve dans le Windows de S." dialog-warning
+    else
+        s_dire "Menu Windows" "$POSES raccourci(s) a jour, dont $NEUFS nouveau(x)."
+    fi
+fi
+
+# Le compte sort sur la sortie standard pour que l'appelant en parle sans
+# refaire le travail.
+printf '%s %s %s\n' "$POSES" "$NEUFS" "$IGNORES"
