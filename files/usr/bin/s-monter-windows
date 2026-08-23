@@ -1,0 +1,88 @@
+#!/usr/bin/bash
+# S — partager le disque Windows du double amorcage, sans redemarrer pour
+# aller y chercher un fichier.
+#
+# CE QUE S PEUT SAVOIR A LA CONSTRUCTION, ET CE QU'IL NE PEUT PAS. La partition
+# Windows existe sur le disque interne de CETTE machine, mais son UUID est
+# propre a cette installation Windows precise — le graver dans l'image
+# rendrait chaque machine differente cassee au demarrage suivant, et une
+# reinstallation de Windows sur la MEME machine changerait cet UUID. C'est
+# exactement le probleme que s-corriger-machine resout deja pour le compte :
+# ce qui n'existe qu'au moment du demarrage se decouvre au moment du
+# demarrage, jamais avant.
+#
+# LA CIBLE EST CHOISIE PAR TAILLE, PAS PAR NOM. La plus grosse partition NTFS
+# interne (non amovible) d'une machine en double amorçage est presque
+# toujours l'installation Windows elle-meme ; les partitions NTFS plus
+# petites sont des partitions de recuperation (WinRE), jamais la bonne cible.
+# Si aucune partition NTFS interne n'existe — S installe seul, sans Windows —
+# ce script se tait et ne pose rien : rien d'inconditionnel quand la machine
+# peut repondre.
+#
+# NON VERIFIE AU MOMENT D'ECRIRE CECI : ce script n'a jamais tourne via ce
+# service, sur aucune machine. Il a ete valide en deux morceaux, a la main,
+# sur la M720q le 2026-08-23 : la detection lsblk rend bien nvme0n1p3 (237 Go)
+# et jamais nvme0n1p4 (853 Mo, la partition de recuperation), et un montage
+# manuel via udisks (donc en tant qu'utilisateur, pas ce service) a confirme
+# qu'aucune hibernation n'empeche une monte en lecture-ecriture. La commande
+# systemd-mount ci-dessous, elle, n'a jamais ete executee — la permission
+# d'invoquer sudo depuis cette session a ete refusee par prudence. A confirmer
+# au premier vrai demarrage avec le correctif.
+set -uo pipefail
+
+dire() { printf 's-monter-windows : %s\n' "$*" >&2; }
+
+CIBLE=/var/mnt/windows
+
+# --- Trouver la partition Windows : la plus grosse NTFS interne -----------
+mapfile -t CANDIDATS < <(
+    lsblk -rbno NAME,TYPE,FSTYPE,RM,SIZE,PATH 2>/dev/null \
+        | awk '$2=="part" && $3=="ntfs" && $4=="0" {print $5, $6}' \
+        | sort -rn -k1,1
+)
+
+if [[ ${#CANDIDATS[@]} -eq 0 ]]; then
+    dire "aucune partition NTFS interne trouvee — rien a monter"
+    exit 0
+fi
+
+read -r TAILLE PERIPH <<<"${CANDIDATS[0]}"
+dire "cible choisie : $PERIPH ($((TAILLE / 1024 / 1024 / 1024)) Go, la plus grosse NTFS interne)"
+
+# --- Deja monte ? Ne pas dupliquer a chaque demarrage ----------------------
+if findmnt -no SOURCE "$CIBLE" >/dev/null 2>&1; then
+    dire "$CIBLE deja monte — rien a refaire"
+    exit 0
+fi
+
+mkdir -p "$CIBLE"
+
+# systemd-mount cree l'unite .mount ET l'unite .automount d'un coup, sans
+# fichier statique a poser dans l'image : le montage reel n'arrive qu'au
+# premier acces au dossier, pas au demarrage. --collect nettoie l'unite
+# automatiquement si le montage echoue ou est demonte plus tard.
+if systemd-mount --no-block --collect --automount=yes \
+    --description="S - disque Windows (C:)" \
+    -t ntfs -o "rw,uid=1000,gid=1000,windows_names" \
+    "$PERIPH" "$CIBLE"; then
+    dire "$CIBLE : montage automatique arme (declenche au premier acces)"
+else
+    dire "ECHEC : systemd-mount a refuse $PERIPH -> $CIBLE"
+fi
+
+# --- Un lien Windows dans chaque compte humain, comme s-corriger-machine ---
+mapfile -t COMPTES < <(awk -F: '$3>=1000 && $3<60000 && $7 !~ /(nologin|false)$/ {print $1, $6}' /etc/passwd)
+for ligne in "${COMPTES[@]}"; do
+    compte="${ligne%% *}"
+    maison="${ligne#* }"
+    lien="$maison/Windows"
+    if [[ -L "$lien" ]]; then
+        continue
+    elif [[ -e "$lien" ]]; then
+        dire "ATTENTION : $lien existe deja et n'est pas un lien — rien touche"
+    else
+        ln -s "$CIBLE" "$lien"
+        chown -h "$compte": "$lien" 2>/dev/null || true
+        dire "$compte : ~/Windows pointe vers $CIBLE"
+    fi
+done

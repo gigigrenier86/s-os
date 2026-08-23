@@ -2000,3 +2000,39 @@ choisi la session KDE de l'amont, pas « S ». Rien d'étonnant : les correctifs
 la session par défaut vers S sont ceux que cette même conversation vient de pousser vers
 `ghcr.io`, encore en construction au moment de ce relevé. C'est un `bootc upgrade` et un
 redémarrage de plus qui trancheront, pas une supposition de plus.
+
+### La CI a échoué une première fois, et le défaut était réel
+
+Le premier push (sudo, session par défaut, menu) a fait échouer la construction :
+`37-effacer-bazzite.sh` accusait à tort d'avoir masqué « Antigravity - URL Handler ». La
+cause : le garde-fou rescannait **tout** `/usr/share/applications`, pas seulement les
+fichiers que sa propre boucle venait de masquer — et Antigravity pose ce raccourci caché
+par conception (`NoDisplay=true` posé par l'éditeur, pour son gestionnaire d'URL). Corrigé
+en faisant tenir au script la liste des fichiers qu'il modifie lui-même, et en ne
+garde-fouant plus qu'eux. Seconde CI verte en 8 min 52 s.
+
+### Le disque Windows, partagé depuis S — écrit, jamais démarré
+
+En creusant la machine réelle (voir plus haut), le disque Windows s'est laissé monter
+sans mot de passe, via `udisksctl` — et sans `hiberfil.sys`, donc sans le risque de
+corruption qu'un Windows en démarrage rapide aurait posé. Ça a suffi à poser un geste
+permanent plutôt qu'un essai ponctuel.
+
+**Quatre pièces, sur le même principe que `s-corriger-machine`** : ce que S ne peut pas
+savoir à la construction — l'UUID de la partition Windows, propre à chaque machine et à
+chaque réinstallation de Windows — se découvre au démarrage, jamais avant.
+
+| Fichier | Rôle |
+|---|---|
+| `s-monter-windows` (+ `s-monter-windows.service`) | Trouve la plus grosse partition NTFS interne (jamais une petite partition WinRE), et arme un montage automatique vers `/var/mnt/windows` par `systemd-mount --automount=yes` — sans unité statique à graver dans l'image |
+| `s-fichiers-windows` (+ son `.desktop`) | Ouvre `~/Windows` dans le gestionnaire de fichiers ; le premier accès déclenche le montage réel, systemd s'en charge |
+| `/etc/skel/Windows` | Le lien pour tout compte créé désormais ; les comptes déjà créés le reçoivent du service au démarrage, même limite que partout ailleurs dans `/etc/skel` |
+
+**Ce qui est vérifié, et ce qui ne l'est pas.** La détection par taille a été testée en
+direct sur la M720q : elle choisit bien `nvme0n1p3` (237 Go) et jamais `nvme0n1p4`
+(853 Mo, la récupération). Le montage lui-même, via `udisksctl`, a fonctionné en
+lecture-écriture sans accroc. **La commande `systemd-mount` du script, elle, n'a jamais
+tourné** — la permission d'invoquer `sudo` depuis cette session a été refusée par la
+classification automatique de l'outil, par prudence sur une action qui touche l'état
+système. Le service n'a donc jamais été exercé de bout en bout ; ce sera le même
+`bootc upgrade` et redémarrage qui le dira, en même temps que Constellation.

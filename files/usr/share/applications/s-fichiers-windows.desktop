@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Mes fichiers Windows
+GenericName=Disque Windows
+Comment=Ouvre le disque Windows (C:) de cette machine, monté automatiquement
+Exec=/usr/bin/s-fichiers-windows
+Icon=drive-harddisk
+Terminal=false
+Categories=FileManager;System;
+Keywords=windows;fichiers;disque;ntfs;partage;double amorçage;

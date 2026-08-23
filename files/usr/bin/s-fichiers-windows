@@ -1,0 +1,9 @@
+#!/usr/bin/bash
+# S — ouvrir le disque Windows dans le gestionnaire de fichiers par defaut.
+#
+# ~/Windows est un lien pose par s-monter-windows au demarrage, vers un
+# montage automatique : le premier acces au dossier declenche le montage
+# reel, systemd s'en charge tout seul. Ce geste n'a rien d'autre a faire
+# qu'ouvrir ce lien — la couture ne montre pas son moteur.
+set -euo pipefail
+exec xdg-open "$HOME/Windows"
