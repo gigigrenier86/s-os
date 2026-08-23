@@ -220,7 +220,7 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
 | 3 · Le vrai matériel | **fait — le 2026-08-21 au soir**, sur la **M720q** en double amorçage (correction du 2026-08-23 : ce n'est pas un portable ASUS, voir « La machine retrouvée »). Bureau affiché, compte créé, RetroArch et Zoom en marche. GPU réel confirmé le 2026-08-23 : rendu Mesa `i915`, pas `llvmpipe` |
 | 4 · Les trois mondes côte à côte | pas commencé — exige le jalon 3 |
 | 5 · Les coutures | **commencé** — l'installation des trois mondes est cousue et éprouvée ; le partage entre eux ne l'est pas |
-| 6 · L'identité | **S a sa propre session depuis le 2026-08-22** — le greeter ne propose plus que « S » et « S — bureau de secours » ; ce que S lance n'est plus la coquille de l'amont mais la sienne, Constellation, servie par son pont `s-etoiles`. Plus l'os-release réécrit (la machine s'annonce « S », `ID` restant `bazzite` pour ne pas casser les recettes de l'amont), le logo, et **Foudre gelée**, fond d'écran 4K procédural. **Rien de tout cela n'a jamais été vu sur une machine** ; il reste le greeter et l'écran d'amorçage, qui portent encore un nom qui n'est pas le nôtre |
+| 6 · L'identité | **S a sa propre session depuis le 2026-08-22** — le greeter ne propose plus que « S » et « S — bureau de secours » ; ce que S lance n'est plus la coquille de l'amont mais la sienne, Constellation, servie par son pont `s-etoiles`. Plus l'os-release réécrit (la machine s'annonce « S », `ID` restant `bazzite` pour ne pas casser les recettes de l'amont), le logo, et **Foudre gelée**, fond d'écran 4K procédural. **Constellation a démarré pour de vrai le 2026-08-23 sur la M720q** — la session s'ouvre, le ciel s'affiche, trois défauts y ont été trouvés et corrigés. Il reste le greeter et l'écran d'amorçage, qui portent encore un nom qui n'est pas le nôtre, et **aucune capture n'a été prise** — donc rien n'entre encore dans `galerie/` |
 | 7 · L'usage quotidien | pas commencé |
 
 **Le verrou matériel est levé, et il en reste un de vitesse.** La Seagate est un
@@ -2001,6 +2001,11 @@ la session par défaut vers S sont ceux que cette même conversation vient de po
 `ghcr.io`, encore en construction au moment de ce relevé. C'est un `bootc upgrade` et un
 redémarrage de plus qui trancheront, pas une supposition de plus.
 
+> **Et ils ont tranché, une heure et demie plus tard.** Ce paragraphe était vrai
+> à 01 h 43 et a cessé de l'être vers 03 h : le `bootc upgrade` a eu lieu, et
+> Constellation a démarré. Voir « Constellation a tourné » en fin de carnet. Le
+> texte reste tel quel — c'est un relevé horodaté, pas une conclusion.
+
 ### La CI a échoué une première fois, et le défaut était réel
 
 Le premier push (sudo, session par défaut, menu) a fait échouer la construction :
@@ -2036,3 +2041,84 @@ tourné** — la permission d'invoquer `sudo` depuis cette session a été refus
 classification automatique de l'outil, par prudence sur une action qui touche l'état
 système. Le service n'a donc jamais été exercé de bout en bout ; ce sera le même
 `bootc upgrade` et redémarrage qui le dira, en même temps que Constellation.
+
+## 2026-08-23, 03 h — Constellation a tourné, et trois défauts sont tombés
+
+**C'est la première fois que la coquille de S s'affiche sur une machine.** Le
+`bootc upgrade` et le redémarrage annoncés deux sections plus haut ont eu lieu :
+le greeter a proposé « S », la session s'est ouverte, le ciel s'est peint. Le
+point de rupture unique redouté depuis le 2026-08-22 — `kwin_wayland` lançant
+`s-coquille` — **tient**.
+
+Trois défauts sont apparus aussitôt, et aucun ne se voyait autrement qu'en
+regardant l'écran.
+
+### 1. L'étoile Vivaldi manquait, sans un mot
+
+Le `.desktop` du paquet vise `/usr/bin/vivaldi-stable`, qui vise `/opt/vivaldi`,
+qui vise `/var/opt/vivaldi`. **Ce dernier pont ne s'était jamais refait** :
+`/var/opt/vivaldi` existait déjà comme un vrai dossier — les codecs
+propriétaires que Vivaldi y télécharge — et le `L` de `tmpfiles.d` refuse de
+poser un lien par-dessus un dossier existant.
+
+**Ce qui rend la panne muette :** `gio` résout `Exec` **au chargement** du
+`.desktop`, pas à l'exécution. Le fichier était donc rejeté avant même d'être
+proposé — Vivaldi disparaissait du ciel *et* du menu de l'amont, sans erreur.
+C'est le succès silencieux de la règle 2, transposé au bureau.
+
+Correctif : viser le chemin de **l'image**, jamais le pont qui peut se rompre —
+`Exec=/usr/lib/opt/vivaldi/vivaldi`, comme `s-coquille` le fait déjà pour son
+propre moteur. Un `TryExec` l'accompagne, et **la première tentative en `sed`
+aveugle était fausse** : elle en posait un dans chaque groupe, or `TryExec` n'a
+le droit de vivre que dans `[Desktop Entry]` et `desktop-file-validate` rejette
+le reste.
+
+### 2. Le ciel recevait quatre-vingt-une applications d'un coup
+
+L'inventaire réel de la machine compte **81 entrées**, EmuDeck et consorts
+compris. Le pont les déversait toutes. **Un inventaire déversé n'est pas un
+ciel, c'est un fouillis** — et cela ne pouvait se découvrir que sur une vraie
+machine : le banc du 2026-08-22 tournait sur un faux menu de douze entrées.
+
+`s-etoiles` gagne donc un état persistant, `placees.json`, et deux routes —
+`/api/placer` et `/api/retirer`. **Le ciel ne montre plus que ce que
+l'utilisateur y met, à la position qu'il lui donne** ; l'inventaire complet
+reste accessible par le menu. Les coordonnées sont bornées à `[0,1]` côté pont,
+et l'identifiant vérifié contre l'inventaire — une route qui écrit un fichier
+n'accepte pas ce qu'on lui donne sur parole.
+
+### 3. `mandb` mangeait la moitié du démarrage — mesuré, enfin
+
+Le carnet supposait depuis le 2026-08-22 que les ~3 minutes de démarrage
+venaient « des layerings en chaîne, des services en échec et du plateau USB », en
+écrivant que ce n'était pas une mesure. **C'en est une, maintenant.**
+`systemd-analyze critical-chain` nomme un seul coupable :
+
+```
+fedora-atomic-desktop-mandb-update.service : 2 min 51 s
+demarrage total jusqu'a l'invite          : 4 min 49 s
+```
+
+La cause n'est pas la lenteur du service mais **sa place** : `systemd` ajoute
+tout seul un `Before=multi-user.target` à toute unité portant
+`WantedBy=multi-user.target`, sauf si `DefaultDependencies=no`. L'index des pages
+de manuel retenait donc le bureau entier, pour rien — il n'est nécessaire ni
+pour ouvrir une session ni pour lancer un logiciel.
+
+`DefaultDependencies=no` le décroche du chemin critique **sans l'empêcher de
+tourner** ; le `TimeoutStartSec` reste en filet. La limite de temps posée le
+2026-08-22 était donc un filet, pas un moteur — c'était écrit, et c'est
+maintenant vérifié.
+
+### Ce que cette session ne prouve toujours pas
+
+- **Aucune capture n'a été prise.** La règle de `galerie/` tient : Constellation
+  n'entrera dans son tableau que photographiée sur la machine qui la fait
+  tourner. C'est le seul geste qui manque pour clore la pièce.
+- **Le filet de `s-coquille` n'a jamais servi** — trois chutes en moins d'une
+  minute doivent poser un bureau de secours ; personne ne l'a vu se poser.
+- **Les trois correctifs ci-dessus ne sont pas sur la machine.** Ils sont
+  construits et publiés (CI verte, `ghcr.io` à jour) ; il manque un
+  `bootc upgrade` et un redémarrage — le même qui exercera enfin
+  `s-monter-windows` et `s-corriger-machine` de bout en bout.
+- **Waydroid n'a toujours jamais tourné**, et reste le différenciateur du projet.
