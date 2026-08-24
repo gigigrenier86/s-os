@@ -178,6 +178,33 @@ jobs:
                 done
           '
 
+      - name: Extraire les cles GPG de l'image
+        # LE PIEGE, ET IL EST DE LA MEME FAMILLE QUE CELUI DE PRESSURE-VESSEL.
+        # bootc-image-builder resout ses dependances DANS SON PROPRE CONTENEUR.
+        # Il lit bien les fichiers de depot de l'image de S, mais un
+        # « gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra44-mesa » y designe
+        # SON systeme de fichiers a lui — ou aucune cle terra n'existe. D'ou :
+        #
+        #   Failed to retrieve GPG key for repo 'terra-mesa': Couldn't open
+        #   file /etc/pki/rpm-gpg/RPM-GPG-KEY-terra44-mesa
+        #
+        # La cle est pourtant BIEN DANS L'IMAGE — verifie, apres m'etre trompe
+        # une fois en lisant une liste que j'avais tronquee. Le chemin est
+        # valide la ou il est ecrit et introuvable la ou il est lu.
+        #
+        # On donne donc a l'outil les cles de l'image, montees a l'adresse
+        # qu'elles pretendent occuper. On ne desactive PAS le depot terra :
+        # il est sain, et l'eteindre priverait la machine reelle de ses mises a
+        # jour Mesa pour contourner une limite d'un outil de fabrication.
+        run: |
+          sudo mkdir -p /mnt/gpg
+          sudo podman run --rm --entrypoint /bin/bash "${IMAGE}:${{ inputs.tag }}" \
+            -c 'tar -cf - -C /etc/pki rpm-gpg' | sudo tar -xf - -C /mnt/gpg
+          echo "cles extraites : $(sudo ls -1 /mnt/gpg/rpm-gpg | wc -l)"
+          sudo ls -1 /mnt/gpg/rpm-gpg | grep -c terra | xargs -I{} echo "  dont terra : {}"
+          test "$(sudo ls -1 /mnt/gpg/rpm-gpg | wc -l)" -gt 100 \
+            || { echo "ECHEC : trop peu de cles extraites." >&2; exit 1; }
+
       - name: Construire l'ISO
         # --rootfs ext4 : c'est le systeme de fichiers avec lequel S a REELLEMENT
         # demarre sur du materiel (la Seagate, le 2026-08-21). btrfs a marche en
@@ -197,6 +224,7 @@ jobs:
             --security-opt label=type:unconfined_t \
             -v /mnt/sortie:/output \
             -v /var/lib/containers/storage:/var/lib/containers/storage \
+            -v /mnt/gpg/rpm-gpg:/etc/pki/rpm-gpg:ro \
             quay.io/centos-bootc/bootc-image-builder:latest \
               --type anaconda-iso \
               --rootfs ext4 \

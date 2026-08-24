@@ -1,38 +1,43 @@
 #!/usr/bin/bash
-# S — un depot active dont la cle n'existe pas est une bombe a retardement.
+# S — un depot actif dont la cle n'existe pas est une bombe a retardement.
 #
-# CE QUI A REVELE CE DEFAUT, ET IL VENAIT DE LOIN. La fabrication de l'ISO
-# echouait ainsi :
+# CE SCRIPT NE DESACTIVE RIEN AUJOURD'HUI, ET C'EST LE BON RESULTAT.
+# Sur l'image du 2026-08-23 il rend « desactives : 0 ». Il reste parce que
+# l'invariant qu'il tient vaut pour toutes les images a venir : aucun depot
+# actif ne doit declarer une cle GPG locale absente. Le jour ou l'amont en
+# reintroduira un, la construction echouera ici plutot que sur la machine de
+# quelqu'un.
+#
+# CE QUI L'A FAIT NAITRE, ET L'ERREUR QU'IL A SERVI A CORRIGER. La fabrication
+# de l'ISO echouait ainsi :
 #
 #   Failed to retrieve GPG key for repo 'terra-mesa': Could not read a file://
 #   file for file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra44-mesa
 #
-# En regardant l'image plutot qu'en supposant : le depot « terra-mesa » est le
-# SEUL depot terra active (enabled=1), sa cle est declaree
-# « RPM-GPG-KEY-terra$releasever-mesa » — donc terra44 sur une Fedora 44 — et
-# /etc/pki/rpm-gpg ne contient que « RPM-GPG-KEY-terra42-mesa ». Un decalage de
-# version chez l'amont : les cles livrees portent le numero d'une Fedora
-# anterieure a celle du systeme.
+# J'en ai conclu que la cle manquait de l'image, sur la foi d'une liste que
+# j'avais moi-meme tronquee a vingt lignes — les cles terra y allaient jusqu'a
+# terra43, et je n'ai pas vu que terra44 et terra45 suivaient. CE SCRIPT M'A
+# DEMENTI : il a parcouru la vraie image et n'a trouve aucun depot a corriger.
 #
-# POURQUOI NOS PROPRES « dnf5 install » N'AVAIENT JAMAIS BRONCHE. dnf ne lit la
-# cle d'un depot qu'au moment ou il doit verifier un paquet VENANT de ce depot.
-# Aucun de nos huit logiciels n'en vient : la cle manquante n'a donc jamais ete
-# demandee. bootc-image-builder, lui, resout ses dependances en validant TOUS
-# les depots actifs d'un coup — et tombe dessus immediatement.
+# LA VRAIE CAUSE. bootc-image-builder resout ses dependances DANS SON PROPRE
+# CONTENEUR. Il lit les fichiers de depot de l'image de S, mais un
+# « gpgkey=file:///etc/pki/rpm-gpg/... » y designe SON systeme de fichiers a
+# lui, ou aucune cle terra n'existe. Le chemin est valide dans l'image et
+# introuvable la ou il est lu — exactement la meme famille de piege que
+# pressure-vessel reservant « /usr », deja consignee au carnet.
 #
-# C'est exactement la regle 2 du carnet, vue de l'autre bout : le defaut etait
-# la depuis le premier jour, il ne cassait rien de visible, et il aurait casse
-# le premier « rpm-ostree install » d'un paquet mesa sur la machine reelle.
+# Le remede est donc dans l'ATELIER, pas dans l'image : .github/workflows/iso.yml
+# extrait /etc/pki/rpm-gpg de l'image de S et le monte dans le conteneur de
+# bootc-image-builder. On ne touche pas au depot terra : il est sain, et le
+# desactiver aurait prive la machine reelle de ses mises a jour Mesa pour
+# contourner une limite d'un outil de fabrication.
 #
-# CE QU'ON FAIT, ET CE QU'ON NE FAIT PAS. On DESACTIVE le depot. On ne fabrique
-# PAS la cle manquante en recopiant celle de terra42 sous le nom terra44 :
-# ce serait affirmer qu'une cle de signature vaut pour une autre version, sans
-# le savoir. Une signature qu'on renomme n'est plus une verification.
+# CE QU'IL FAIT QUAND IL TROUVE QUELQUE CHOSE. Il desactive le depot, il ne
+# fabrique PAS la cle manquante en recopiant celle d'une autre version sous le
+# nom attendu : une signature qu'on renomme n'est plus une verification.
 #
-# Le traitement est GENERIQUE — tout depot actif dont la cle « file:// » est
-# absente est desactive — parce que le meme decalage se reproduira a la
-# prochaine Fedora, et qu'un correctif qui nomme « terra-mesa » en dur ne
-# l'attraperait pas.
+# Le traitement est GENERIQUE — jamais un nom de depot en dur — parce qu'un
+# correctif qui nomme « terra-mesa » n'attraperait pas le suivant.
 set -euo pipefail
 
 echo "=== 44-depots : les depots actifs dont la cle a disparu ==="
