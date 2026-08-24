@@ -1,9 +1,22 @@
-# Configuration de bootc-image-builder, pour le jour ou S devra se distribuer
-# sous forme d'ISO installable — c'est-a-dire le jalon 6, pas avant.
+# Configuration de bootc-image-builder.
 #
-# Jusque-la, la voie normale est « bootc switch » depuis une installation
-# Bazzite ordinaire : pas d'ISO a fabriquer, a heberger, ni a retelecharger a
-# chaque changement.
+# CE FICHIER N'EST PAS UTILISE PAR .github/workflows/iso.yml, ET C'EST VOULU.
+#
+# L'atelier ISO appelle bootc-image-builder SANS « --config ». Raison : le seul
+# reglage qu'on ait ici est la creation d'un compte, et S en a deja un
+# mecanisme qui marche — « plasma-setup », natif a l'image de base, qui demande
+# langue, clavier, compte et nom de machine au premier demarrage. C'est par lui
+# que le compte de la machine reelle a ete cree le 2026-08-20.
+#
+# Passer ce fichier creerait un compte « ghis » SANS MOT DE PASSE — donc
+# verrouille, donc impossible a utiliser — et plasma-setup en demanderait un
+# second au premier demarrage. Deux comptes, dont un mort.
+#
+# Et un mot de passe n'entrera pas ici : le depot est public.
+#
+# Le fichier reste pour le jour ou une ISO devra s'installer SANS QUE PERSONNE
+# NE REPONDE — une image d'usine, un parc. Ce jour-la, le mot de passe viendra
+# d'un secret du CI, jamais du depot.
 
 [[customizations.user]]
 name = "ghis"

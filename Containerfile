@@ -143,6 +143,18 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/42-greeter.sh
 
+# Les depots actifs dont la cle GPG a disparu. Herite de la base : « terra-mesa »
+# est actif et reclame RPM-GPG-KEY-terra44-mesa, quand l'image ne porte que des
+# cles terra42 et terra43. Nos dnf5 ne s'en apercevaient pas — dnf ne lit la cle
+# d'un depot qu'au moment d'installer un paquet VENANT de lui — mais toute
+# resolution globale y tombe, et c'est ce qui bloquait la fabrication de l'ISO.
+#
+# APRES tous nos dnf5, pour ne rien changer a ce qui marchait deja.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/44-depots.sh
+
 # 43-amorcage.sh n'est PAS branche ici, et c'est delibere : il regenere
 # l'initramfs, seul changement de ce depot qui puisse empecher la machine de
 # demarrer. Lire son en-tete avant de le brancher.
