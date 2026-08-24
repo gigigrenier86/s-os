@@ -53,6 +53,21 @@ $ErrorActionPreference = 'Stop'
 
 function Dire($m, $c = 'Gray') { Write-Host $m -ForegroundColor $c }
 
+# Read n'est PAS tenu de rendre le nombre d'octets demande : il rend ce qu'il a
+# sous la main. Sur un fichier local il rend presque toujours tout, ce qui rend
+# le defaut invisible au banc et bien reel sur un disque USB. Comparer un tampon
+# a moitie rempli ferait declarer FAUSSE une gravure correcte -- le pire verdict
+# possible, puisqu'il ferait recommencer huit gigaoctets pour rien.
+function Lire-Exactement([System.IO.Stream]$flux, [byte[]]$tampon, [int]$combien) {
+    $total = 0
+    while ($total -lt $combien) {
+        $lu = $flux.Read($tampon, $total, $combien - $total)
+        if ($lu -le 0) { break }
+        $total += $lu
+    }
+    return $total
+}
+
 # --- 1. L'elevation, avant tout le reste ------------------------------------
 $moi = New-Object Security.Principal.WindowsPrincipal(
            [Security.Principal.WindowsIdentity]::GetCurrent())
@@ -162,18 +177,89 @@ try {
 }
 
 # --- 6. La gravure ----------------------------------------------------------
-$BLOC = 8MB   # multiple de 512 ET de 4096 : aligne quelle que soit la cle
+# LE NOM DE CETTE VARIABLE A COUTE UNE GRAVURE. Elle s'appelait $BLOC, et le
+# tampon s'appelait $bloc. EN POWERSHELL LES NOMS DE VARIABLES SONT INSENSIBLES
+# A LA CASSE : c'etait la MEME variable. La ligne "$bloc = New-Object byte[]
+# $BLOC" ecrasait donc la taille par le tableau, et l'appel devenait
+# "Read(tableau, 0, tableau)". PowerShell a refuse :
+#
+#   Impossible de convertir l'argument "count" (valeur "0 0 0 0 ...") de "Read"
+#   en type "System.Int32"
+#
+# Et comme le message recrache le tableau entier, le journal de la gravure
+# pesait 33 Mo. L'habitude venue du shell et de Python -- constantes en
+# majuscules, variables en minuscules -- ne tient pas ici.
+$TAILLE_BLOC = 8MB   # multiple de 512 ET de 4096 : aligne quelle que soit la cle
+
+# L'assertion qui aurait attrape la faute en une seconde. Elle reste : le meme
+# piege se retendra au prochain script PowerShell de ce depot.
+if ($TAILLE_BLOC -isnot [int]) {
+    throw ("REFUS : la taille de bloc n'est pas un entier mais un {0} -- collision de nom ?" -f $TAILLE_BLOC.GetType().Name)
+}
 Dire ""
-Dire ("Gravure de {0:N2} Gio par blocs de {1} Mio..." -f ($f.Length/1GB), ($BLOC/1MB)) 'Cyan'
+Dire ("Gravure de {0:N2} Gio par blocs de {1} Mio..." -f ($f.Length/1GB), ($TAILLE_BLOC/1MB)) 'Cyan'
+
+# ============================================================================
+# LA TETE S'ECRIT EN DERNIER, ET C'EST TOUT LE SECRET DE CETTE GRAVURE.
+# ============================================================================
+#
+# CE QUI A TUE LE PREMIER ESSAI REEL : 368 Mio ecrits, puis
+#
+#     Exception lors de l'appel de "Write" avec "3" argument(s) :
+#     "Fonction incorrecte."
+#
+# ERROR_INVALID_FUNCTION sur un disque physique veut dire que quelqu'un
+# d'autre s'est mis a possceder ces secteurs. Ce quelqu'un, c'est Windows :
+# des que le premier bloc de l'ISO est ecrit, le secteur 0 porte une table de
+# partition VALIDE. Le gestionnaire de volumes enumere alors le disque, monte
+# la partition qu'il y trouve, et notre handle -- qui n'a jamais verrouille ce
+# volume, puisqu'il n'existait pas -- perd le droit d'ecrire a l'interieur.
+#
+# Windows refusant par ailleurs de mettre un media amovible hors ligne (mur 2
+# de l'en-tete), on ne peut pas l'en empecher par la voie normale.
+#
+# LA PARADE : ne jamais laisser exister de table de partition valide TANT QUE
+# l'ecriture n'est pas finie.
+#
+#   1. on ecrase le premier mebioctet avec des zeros -- plus rien a enumerer ;
+#   2. on ecrit tout le corps, de 1 Mio jusqu'a la fin ;
+#   3. on ecrit la tete EN DERNIER, d'un seul coup.
+#
+# Entre 1 et 3 le disque n'a aucune table : Windows n'a rien a monter, donc
+# rien a verrouiller. La table apparait a la toute derniere ecriture, quand
+# plus rien ne reste a ecrire.
+#
+# Un mebioctet suffit largement : MBR au secteur 0, en-tete GPT au secteur 1,
+# table GPT jusqu'au secteur 33, et la premiere partition d'une ISO hybride
+# commence au secteur 2048 -- soit exactement 1 Mio.
+#
+# ET PENDANT CE TEMPS, NE PAS INTERROGER LE STOCKAGE. Un simple Get-Volume ou
+# Get-Partition lance un rafraichissement de la pile de stockage, qui refait
+# enumerer les disques. C'est probablement ce qui a acheve le premier essai :
+# l'inventaire tournait dans une autre fenetre au moment ou l'ecriture est
+# morte.
+$TAILLE_TETE = 1MB
+if ($TAILLE_TETE % $SECTEUR -ne 0) { throw "REFUS : la tete n'est pas alignee." }
+
 $src = [System.IO.File]::OpenRead($f.FullName)
 $chrono = [System.Diagnostics.Stopwatch]::StartNew()
 $ecrits = 0L
 $dernier = 0
 try {
+    # --- 1. Neutraliser la tete --------------------------------------------
+    $zeros = New-Object byte[] $TAILLE_TETE
     $h.Position = 0
-    $bloc = New-Object byte[] $BLOC
+    $h.Write($zeros, 0, $TAILLE_TETE)
+    $h.Flush($true)
+    Dire "  tete neutralisee -- le disque n'a plus de table a enumerer" 'Green'
+
+    # --- 2. Le corps, de 1 Mio a la fin ------------------------------------
+    $src.Position = $TAILLE_TETE
+    $h.Position   = $TAILLE_TETE
+    $ecrits = [long]$TAILLE_TETE
+    $bloc = New-Object byte[] $TAILLE_BLOC
     while ($true) {
-        $n = $src.Read($bloc, 0, $BLOC)
+        $n = $src.Read($bloc, 0, $TAILLE_BLOC)
         if ($n -le 0) { break }
         # Un handle de disque physique n'accepte que des ecritures alignees sur
         # la taille de secteur. Le dernier bloc d'une ISO ne l'est pas
@@ -189,15 +275,26 @@ try {
         if ($pct -ge $dernier + 5) {
             $dernier = $pct
             $debit = $ecrits / 1MB / $chrono.Elapsed.TotalSeconds
-            Dire ("  {0,3} %  --  {1:N0} Mio ecrits, {2:N1} Mio/s" -f $pct, ($ecrits/1MB), $debit)
+            $minutes = [int]((($f.Length - $ecrits) / 1MB) / [Math]::Max($debit, 0.1) / 60)
+            Dire ("  {0,3} %  --  {1:N0} Mio ecrits, {2:N1} Mio/s, ~{3} min restantes" -f $pct, ($ecrits/1MB), $debit, $minutes)
         }
     }
     $h.Flush($true)
+
+    # --- 3. La tete, en dernier --------------------------------------------
+    $tampon_tete = New-Object byte[] $TAILLE_TETE
+    $src.Position = 0
+    $lu = Lire-Exactement $src $tampon_tete $TAILLE_TETE
+    if ($lu -ne $TAILLE_TETE) { throw ("REFUS : tete lue incomplete ({0} octets)." -f $lu) }
+    $h.Position = 0
+    $h.Write($tampon_tete, 0, $TAILLE_TETE)
+    $h.Flush($true)
+    Dire "  tete ecrite en dernier -- la table de partition apparait maintenant" 'Green'
 } finally {
     $src.Dispose()
 }
 $chrono.Stop()
-Dire ("Ecrit     : {0:N0} Mio en {1:mm\:ss} ({2:N1} Mio/s)" -f ($ecrits/1MB), $chrono.Elapsed, ($ecrits/1MB/$chrono.Elapsed.TotalSeconds)) 'Green'
+Dire ("Ecrit     : {0:N0} Mio en {1:hh\:mm\:ss} ({2:N1} Mio/s)" -f ($ecrits/1MB), $chrono.Elapsed, ($ecrits/1MB/$chrono.Elapsed.TotalSeconds)) 'Green'
 
 # --- 7. Relire, et comparer -------------------------------------------------
 # Une ecriture qui rend la main n'est pas une ecriture arrivee sur la memoire
@@ -213,8 +310,15 @@ try {
         $p = [long]([Math]::Floor($p / $SECTEUR) * $SECTEUR)
         $a = New-Object byte[] $tailleTest
         $b = New-Object byte[] $tailleTest
-        $src.Position = $p; $null = $src.Read($a, 0, $tailleTest)
-        $h.Position   = $p; $null = $h.Read($b, 0, $tailleTest)
+        $src.Position = $p
+        $luA = Lire-Exactement $src $a $tailleTest
+        $h.Position   = $p
+        $luB = Lire-Exactement $h   $b $tailleTest
+        if ($luA -ne $tailleTest -or $luB -ne $tailleTest) {
+            Dire ("  offset {0,12:N0} : lecture incomplete ({1} / {2} octets)" -f $p, [Math]::Min($luA, $luB), $tailleTest) 'Red'
+            $ok = $false
+            continue
+        }
         $identique = $true
         for ($i = 0; $i -lt $tailleTest; $i++) { if ($a[$i] -ne $b[$i]) { $identique = $false; break } }
         if ($identique) {
