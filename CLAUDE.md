@@ -223,7 +223,7 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
 | 3 · Le vrai matériel | **fait — le 2026-08-21 au soir**, sur la **M720q** en double amorçage (correction du 2026-08-23 : ce n'est pas un portable ASUS, voir « La machine retrouvée »). Bureau affiché, compte créé, RetroArch et Zoom en marche. GPU réel confirmé le 2026-08-23 : rendu Mesa `i915`, pas `llvmpipe` |
 | 4 · Les trois mondes côte à côte | pas commencé — exige le jalon 3 |
 | 5 · Les coutures | **commencé** — l'installation des trois mondes est cousue et éprouvée ; le partage entre eux ne l'est pas |
-| 6 · L'identité | **S a sa propre session depuis le 2026-08-22** — le greeter ne propose plus que « S » et « S — bureau de secours » ; ce que S lance n'est plus la coquille de l'amont mais la sienne, Constellation, servie par son pont `s-etoiles`. Plus l'os-release réécrit (la machine s'annonce « S », `ID` restant `bazzite` pour ne pas casser les recettes de l'amont), le logo, et **Foudre gelée**, fond d'écran 4K procédural. **Constellation a démarré pour de vrai le 2026-08-23 sur la M720q** — la session s'ouvre, le ciel s'affiche, trois défauts y ont été trouvés et corrigés. Il reste le greeter et l'écran d'amorçage, qui portent encore un nom qui n'est pas le nôtre, et **aucune capture n'a été prise** — donc rien n'entre encore dans `galerie/` |
+| 6 · L'identité | **S a sa propre session depuis le 2026-08-22** — le greeter ne propose plus que « S » et « S — bureau de secours » ; ce que S lance n'est plus la coquille de l'amont mais la sienne, Constellation, servie par son pont `s-etoiles`. Plus l'os-release réécrit (la machine s'annonce « S », `ID` restant `bazzite` pour ne pas casser les recettes de l'amont), le logo, et **Foudre gelée**, fond d'écran 4K procédural. **Constellation a démarré pour de vrai le 2026-08-23 sur la M720q** — la session s'ouvre, le ciel s'affiche, trois défauts y ont été trouvés et corrigés. **Le greeter porte le logo de S depuis le 2026-08-23 au soir** : Plasma Login Manager n'ayant aucun système de thèmes, la plaque du S est gravée dans le fond d'écran de connexion, seul pixel de cet écran que S décide — jamais vue sur la machine. Reste l'écran d'amorçage, qui porte encore un nom qui n'est pas le nôtre, et **aucune capture n'a été prise** — donc rien n'entre encore dans `galerie/` |
 | 7 · L'usage quotidien | pas commencé |
 
 **Le verrou matériel est levé, et il en reste un de vitesse.** La Seagate est un
@@ -594,10 +594,17 @@ OS qui démarre.
    **jamais les deux** — est nécessaire à une bonne part des applications
    Android. Statut juridique trouble : installation séparée par `ujust`, jamais
    embarquée dans l'image.
-6. **Windows reste sur le disque interne, définitivement.** PC Boost est du WPF
-   .NET, qui ne se construit que sous Windows. Le double amorçage est l'état
-   final, pas une étape. La licence Windows de la machine est OEM, liée à la
-   carte mère : elle ne pourrait pas être déplacée dans une VM.
+6. **Windows déménage sur la Seagate — décision du 2026-08-23, qui renverse
+   cette limite.** Elle disait « Windows reste sur le disque interne,
+   définitivement », et son raisonnement tient toujours : PC Boost est du WPF
+   .NET, qui ne se construit que sous Windows, donc Windows doit rester
+   *disponible*. Mais l'utilisateur a tranché autrement — **S natif sur le NVMe
+   rapide, Windows cloné et amorçable sur la Seagate**. Le double amorçage reste
+   l'état final ; ce qui change est de quel disque chaque monde démarre. La
+   licence OEM est liée à la carte mère, donc au même boîtier : le clone reste
+   activé. Ce qui se paie : Windows sera lent, sur un plateau USB — le prix
+   exact que S payait, échangé de place. Voir
+   [`banc/le-demenagement.md`](banc/le-demenagement.md).
 7. **L'UHD 630 borne le périmètre « jeux »** au rétro, à l'indé et à l'émulation.
    Lineage 2, moteur de 2003, y est à l'aise. Rien de moderne. Ça n'a rien à voir
    avec Linux — c'est vrai sous Windows aussi.
@@ -2373,3 +2380,164 @@ soupçonner lui d'abord** — c'est la règle 7 retournée vers l'outil de mesur
   lui.
 - **L'écran d'amorçage porte toujours le nom de la base**, et le script qui le
   changerait n'est pas branché.
+
+## 2026-08-23, nuit — le logo au greeter, et la décision de déménager Windows
+
+Trois demandes en une : le logo de S à l'écran de connexion, une copie amorçable
+de Windows sur la Seagate, et une ISO installable sur la clé. La première est
+faite et cousue dans l'image ; les deux autres sont **écrites, éprouvées là où
+elles pouvaient l'être, et pas encore exécutées** — elles demandent des heures
+de copie et un geste au firmware que je ne peux pas poser.
+
+### Le logo ne pouvait entrer que par le fond d'écran, et c'est un fait, pas un renoncement
+
+Plasma Login Manager **n'a aucun système de thèmes** — son QML est compilé dans
+le binaire. On ne peut donc pas lui *ajouter* un logo : ni par configuration, ni
+par un fichier posé quelque part. Le seul pixel de cet écran que S décide est
+son fond d'écran.
+
+Le logo y est donc **gravé**. `galerie/foudre-gelee/graver-le-s.ps1` compose la
+plaque du S sur Foudre gelée et produit `foudre-gelee-connexion.png`, versionné
+au dépôt et posé par `COPY` dans `/usr/share/s/connexion/`. **Le fond du bureau,
+lui, reste nu** : un logo permanent au milieu d'un écran qu'on regarde toute la
+journée serait une signature, pas une identité.
+
+Détail qui compte pour la netteté : le fond fait 3840×2160 et l'écran de la
+M720q 1920×1080. Une plaque de 560 px s'y lit **280 px** — la taille d'une
+grosse icône d'application, et le logo source de 256 px n'est agrandi que de
+2,2×.
+
+**Deux allures ont été rendues et regardées avant de choisir.** La plaque — le
+logo aux coins arrondis, halo bleu, au-dessus du cœur de la foudre. Et un
+filigrane — le S grandi et fondu dans l'éclair. Le filigrane est resté dans le
+script parce qu'il fonctionne, mais son masque radial mange les extrémités du
+S : à l'écran ce n'est plus un logo, c'est une tache. **Jugé sur l'image, pas
+sur l'intention.**
+
+**Et le filigrane était d'abord cassé, d'une façon instructive.** Il rendait des
+bandes horizontales. La cause : `LockBits` sur un **sous-rectangle** ne rend pas
+une foulée de `largeur × 4` mais celle de l'image entière — 3840×4 ici, pas
+1040×4 — parce qu'il verrouille la zone en place sans la recopier. Le défaut ne
+s'est pas déduit, il s'est **vu** : c'est en regardant le PNG qu'il est apparu.
+
+Le garde-fou qui va avec : `42-greeter.sh` refuse désormais de livrer une image
+dont le fond de connexion serait **identique** au fond nu. Sans lui, un graveur
+qui n'aurait pas tourné donnerait un écran de connexion sans logo, sans qu'une
+seule étape de construction échoue. Encore la règle 2.
+
+### La décision qui renverse une limite du carnet
+
+Demande de l'utilisateur, mot pour mot : *« Je veux que S soit natif sur la
+720Q comme OS principale et que la copie windows soit amorçable sur la Seagate.
+Je veux que S puisse lire ce qu'il y a sur cette copie windows. »*
+
+Cela **annule** la limite 6, qui disait « Windows reste sur le disque interne,
+définitivement ». Le raisonnement de cette limite tient toujours — PC Boost est
+du WPF, il ne se construit que sous Windows — mais la conclusion a changé :
+Windows reste **disponible**, sur la Seagate, et le NVMe rapide revient à S.
+
+Ce qui se paie honnêtement : **Windows sera lent**, sur un plateau USB. C'est le
+prix exact que S payait jusqu'ici, échangé de place.
+
+### Ce que ce déménagement a fait tomber dans `s-monter-windows`
+
+Deux défauts, tous deux du type « ne rien trouver, ne rien dire ».
+
+1. **Il ne regardait que les disques non amovibles** (`RM=0`). Windows partant
+   sur un disque USB, il ne l'aurait **jamais** trouvé — et `~/Windows` serait
+   resté vide sans qu'une commande échoue.
+2. **« La plus grosse NTFS » cesse de marcher** dès que la Seagate porte à la
+   fois le Windows cloné (400 Go) et une partition de données (4,2 To). Le
+   raccourci aurait monté les données.
+
+Le remplacement n'est pas un meilleur raccourci, c'est **un regard** : chaque
+candidate est montée en lecture seule et on cherche dedans
+`Windows/System32/config/SYSTEM`. La première qui l'a gagne ; si aucune ne l'a,
+on ne monte rien — un `~/Windows` vide est moins trompeur qu'un `~/Windows`
+plein d'autre chose.
+
+**Éprouvé le 2026-08-23** sur de fausses partitions : écarte 4 To de données,
+écarte une partition dont le montage échoue, retient les 300 Go de Windows.
+**Jamais exercé sur la machine.**
+
+Au passage, un défaut de lecture qui existait déjà : `lsblk -r` sépare ses
+colonnes par un espace et **n'écrit rien** pour un champ vide — deux espaces que
+`awk` recolle en un seul, et toutes les colonnes suivantes se décalent. La
+sortie est désormais lue en `-P`, par nom de champ. Et **en `awk`, pas par
+`eval`** : un des champs s'appelle `PATH`, et l'évaluer écraserait le `PATH` du
+shell, après quoi plus une seule commande du script ne se trouverait.
+
+### La sauvegarde, et les quinze photos qui n'étaient pas perdues
+
+`banc/sauvegarder-le-projet.ps1` rassemble le dépôt (`.git` compris, plus un
+`git bundle` de toute l'histoire), le banc `S-vm/` sans ses images disque, la
+mémoire et les transcriptions de Claude Code, les réglages de VS Code, l'état
+exact des trois disques, et un **manifeste SHA-256 de chaque fichier** — pour
+que « la copie est arrivée » soit une vérification et non une impression.
+**585 fichiers, 0,45 Go.** Le bundle a été **cloné pour de vrai** avant d'être
+déclaré bon : 66 commits, `HEAD` identique.
+
+**Et les quinze photos du premier démarrage réel n'ont jamais été perdues.** Le
+carnet les dit « non versionnées — à redemander à l'utilisateur » depuis le
+2026-08-22. Elles étaient dans `Downloads`, sous leurs noms d'appareil
+(`PXL_20260821_*`, `PXL_20260822_*`), 84 Mo. Elles entrent dans la sauvegarde.
+*Chercher avant de redemander.*
+
+Les trois `.qcow2` du banc — 74,6 Go — ont été **supprimés** sur décision de
+l'utilisateur. C'est un choix, pas un oubli : c'était le seul banc où
+`bootc rollback` restait exerçable à froid. C: passe de 60 à **135 Go libres**,
+et Windows n'occupe plus que 104 Go, ce qui divise par deux la durée du clonage
+à venir.
+
+### L'ISO, et pourquoi elle est un atelier séparé
+
+`.github/workflows/iso.yml` fabrique l'ISO **à la demande**, jamais à chaque
+commit : une image se met à jour par `bootc upgrade`, une ISO ne sert qu'à poser
+S sur une machine neuve. Elle porte l'image entière, donc **elle installe sans
+réseau**.
+
+`banc/graver-iso-sur-cle.ps1` la grave au secteur près sur la SanDisk. Il rejoue
+les murs déjà appris — l'élévation testée en premier, la partition supprimée
+parce que **retirer la lettre ne démonte pas le volume**, une sonde d'écriture à
+64 Mio *avant* d'engager quoi que ce soit — et il en ajoute un : sur un handle
+de disque physique, le tampon interne de `FileStream` est désactivé, parce que
+Windows n'accepte que des écritures alignées sur la taille de secteur et qu'on
+ne parie pas sur le découpage de .NET.
+
+### L'ordre, qui est ici la seule vraie protection
+
+Écrit en entier dans [`banc/le-demenagement.md`](banc/le-demenagement.md), et
+résumé ici parce que s'en écarter coûterait le Windows de la machine :
+
+**L'ISO d'abord, gravée et vue démarrer.** Puis la sauvegarde. Puis la Seagate
+effacée. Puis la capture, le dépliage, la préparation USB. **Puis F12 — et
+seulement si le clone démarre pour de vrai, le NVMe est effacé.**
+
+`banc/windows-sur-seagate.ps1` **n'efface jamais le NVMe** : cette commande
+n'existe pas dedans, à dessein. Tant que le clone n'a pas démarré, un F12 ramène
+tout comme avant.
+
+### Ce qui peut échouer, dit avant plutôt que découvert
+
+**Une installation Windows née sur du NVMe ne sait pas lire un disque USB au
+moment où elle doit lire le sien** — les pilotes USB ne sont pas dans son jeu
+d'amorçage. Le symptôme est `INACCESSIBLE_BOOT_DEVICE`. La phase `preparer-usb`
+arme ces pilotes dans le registre du **clone**, efface `MountedDevices` — qui
+sinon ferait chercher son `C:` sur un disque qui n'est plus le sien — et pose
+`PortableOperatingSystem`. C'est ce que faisait Windows To Go. **Ça marche
+souvent, ça ne se promet pas.**
+
+Et la capture passe par un **cliché VSS**, jamais par `C:` en direct : lire un
+volume qui tourne donne des ruches de registre incohérentes, donc une copie qui
+ne démarre pas.
+
+### Ce qui n'a pas été exercé, et c'est l'essentiel de ce qui reste
+
+- **Le logo n'a jamais été vu à l'écran de connexion.** Il est dans l'image
+  publiée ; personne ne l'a regardé sur la machine. Et la position de la plaque
+  est un **pari sur la mise en page du greeter** : si l'horloge ou le bloc de
+  connexion tombe dessus, il faut changer une ligne du graveur.
+- **Aucune phase du déménagement n'a été exécutée**, sauf `inventaire`, qui
+  n'écrit rien.
+- **`s-monter-windows` n'a toujours jamais tourné sur la machine**, ni dans son
+  ancienne forme ni dans la nouvelle.
