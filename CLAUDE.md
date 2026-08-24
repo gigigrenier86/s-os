@@ -2425,6 +2425,39 @@ dont le fond de connexion serait **identique** au fond nu. Sans lui, un graveur
 qui n'aurait pas tourné donnerait un écran de connexion sans logo, sans qu'une
 seule étape de construction échoue. Encore la règle 2.
 
+### Le flou que la source a révélé, et la seconde voie qu'il impose
+
+Vérifier que ce greeter n'a bien aucun système de thèmes a fait tomber autre
+chose. Sa source porte un shader — `WallpaperFader.frag` — dont le facteur est
+lié à `Window.window.blur`, propriété pilotée par un appel D-Bus `blurScreen`
+émis au changement de fenêtre active. À plein régime : **rayon de flou de
+50 px**, contraste et saturation modifiés.
+
+**Si ce flou s'applique au repos, la plaque gravée dans le fond devient une
+tache bleue.** On ne le sait pas — il faudrait lire le C++ qui met `blur` à vrai,
+et il n'a pas été lu jusqu'au bout.
+
+Deux faits confirmés au passage, et ils valident le reste du travail :
+
+- **`Main.qml` du greeter ne dessine ni logo ni nom de distribution.** Le fond
+  d'écran est donc bien le seul vecteur, comme supposé.
+- **L'horloge est placée entre la liste des comptes et le bloc de connexion**,
+  centrée horizontalement — pas en haut. La plaque, posée à 300 px sur 2160,
+  ne devrait pas la rencontrer.
+
+D'où une **seconde voie, que le flou ne peut pas atteindre** : le logo devient
+l'**avatar du compte**. `42-greeter.sh` le posait déjà dans `/etc/skel/.face.icon`
+— donc seulement pour les comptes créés ensuite, jamais pour `Ghis` qui existe
+déjà. `s-corriger-machine` le pose désormais au démarrage dans
+`/var/lib/AccountsService/icons/<compte>` et déclare la clé `Icon=`. L'avatar est
+dessiné **par-dessus** : aucun shader ne l'atteint.
+
+Il n'écrase jamais un avatar existant, ni une clé `Icon=` déjà déclarée —
+éprouvé sur deux fichiers AccountsService, l'un neuf, l'autre portant déjà un
+choix. *Et le premier banc s'est trompé lui-même* : il créait le fichier d'icône
+avec `: >`, donc **vide**, donc `-s` échouait et le code semblait ne rien faire.
+La règle 7 retournée vers l'outil de mesure, une fois de plus.
+
 ### La décision qui renverse une limite du carnet
 
 Demande de l'utilisateur, mot pour mot : *« Je veux que S soit natif sur la
@@ -2533,10 +2566,12 @@ ne démarre pas.
 
 ### Ce qui n'a pas été exercé, et c'est l'essentiel de ce qui reste
 
-- **Le logo n'a jamais été vu à l'écran de connexion.** Il est dans l'image
-  publiée ; personne ne l'a regardé sur la machine. Et la position de la plaque
-  est un **pari sur la mise en page du greeter** : si l'horloge ou le bloc de
-  connexion tombe dessus, il faut changer une ligne du graveur.
+- **Le logo n'a jamais été vu à l'écran de connexion**, ni comme plaque ni
+  comme avatar. Il est dans l'image publiée ; personne ne l'a regardé sur la
+  machine. Deux inconnues subsistent : le **flou** du `WallpaperFader`, qui
+  déciderait du sort de la plaque, et la **position** de celle-ci, qui reste un
+  pari sur une mise en page qu'on n'a pas vue. Les deux se règlent en une ligne
+  du graveur — mais il faut d'abord regarder l'écran.
 - **Aucune phase du déménagement n'a été exécutée**, sauf `inventaire`, qui
   n'écrit rien.
 - **`s-monter-windows` n'a toujours jamais tourné sur la machine**, ni dans son
