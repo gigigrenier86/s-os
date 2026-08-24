@@ -449,10 +449,26 @@ switch ($Phase) {
     }
 
     Dire ("Application de {0} vers {1} -- comptez plus d'une heure." -f $wim, $lettreWin) 'Cyan'
-    $chrono = [System.Diagnostics.Stopwatch]::StartNew()
-    & dism.exe /Apply-Image /ImageFile:"$wim" /Index:1 /ApplyDir:"$lettreWin\"
-    if ($LASTEXITCODE -ne 0) { throw ("ECHEC : dism /Apply-Image a rendu {0}." -f $LASTEXITCODE) }
-    $chrono.Stop()
+    # -SansAntivirus vaut ici aussi. Ne pas l'implementer dans cette phase
+    # aurait rendu le drapeau SILENCIEUSEMENT SANS EFFET sur la plus longue des
+    # deux -- le genre de faux succes que ce depot s'interdit. Le depliage ecrit
+    # ~110 Go de petits fichiers, et chacun passe sous l'analyse en temps reel.
+    $avPoses = @()
+    if ($SansAntivirus) {
+        foreach ($chemin in @("$lettreWin\", (Split-Path $wim))) {
+            try { Add-MpPreference -ExclusionPath $chemin -ErrorAction Stop; $avPoses += $chemin } catch {}
+        }
+        Dire ("  antivirus ecarte de : {0}" -f ($avPoses -join ', ')) 'Yellow'
+    }
+    try {
+        $chrono = [System.Diagnostics.Stopwatch]::StartNew()
+        & dism.exe /Apply-Image /ImageFile:"$wim" /Index:1 /ApplyDir:"$lettreWin\"
+        if ($LASTEXITCODE -ne 0) { throw ("ECHEC : dism /Apply-Image a rendu {0}." -f $LASTEXITCODE) }
+        $chrono.Stop()
+    } finally {
+        foreach ($chemin in $avPoses) { Remove-MpPreference -ExclusionPath $chemin -ErrorAction SilentlyContinue }
+        if ($avPoses) { Dire 'Antivirus remis en place' 'Green' }
+    }
     Dire ("Applique en {0:hh\:mm\:ss}" -f $chrono.Elapsed) 'Green'
 
     if (-not (Test-Path "$lettreWin\Windows\System32\config\SYSTEM")) {
