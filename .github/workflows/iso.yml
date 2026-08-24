@@ -60,6 +60,9 @@ jobs:
           # place, et c'est la que tout ce qui est volumineux va vivre.
           sudo mkdir -p /mnt/sortie /mnt/podman
           sudo chmod 0777 /mnt/sortie
+          # meta.phases : la place restante decide de tout ce qui suit.
+          # 16 Go d'image decompressee + ~10 Go d'ISO, donc /mnt et pas /.
+          test "$(df --output=avail -k /mnt | tail -1)" -gt 35000000             || { echo "ECHEC : moins de 35 Go libres sur /mnt." >&2; exit 1; }
 
       - name: Verifier que l'image existe et qu'elle est tirable sans jeton
         # « La CI est verte » n'est pas « l'image est publiee ». Et une ISO
@@ -103,6 +106,23 @@ jobs:
           fi
           echo "couches : $(grep -o '"digest"' /tmp/manifeste.json | wc -l)"
 
+      - name: Tirer l'image dans le magasin
+        # BOOTC-IMAGE-BUILDER NE TELECHARGE PLUS LES IMAGES. Il le dit
+        # lui-meme quand on oublie :
+        #
+        #   Error: ghcr.io/gigigrenier86/s-os:latest: image not known
+        #   bootc-image-builder no longer pulls images, make sure to pull it
+        #   before running bootc-image-builder
+        #
+        # C'est un changement d'amont, et il coute une minute de journal pour
+        # etre compris. Le tirage se fait dans /mnt/podman, sur le disque
+        # ephemere du runner : l'image decompressee pese ~16 Go et la racine
+        # du runner ne les a pas.
+        run: |
+          sudo podman --root /mnt/podman pull "${IMAGE}:${{ inputs.tag }}"
+          sudo podman --root /mnt/podman images
+          df -h / /mnt
+
       - name: Construire l'ISO
         # --rootfs ext4 : c'est le systeme de fichiers avec lequel S a REELLEMENT
         # demarre sur du materiel (la Seagate, le 2026-08-21). btrfs a marche en
@@ -111,12 +131,16 @@ jobs:
         # --privileged : bootc-image-builder monte des images disque et pilote
         # des peripheriques loop. Ce n'est pas une commodite, c'est sa condition
         # de fonctionnement.
+        #
+        # Le magasin monte dans le conteneur est /mnt/podman, le meme que celui
+        # ou l'etape precedente a tire l'image — sinon bib cherche dans un
+        # magasin vide et redit « image not known ».
         run: |
           set -o pipefail
           sudo podman --root /mnt/podman run --rm --privileged \
             --security-opt label=type:unconfined_t \
             -v /mnt/sortie:/output \
-            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            -v /mnt/podman:/var/lib/containers/storage \
             quay.io/centos-bootc/bootc-image-builder:latest \
               --type anaconda-iso \
               --rootfs ext4 \
