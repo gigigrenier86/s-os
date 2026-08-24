@@ -144,6 +144,40 @@ jobs:
           sudo podman images
           df -h / /mnt
 
+      - name: Regarder les depots de l'image, et leurs cles
+        # POURQUOI CETTE ETAPE EXISTE. Le quatrieme essai est mort sur :
+        #
+        #   Failed to retrieve GPG key for repo 'terra-mesa': Could not read a
+        #   file:// file for file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra44-mesa
+        #
+        # bootc-image-builder resout des paquets pour fabriquer l'installateur,
+        # et il le fait AVEC LES DEPOTS DE L'IMAGE. Un depot dont la cle
+        # declaree n'existe pas fait donc echouer toute la fabrication —
+        # alors que nos propres « dnf5 install » passent sans broncher.
+        # Cette contradiction se tranche en regardant, pas en supposant.
+        run: |
+          sudo podman run --rm "${IMAGE}:${{ inputs.tag }}" bash -c '
+            echo "=== depots declares ==="
+            for f in /etc/yum.repos.d/*.repo; do
+              [ -e "$f" ] || continue
+              echo "--- $f"
+              grep -E "^\[|^enabled=|^gpgkey=|^gpgcheck=" "$f"
+            done
+            echo
+            echo "=== cles presentes dans /etc/pki/rpm-gpg ==="
+            ls -1 /etc/pki/rpm-gpg/ 2>/dev/null || echo "(dossier absent)"
+            echo
+            echo "=== cles DECLAREES mais ABSENTES ==="
+            manque=0
+            grep -h "^gpgkey=" /etc/yum.repos.d/*.repo 2>/dev/null \
+              | tr " " "\n" | sed "s/^gpgkey=//" \
+              | grep "^file:///" | sed "s|^file://||" | sort -u \
+              | while read -r k; do
+                  if [ -e "$k" ]; then echo "  presente : $k"
+                  else echo "  ABSENTE  : $k"; fi
+                done
+          '
+
       - name: Construire l'ISO
         # --rootfs ext4 : c'est le systeme de fichiers avec lequel S a REELLEMENT
         # demarre sur du materiel (la Seagate, le 2026-08-21). btrfs a marche en
