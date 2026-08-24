@@ -2,7 +2,7 @@
 # S — ce qu'aucune image ne peut poser d'avance, parce que le compte
 # n'existe pas au moment de la construction.
 #
-# DEUX CORRECTIONS, TOUTES DEUX OBSERVEES SUR LA MACHINE REELLE LE 2026-08-21 :
+# TROIS CORRECTIONS, TOUTES POSEES A CHAQUE DEMARRAGE, TOUTES IDEMPOTENTES :
 #
 #   1. Le compte cree par plasma-setup n'entre pas forcement dans « wheel »,
 #      et sans ce groupe, sudo echoue silencieusement. Note dans le carnet :
@@ -10,9 +10,12 @@
 #      root a la base ». Le correctif manuel etait `usermod -aG wheel <compte>`
 #      suivi d'une reconnexion — un geste qui ne survit a rien (regle du
 #      projet : ce qui est fait a la main apres installation ne survit pas).
-#      Il est donc pose ici, a chaque demarrage, de facon idempotente.
 #
-#   2. Le greeter peut se souvenir d'une session choisie avant l'existence de
+#   2. L'avatar du compte : le logo de S. 42-greeter.sh le pose deja dans
+#      /etc/skel/.face.icon, donc pour les comptes crees ENSUITE, jamais pour
+#      celui qui existe deja. Meme limite que /etc/skel partout ailleurs ici.
+#
+#   3. Le greeter peut se souvenir d'une session choisie avant l'existence de
 #      Constellation, ou d'une session desormais masquee (36-constellation.sh).
 #      On ne force JAMAIS un choix entre S et son bureau de secours — seule
 #      une session ETRANGERE aux deux est corrigee, pour que la premiere
@@ -20,11 +23,13 @@
 #
 # CE SCRIPT NE SUPPOSE PAS avoir verifie le format exact d'AccountsService sur
 # cette version precise de Bazzite : il ecrit la forme documentee du projet
-# (freedesktop.org Accounts), mais seul le banc dira si sddm la lit telle
+# (freedesktop.org Accounts), mais seul le banc dira si le greeter la lit telle
 # quelle. A confirmer au prochain demarrage reel.
 set -uo pipefail
 
 dire() { printf 's-corriger-machine : %s\n' "$*" >&2; }
+
+LOGO=/usr/share/icons/hicolor/256x256/apps/s-logo.png
 
 # --- Trouver le ou les comptes humains --------------------------------------
 # UID entre 1000 et 60000, coquille de connexion reelle (pas nologin/false).
@@ -38,6 +43,7 @@ if [[ ${#COMPTES[@]} -eq 0 ]]; then
 fi
 
 for compte in "${COMPTES[@]}"; do
+
     # --- 1. sudo : le groupe wheel ------------------------------------------
     if id -nG "$compte" 2>/dev/null | tr ' ' '\n' | grep -qx wheel; then
         dire "$compte est deja dans wheel"
@@ -47,15 +53,44 @@ for compte in "${COMPTES[@]}"; do
         dire "ECHEC : impossible d'ajouter $compte a wheel"
     fi
 
-    # --- 2. La session par defaut, seulement si elle est etrangere a S -----
-    fichier="/var/lib/AccountsService/users/$compte"
-    if [[ -f "$fichier" ]] && grep -qE '^(Session|XSession)=(s|s-secours)$' "$fichier"; then
-        dire "$compte a deja une session S choisie — rien a corriger"
-        continue
+    # --- 2. L'avatar, et pourquoi il compte plus qu'il n'y parait -----------
+    #
+    # Le logo de S est grave dans le fond d'ecran de connexion, faute de tout
+    # autre vecteur : ce greeter n'a aucun systeme de themes et ne dessine ni
+    # logo ni nom de distribution. MAIS il embarque un shader qui FLOUTE son
+    # fond a 50 px de rayon (WallpaperFader), pilote par un appel D-Bus
+    # « blurScreen » lie au changement de fenetre active. On ne sait pas, au
+    # moment d'ecrire ceci, si ce flou s'applique au repos — si oui, la plaque
+    # du fond devient une tache bleue.
+    #
+    # L'avatar, lui, est dessine PAR-DESSUS. Aucun shader ne l'atteint. C'est
+    # la seule voie dont on sache qu'elle tient quoi qu'il arrive, et c'est
+    # pour ca qu'elle existe en plus de l'autre, pas a sa place.
+    #
+    # ON N'ECRASE JAMAIS UN AVATAR EXISTANT — choisi par son proprietaire ou
+    # pose par plasma-setup, ce n'est pas a nous de le remplacer.
+    maison="$(getent passwd "$compte" | cut -d: -f6)"
+    icone="/var/lib/AccountsService/icons/$compte"
+    if [[ ! -s "$LOGO" ]]; then
+        dire "le logo de S est absent de l'image — avatar non pose"
+    elif [[ -s "$icone" ]] || [[ -s "$maison/.face.icon" ]]; then
+        dire "$compte a deja un avatar — rien touche"
+    else
+        install -D -m 0644 "$LOGO" "$icone"
+        if [[ -d "$maison" ]]; then
+            install -m 0644 "$LOGO" "$maison/.face.icon"
+            chown "$compte:" "$maison/.face.icon" 2>/dev/null || true
+        fi
+        dire "$compte : le logo de S devient son avatar"
     fi
 
+    # --- 3. La session par defaut, seulement si elle est etrangere a S ------
+    fichier="/var/lib/AccountsService/users/$compte"
     install -d -m 0700 /var/lib/AccountsService/users
-    if [[ -f "$fichier" ]] && grep -q '^\[User\]' "$fichier"; then
+
+    if [[ -f "$fichier" ]] && grep -qE '^(Session|XSession)=(s|s-secours)$' "$fichier"; then
+        dire "$compte a deja une session S choisie — rien a corriger"
+    elif [[ -f "$fichier" ]] && grep -q '^\[User\]' "$fichier"; then
         # Une session etrangere est enregistree (heritee d'avant Constellation,
         # ou d'une session desormais masquee) : on la remplace par S, jamais
         # l'inverse — un choix explicite entre S et son secours reste intouche.
@@ -68,5 +103,16 @@ for compte in "${COMPTES[@]}"; do
         printf '[User]\nSession=s\nXSession=s\n' > "$fichier"
         chmod 0644 "$fichier"
         dire "$compte : session par defaut posee sur S"
+    fi
+
+    # --- 4. Declarer l'avatar dans AccountsService --------------------------
+    # Poser le fichier d'icone ne suffit pas : le greeter lit la cle Icon= du
+    # fichier de compte avant tout repli. C'est ici, apres la section 3, parce
+    # que le fichier peut venir d'y etre cree — et JAMAIS si une icone y est
+    # deja declaree.
+    if [[ -s "$icone" && -f "$fichier" ]] && grep -q '^\[User\]' "$fichier" \
+       && ! grep -q '^Icon=' "$fichier"; then
+        sed -i "/^\[User\]/a Icon=$icone" "$fichier"
+        dire "$compte : Icon=$icone declare"
     fi
 done
