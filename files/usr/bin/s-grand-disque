@@ -1,0 +1,160 @@
+#!/usr/bin/bash
+# S — le grand disque, celui ou S travaille pour de vrai.
+#
+# CE QU'IL EST. Sur la M720q, le NVMe interne fait 238 Go et porte S en entier.
+# La Seagate garde 500 Go pour la copie amorcable de Windows, et TOUT LE RESTE
+# — environ 4,1 To — revient a S : jeux Steam et Proton, prefixes Windows,
+# conteneurs Debian, images Android, medias.
+#
+# POURQUOI ext4 ET PAS NTFS, alors que NTFS serait lu des deux mondes. Parce
+# que ce disque est un disque de TRAVAIL, pas un coffre a documents. Un prefixe
+# Wine, une bibliotheque Steam, un conteneur podman : tous exigent des
+# permissions Unix et des liens symboliques que NTFS ne porte pas. Une
+# bibliotheque Steam sur NTFS est un nid a pannes connu. L'echange avec
+# Windows, lui, ne perd rien : S lit deja la partition Windows par ~/Windows.
+#
+# POURQUOI CE SCRIPT EXISTE, ET C'EST LA MEME RAISON QUE PARTOUT ICI. Windows
+# ne sait pas creer d'ext4. Le partitionnement, fait depuis Windows, pose donc
+# la partition au bon type GPT et la laisse VIERGE. Ce qui n'existe qu'au
+# moment du demarrage se decouvre au moment du demarrage : c'est S qui la
+# formate, une fois, puis la monte a chaque fois.
+#
+# DEUX MODES, ET UN SEUL EST DESTRUCTEUR :
+#
+#   s-grand-disque              trouve et monte. Idempotent, sans risque.
+#                               C'est ce que le service appelle au demarrage.
+#   s-grand-disque --preparer   formate en ext4. UNE SEULE FOIS, et seulement
+#                               une partition qui ne porte AUCUN systeme de
+#                               fichiers. Il refuse tout le reste.
+#
+# LE GARDE-FOU QUI COMPTE : on ne formate jamais une partition ou blkid voit
+# quelque chose. Pas de "-f", pas de "--force" : si le disque porte deja des
+# donnees, ce script n'est pas le bon outil et il le dit.
+set -uo pipefail
+
+ETIQUETTE=S-DISQUE
+CIBLE=/var/mnt/disque
+PLANCHER=$((100 * 1024 * 1024 * 1024))   # 100 Gio : en dessous, ce n'est pas lui
+TYPE_LINUX=0fc63daf-8483-4772-8e79-3d69d8477de4
+
+dire() { printf 's-grand-disque : %s\n' "$*" >&2; }
+
+# La partition qui porte la racine de S ne doit JAMAIS etre candidate. Elle est
+# du meme type GPT que celle qu'on cherche — « Linux filesystem data » — et la
+# confondre reviendrait a proposer de formater le systeme en marche.
+racine="$(findmnt -no SOURCE / 2>/dev/null || true)"
+racine_disque="$(lsblk -no PKNAME "$racine" 2>/dev/null || true)"
+
+# lsblk en cle="valeur" : la forme « -r » decale ses colonnes des qu'un champ
+# est vide, et FSTYPE est justement vide sur ce qu'on cherche.
+lister() {
+    lsblk -Pbo TYPE,FSTYPE,SIZE,PATH,PARTTYPE,LABEL,PKNAME 2>/dev/null
+}
+champ() {  # champ <ligne> <nom>
+    printf '%s\n' "$1" | grep -o "$2=\"[^\"]*\"" | head -1 | cut -d'"' -f2
+}
+
+# --------------------------------------------------------------------------
+if [[ "${1:-}" == "--preparer" ]]; then
+    if [[ $EUID -ne 0 ]]; then
+        dire "il faut les droits d'administration : sudo s-grand-disque --preparer"
+        exit 1
+    fi
+
+    candidat=""; taille=0
+    while IFS= read -r ligne; do
+        [[ "$(champ "$ligne" TYPE)" == "part" ]] || continue
+        [[ "$(champ "$ligne" PARTTYPE)" == "$TYPE_LINUX" ]] || continue
+        chemin="$(champ "$ligne" PATH)"
+        # LE CONTROLE QUI PROTEGE TOUT : un systeme de fichiers deja present
+        # veut dire qu'on s'est trompe de partition, ou qu'elle a deja servi.
+        fs="$(champ "$ligne" FSTYPE)"
+        if [[ -n "$fs" ]]; then
+            dire "ecartee : $chemin porte deja du $fs"
+            continue
+        fi
+        [[ "$chemin" != "$racine" ]] || continue
+        t="$(champ "$ligne" SIZE)"
+        [[ "${t:-0}" -ge "$PLANCHER" ]] || { dire "ecartee : $chemin trop petite"; continue; }
+        if [[ "${t:-0}" -gt "$taille" ]]; then candidat="$chemin"; taille="$t"; fi
+    done < <(lister)
+
+    if [[ -z "$candidat" ]]; then
+        dire "aucune partition Linux vierge d'au moins 100 Go — rien a preparer"
+        dire "(le partitionnement depuis Windows a-t-il eu lieu ?)"
+        exit 1
+    fi
+
+    dire "candidate : $candidat ($((taille / 1024 / 1024 / 1024)) Go, sans systeme de fichiers)"
+    if [[ "${2:-}" != "--oui" ]]; then
+        printf 'Formater %s en ext4 ? Taper exactement OUI : ' "$candidat" >&2
+        read -r reponse
+        [[ "$reponse" == "OUI" ]] || { dire "annule"; exit 1; }
+    fi
+
+    # -m 0 : pas de reserve pour root. Elle a un sens sur une partition systeme,
+    # ou elle evite qu'un disque plein empeche la machine de demarrer. Sur un
+    # disque de donnees de 4 To, elle immobiliserait 200 Go pour rien.
+    mkfs.ext4 -m 0 -L "$ETIQUETTE" "$candidat" || { dire "ECHEC : mkfs.ext4"; exit 1; }
+    dire "formate en ext4, etiquette $ETIQUETTE"
+fi
+
+# --------------------------------------------------------------------------
+# Trouver la partition par son ETIQUETTE, jamais par son chemin : /dev/sda3
+# devient /dev/sdb3 des qu'on branche une cle avant de demarrer.
+periph=""
+while IFS= read -r ligne; do
+    [[ "$(champ "$ligne" TYPE)" == "part" ]] || continue
+    [[ "$(champ "$ligne" LABEL)" == "$ETIQUETTE" ]] || continue
+    [[ "$(champ "$ligne" FSTYPE)" == "ext4" ]] || continue
+    periph="$(champ "$ligne" PATH)"
+    break
+done < <(lister)
+
+if [[ -z "$periph" ]]; then
+    dire "aucune partition ext4 etiquetee $ETIQUETTE — rien a monter"
+    dire "(pour la creer : sudo s-grand-disque --preparer)"
+    exit 0
+fi
+
+if findmnt -no SOURCE "$CIBLE" >/dev/null 2>&1; then
+    dire "$CIBLE deja monte — rien a refaire"
+else
+    mkdir -p "$CIBLE"
+    # --automount : le montage reel n'arrive qu'au premier acces. Sur un plateau
+    # USB qui doit se reveiller, cela evite de retenir le demarrage.
+    if systemd-mount --no-block --collect --automount=yes \
+        --description="S - le grand disque" \
+        -t ext4 -o "rw,noatime" \
+        "$periph" "$CIBLE"; then
+        dire "$CIBLE : montage automatique arme sur $periph"
+    else
+        dire "ECHEC : systemd-mount a refuse $periph -> $CIBLE"
+        exit 1
+    fi
+fi
+
+# --- Un lien ~/Disque dans chaque compte humain ----------------------------
+# Meme forme que ~/Windows : le lien existe toujours, le montage se declenche
+# au premier acces.
+mapfile -t COMPTES < <(awk -F: '$3>=1000 && $3<60000 && $7 !~ /(nologin|false)$/ {print $1, $6}' /etc/passwd)
+for ligne in "${COMPTES[@]}"; do
+    compte="${ligne%% *}"
+    maison="${ligne#* }"
+    lien="$maison/Disque"
+    if [[ -L "$lien" ]]; then
+        continue
+    elif [[ -e "$lien" ]]; then
+        dire "ATTENTION : $lien existe deja et n'est pas un lien — rien touche"
+    else
+        ln -s "$CIBLE" "$lien"
+        chown -h "$compte": "$lien" 2>/dev/null || true
+        dire "$compte : ~/Disque pointe vers $CIBLE"
+    fi
+    # Le disque appartient a celui qui s'en sert. Sans ca, il est a root et
+    # l'utilisateur ne peut rien y ecrire — un disque de 4 To en lecture seule
+    # ressemble a une panne.
+    if [[ "$(stat -c %U "$CIBLE" 2>/dev/null)" == "root" ]] && findmnt -no SOURCE "$CIBLE" >/dev/null 2>&1; then
+        chown "$compte:" "$CIBLE" 2>/dev/null && dire "$CIBLE appartient desormais a $compte"
+    fi
+done

@@ -31,4 +31,27 @@ echo "  etoile        : s-fichiers-windows.desktop present"
 ln -sfn /var/mnt/windows /etc/skel/Windows
 echo "  /etc/skel     : le lien Windows sera pose pour chaque compte cree desormais"
 
+# ---------------------------------------------------------------------------
+# Le grand disque — meme principe, autre partition
+# ---------------------------------------------------------------------------
+# Decision de l'utilisateur du 2026-08-23 : la Seagate garde 500 Go pour la
+# copie amorcable de Windows, et TOUT LE RESTE revient a S, en ext4.
+#
+# Windows ne sachant pas creer d'ext4, le partitionnement laisse cette
+# partition VIERGE au bon type GPT. C'est S qui la formate — une seule fois,
+# par « sudo s-grand-disque --preparer » — puis la monte a chaque demarrage.
+# Encore une fois : ce qui n'existe qu'au moment du demarrage se decouvre au
+# moment du demarrage, jamais a la construction.
+chmod 0755 /usr/bin/s-grand-disque
+bash -n /usr/bin/s-grand-disque
+echo "  syntaxe       : s-grand-disque analyse"
+
+test -s /usr/lib/systemd/system/s-grand-disque.service \
+    || { echo "ECHEC : s-grand-disque.service absent." >&2; exit 1; }
+systemctl enable s-grand-disque.service
+echo "  service       : s-grand-disque.service active"
+
+ln -sfn /var/mnt/disque /etc/skel/Disque
+echo "  /etc/skel     : le lien Disque sera pose pour chaque compte cree desormais"
+
 echo "=== 38-partage-windows : pose ==="

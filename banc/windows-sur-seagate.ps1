@@ -22,12 +22,17 @@
 # D'OU L'ORDRE, QUI EST LA VRAIE PROTECTION :
 #
 #   1. inventaire    on regarde. Rien n'est ecrit.
-#   2. partitionner  la SEAGATE est effacee et repartitionnee. Le NVMe n'est
-#                    pas touche -- S y sera pose plus tard, et seulement si
-#                    l'etape 6 a reussi.
-#   3. capturer      photo coherente de C: (cliche VSS) vers un fichier .wim
-#                    pose sur la Seagate. C'est AUSSI la copie de sauvegarde.
+#   2. partitionner  la SEAGATE est effacee et repartitionnee : ESP, MSR,
+#                    500 Go de NTFS pour Windows, et TOUT LE RESTE laisse
+#                    VIERGE au type Linux -- c'est S qui le formatera en ext4,
+#                    Windows ne sachant pas le faire. Le NVMe n'est pas
+#                    touche : S y sera pose plus tard, et seulement si l'etape
+#                    6 a reussi.
+#   3. capturer      photo coherente de C: (cliche VSS) vers un .wim pose sur
+#                    C: -- pas sur la Seagate, dont tout ce qui n'est pas
+#                    Windows sera de l'ext4 que Windows ne sait pas ecrire.
 #   4. appliquer     le .wim est deplie dans la partition Windows de la Seagate.
+#                    C'est ELLE, amorcable, qui est la copie de sauvegarde.
 #   5. preparer-usb  amorcage ecrit sur l'ESP de la Seagate, pilotes USB armes
 #                    dans le registre du clone, lettres de lecteur remises a
 #                    zero.
@@ -49,9 +54,14 @@ param(
 
     [int]  $DisqueSeagate = 1,
     [int]  $DisqueWindows = 0,
-    # 400 Gio : C: occupe ~113 Go une fois les .qcow2 partis. On laisse de la
-    # marge pour des annees d'usage sans repartitionner un disque amorcable.
-    [long] $TailleWindowsGo = 400,
+    # 500 Go, decide par l'utilisateur le 2026-08-23. C: occupe ~104 Go une
+    # fois les .qcow2 partis : il reste de la marge pour des annees d'usage
+    # sans avoir a repartitionner un disque amorcable.
+    [long] $TailleWindowsGo = 500,
+    # Ou se depose l'image intermediaire. Elle ne peut PAS aller sur la Seagate :
+    # tout ce qui n'est pas Windows y sera de l'ext4, que Windows ne sait ni
+    # ecrire ni meme voir.
+    [string] $Wim = 'C:\S-sauvegarde\windows-c.wim',
     [switch] $SansConfirmation
 )
 
@@ -200,20 +210,29 @@ switch ($Phase) {
         -FileSystem NTFS -NewFileSystemLabel 'WINDOWS-S' -Confirm:$false | Out-Null
     Dire ("Windows    : {0} Go, NTFS, monte sur {1}" -f $TailleWindowsGo, $lettreWin) 'Green'
 
-    # Le reste en NTFS : journalise (exFAT ne l'est pas, et un debranchement
-    # brutal y corrompt le volume entier), et lu-ecrit nativement par le pilote
-    # ntfs3 du noyau de S.
-    $dat = New-Partition -DiskNumber $DisqueSeagate -UseMaximumSize -GptType '{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}'
-    $lettreDat = Lettre-De $dat 'DONNEES'
-    Format-Volume -Partition (Get-Partition -DiskNumber $DisqueSeagate -PartitionNumber $dat.PartitionNumber) `
-        -FileSystem NTFS -NewFileSystemLabel 'DONNEES' -Confirm:$false | Out-Null
-    Dire ("Donnees    : {0:N2} To, NTFS, monte sur {1}" -f ($dat.Size/1TB), $lettreDat) 'Green'
+    # LE RESTE EST A S, ET WINDOWS NE PEUT PAS LE FORMATER.
+    # Decision de l'utilisateur, 2026-08-23 : ce qui reste sert PLEINEMENT a S
+    # -- jeux Steam et Proton, prefixes Windows, conteneurs Debian, images
+    # Android. Tout cela exige les permissions et les liens symboliques d'un
+    # systeme de fichiers Unix ; une bibliotheque Steam sur NTFS est un nid a
+    # pannes. Donc ext4.
+    #
+    # Or Windows ne sait pas creer d'ext4. On pose donc la partition au BON TYPE
+    # GPT -- "Linux filesystem data" -- et on la laisse VIERGE. C'est S qui la
+    # formatera, par "s-grand-disque --preparer", une fois installe.
+    #
+    # Ne pas lui donner de lettre : Windows proposerait de la formater a chaque
+    # branchement, et un clic distrait suffirait a la reprendre.
+    $dat = New-Partition -DiskNumber $DisqueSeagate -UseMaximumSize -GptType '{0fc63daf-8483-4772-8e79-3d69d8477de4}'
+    Dire ("Pour S     : {0:N2} To, type Linux, VIERGE -- a formater depuis S" -f ($dat.Size/1TB)) 'Green'
 
     Dire ""
-    Dire "Note pour S : deux partitions NTFS coexistent desormais sur ce disque." 'Yellow'
-    Dire "s-monter-windows ne choisit plus 'la plus grosse' -- il monte chaque" 'Yellow'
-    Dire "candidate en lecture seule et garde celle qui contient vraiment" 'Yellow'
-    Dire "Windows\System32\config\SYSTEM." 'Yellow'
+    Dire "Ce disque ne portera qu'UNE partition NTFS : celle de Windows." 'Cyan'
+    Dire "s-monter-windows la trouvera en montant chaque candidate en lecture" 'Cyan'
+    Dire "seule et en gardant celle qui contient Windows\System32\config\SYSTEM." 'Cyan'
+    Dire ""
+    Dire "La grande partition est VIERGE. Depuis S, une fois installe :" 'Yellow'
+    Dire "    sudo s-grand-disque --preparer     # formate en ext4, une seule fois" 'Yellow'
 }
 
 # ----------------------------------------------------------------------------
@@ -222,13 +241,27 @@ switch ($Phase) {
     $null = Exiger-Seagate
     Titre "Capturer C: dans un fichier image"
 
-    $dat = Trouver-Partition $DisqueSeagate 'DONNEES'
-    $lettreDat = Lettre-De $dat 'DONNEES'
-    $wim = "$lettreDat\S-sauvegarde\windows-c.wim"
+    # L'IMAGE NE PEUT PAS ALLER SUR LA SEAGATE, et c'est une consequence directe
+    # du choix d'ext4 : hors la partition Windows, ce disque n'a plus rien que
+    # Windows sache ecrire. L'image se depose donc sur C:, d'ou elle sera
+    # depliee vers la Seagate a l'etape suivante.
+    $wim = $Wim
     New-Item -ItemType Directory -Path (Split-Path $wim) -Force | Out-Null
 
     if (Test-Path 'C:\hiberfil.sys') {
         throw "REFUS : hiberfil.sys present. Lancer 'powercfg /h off', redemarrer, puis recommencer."
+    }
+
+    # La place, avant d'engager une heure de travail. Une image /Compress:fast
+    # tourne autour de 55 a 70 % du volume occupe ; on exige 80 % par prudence.
+    $c = Get-Volume -DriveLetter C
+    $occupe = $c.Size - $c.SizeRemaining
+    $besoin = [long]($occupe * 0.8)
+    $libre  = (Get-Volume -DriveLetter ((Split-Path $wim -Qualifier).TrimEnd(':'))).SizeRemaining
+    Dire ("C: occupe {0:N1} Go -- il faut environ {1:N1} Go pour l'image, {2:N1} Go libres" -f `
+          ($occupe/1GB), ($besoin/1GB), ($libre/1GB)) 'Cyan'
+    if ($libre -lt $besoin) {
+        throw ("REFUS : {0:N1} Go libres, il en faut environ {1:N1}." -f ($libre/1GB), ($besoin/1GB))
     }
 
     # POURQUOI UN CLICHE VSS PLUTOT QUE C: DIRECTEMENT. Capturer un volume
@@ -270,9 +303,11 @@ switch ($Phase) {
     }
 
     Dire ""
-    Dire "Ce .wim EST la copie de sauvegarde de Windows demandee." 'Green'
-    Dire "Il reste sur la Seagate meme apres l'installation de S, et il se relit" 'Green'
-    Dire "avec 'dism /Apply-Image' sur n'importe quelle partition." 'Green'
+    Dire "Ce .wim est une IMAGE INTERMEDIAIRE, posee sur C:." 'Cyan'
+    Dire "La vraie copie de sauvegarde sera la partition Windows amorcable de la" 'Cyan'
+    Dire "Seagate, produite a l'etape suivante. Si vous voulez GARDER une image" 'Cyan'
+    Dire "redepliable apres coup, recopiez ce fichier dans le clone une fois qu'il" 'Cyan'
+    Dire "demarre -- il y a la place." 'Cyan'
 }
 
 # ----------------------------------------------------------------------------
@@ -281,11 +316,9 @@ switch ($Phase) {
     $null = Exiger-Seagate
     Titre "Deplier l'image dans la partition Windows de la Seagate"
 
-    $dat = Trouver-Partition $DisqueSeagate 'DONNEES'
     $win = Trouver-Partition $DisqueSeagate 'WINDOWS-S'
-    $lettreDat = Lettre-De $dat 'DONNEES'
     $lettreWin = Lettre-De $win 'WINDOWS-S'
-    $wim = "$lettreDat\S-sauvegarde\windows-c.wim"
+    $wim = $Wim
     if (-not (Test-Path $wim)) { throw "REFUS : $wim introuvable. Phase 'capturer' faite ?" }
 
     # On refuse de deplier sur une partition qui porte deja quelque chose :
@@ -408,11 +441,24 @@ switch ($Phase) {
 'verifier' {
     Titre "Ce que porte la Seagate"
     $null = Exiger-Seagate
-    foreach ($e in @('ESP-S','WINDOWS-S','DONNEES')) {
+    foreach ($e in @('ESP-S','WINDOWS-S')) {
         $p = Trouver-Partition $DisqueSeagate $e
         if (-not $p) { Dire ("{0,-10} : ABSENTE" -f $e) 'Red'; continue }
         $v = $p | Get-Volume
         Dire ("{0,-10} : {1:N1} Go, {2}, lettre {3}" -f $e, ($p.Size/1GB), $v.FileSystem, $p.DriveLetter) 'Green'
+    }
+    # La grande partition n'a pas de volume que Windows sache lire : on la
+    # reconnait a son TYPE GPT, pas a une etiquette. Vue d'ici elle doit avoir
+    # l'air vide -- si Windows y voyait un systeme de fichiers, c'est qu'elle
+    # aurait ete reprise par autre chose.
+    $lin = Get-Partition -DiskNumber $DisqueSeagate -ErrorAction SilentlyContinue |
+           Where-Object { $_.GptType -eq '{0fc63daf-8483-4772-8e79-3d69d8477de4}' } | Select-Object -First 1
+    if ($lin) {
+        $v = $lin | Get-Volume -ErrorAction SilentlyContinue
+        $etat = if ($v -and $v.FileSystem) { "ATTENTION : Windows y voit du $($v.FileSystem)" } else { "vierge, comme attendu" }
+        Dire ("{0,-10} : {1:N2} To, type Linux, {2}" -f 'POUR-S', ($lin.Size/1TB), $etat) 'Green'
+    } else {
+        Dire ("{0,-10} : ABSENTE" -f 'POUR-S') 'Red'
     }
     $esp = Trouver-Partition $DisqueSeagate 'ESP-S'
     $win = Trouver-Partition $DisqueSeagate 'WINDOWS-S'

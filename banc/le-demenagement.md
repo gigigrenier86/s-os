@@ -14,7 +14,7 @@ prudence de celui qui tape.
 |---|---|---|
 | 0 · WD SN730 NVMe · 238,5 Go | Windows | C: 237,5 Go, **104 Go occupés**, 135 libres. Pas de BitLocker actif, pas de `hiberfil.sys` |
 | 1 · Seagate Game Drive · 4 657 Go | **S** | 1 Mio BIOS + 512 Mio ESP + 4 657 Go ext4. **Zéro octet libre** |
-| 2 · SanDisk · 57,3 Go | `ECHANGE`, exFAT, vide | destinée à porter l'ISO |
+| 2 · SanDisk · 57,3 Go | exFAT, vide | destinée à porter l'ISO — son contenu est effacé par la gravure |
 
 Les 74,6 Go de `.qcow2` ont été supprimés le 2026-08-23 sur décision de
 l'utilisateur — c'est ce qui fait passer C: de 178 à 104 Go occupés, et divise
@@ -40,7 +40,7 @@ ramène tout comme avant.
 
 ---
 
-## Les huit gestes
+## Les neuf gestes
 
 ### 1 · L'ISO, avant tout le reste
 
@@ -86,12 +86,20 @@ abouti.
 powershell -ExecutionPolicy Bypass -File banc\windows-sur-seagate.ps1 -Phase partitionner
 ```
 
-Résultat : ESP 1 Gio · MSR 16 Mio · `WINDOWS-S` 400 Go NTFS · `DONNEES` ~4,2 To
-NTFS.
+Résultat : ESP 1 Gio · MSR 16 Mio · **`WINDOWS-S` 500 Go NTFS** · **le reste,
+~4,1 To, laissé VIERGE au type GPT « Linux filesystem data »**.
 
-*NTFS et non exFAT pour les données : exFAT n'est pas journalisé, un
-débranchement brutal y corrompt le volume entier — et le noyau de S lit et écrit
-NTFS nativement par `ntfs3`.*
+**Pourquoi la grande partition sort vierge :** décision du 2026-08-23 — tout ce
+qui n'est pas Windows revient **pleinement à S**, donc en **ext4**. Un préfixe
+Wine, une bibliothèque Steam, un conteneur podman exigent des permissions Unix
+et des liens symboliques que NTFS ne porte pas. Et **Windows ne sait pas créer
+d'ext4** : il pose donc la partition au bon type et s'arrête là.
+
+Aucune lettre de lecteur ne lui est donnée, à dessein : Windows proposerait de
+la formater à chaque branchement, et un clic distrait suffirait à la reprendre.
+
+*Ce qu'on ne perd pas au passage :* l'échange entre les deux mondes reste
+assuré — S lit et écrit la partition Windows par `~/Windows`.
 
 ### 4 · Capturer Windows
 
@@ -99,13 +107,16 @@ NTFS nativement par `ntfs3`.*
 powershell -ExecutionPolicy Bypass -File banc\windows-sur-seagate.ps1 -Phase capturer
 ```
 
-Environ **45 minutes** (104 Go à 24 Mo/s mesurés sur ce disque). Passe par un
+Environ **45 minutes** (103,5 Go à 24 Mo/s mesurés sur ce disque). Passe par un
 cliché VSS : lire un volume qui tourne donnerait des ruches de registre
 incohérentes, donc une copie qui ne démarre pas.
 
-Le `.wim` produit — `DONNEES:\S-sauvegarde\windows-c.wim` — **est la copie de
-sauvegarde**. Il reste sur la Seagate après tout, et se redéplie sur n'importe
-quelle partition par `dism /Apply-Image`.
+Le `.wim` se dépose sur **`C:\S-sauvegarde\windows-c.wim`**, et non plus sur la
+Seagate — conséquence directe du choix d'ext4 : hors la partition Windows, ce
+disque n'a plus rien que Windows sache écrire. C'est une **image
+intermédiaire** ; la vraie copie de sauvegarde sera la partition Windows
+amorçable produite à l'étape 5. Si vous voulez garder une image redépliable,
+recopiez ce fichier dans le clone une fois qu'il démarre — il y a la place.
 
 ### 5 · Déplier
 
@@ -153,6 +164,32 @@ sudo bootc install to-disk --wipe --filesystem ext4 \
   --target-imgref ghcr.io/gigigrenier86/s-os:latest \
   /dev/nvme0n1
 ```
+
+### 9 · Le grand disque, formaté depuis S
+
+La grande partition sort vierge du geste 3. Une fois S installé sur le NVMe et
+la Seagate branchée :
+
+```bash
+sudo s-grand-disque --preparer     # une seule fois : mkfs.ext4, étiquette S-DISQUE
+```
+
+Il **refuse de formater une partition qui porte déjà un système de fichiers** —
+pas de `--force`, pas de contournement. Il ne retient qu'une partition de type
+Linux, sans système de fichiers, d'au moins 100 Go, et jamais celle qui porte la
+racine.
+
+Ensuite, à chaque démarrage, `s-grand-disque.service` la monte sur
+`/var/mnt/disque` et pose `~/Disque` dans chaque compte. Le montage est
+**automatique et paresseux** : il ne se déclenche qu'au premier accès, pour ne
+pas retenir le démarrage pendant qu'un plateau USB se réveille.
+
+C'est là que vont les bibliothèques Steam, les préfixes Proton, les conteneurs
+et les médias — pas sur les 238 Go du NVMe.
+
+**Éprouvé au banc le 2026-08-23**, sur une sortie `lsblk` fabriquée : écarte la
+racine, écarte la partition Windows, écarte une partition Linux de 50 Go, retient
+les 4,1 To. **Jamais exercé sur la machine.**
 
 ---
 

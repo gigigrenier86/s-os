@@ -1,0 +1,18 @@
+[Unit]
+Description=S - le grand disque de travail
+Documentation=man:systemd-mount(1)
+# Apres que les disques soient la, avant que quiconque se connecte : le lien
+# ~/Disque doit deja exister quand un compte ouvre sa session.
+After=local-fs.target
+Before=display-manager.service
+# Meme condition que s-monter-windows : tant que l'assistant de creation de
+# compte n'a pas tourne, il n'y a aucun compte humain a servir.
+ConditionPathExists=/etc/plasma-setup-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/s-grand-disque
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
