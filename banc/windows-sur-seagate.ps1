@@ -93,12 +93,50 @@ function Trouver-Partition([int]$disque, [string]$etiquette) {
         if ($v -and $v.FileSystemLabel -eq $etiquette) { $_ }
     } | Select-Object -First 1
 }
+# POURQUOI PAS Test-Path POUR SAVOIR SI UNE LETTRE EST LIBRE. Mesure du
+# 2026-08-24, sur cette machine : D: et E: portent des volumes AMOVIBLES SANS
+# MEDIA -- taille 0, OperationalStatus "Unknown". Test-Path rend alors FALSE
+# alors que la lettre est bel et bien prise, et Add-PartitionAccessPath refuse
+# avec "The requested access path is already in use". Un lecteur de cartes
+# vide, une cle dont Windows ne lit aucune partition, un lecteur optique :
+# trois facons banales de tomber dedans.
+#
+# On interroge donc la pile de stockage elle-meme, par quatre voies qui ne
+# voient pas les memes choses. Et surtout : LA SEULE AUTORITE SUR UNE LETTRE
+# LIBRE, C'EST LA TENTATIVE. On essaie chaque candidate et on garde la premiere
+# que Windows accepte, au lieu de parier sur un inventaire.
+function Lettres-Prises {
+    $prises = @{}
+    $noter  = { param($c) if ($c) { $prises[([string]$c).ToUpper().TrimEnd(':')] = $true } }
+    Get-Volume -ErrorAction SilentlyContinue | ForEach-Object { & $noter $_.DriveLetter }
+    Get-Partition -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.DriveLetter -and $_.DriveLetter -ne "`0") { & $noter $_.DriveLetter }
+    }
+    Get-CimInstance Win32_LogicalDisk -ErrorAction SilentlyContinue | ForEach-Object { & $noter $_.DeviceID }
+    Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.Name.Length -eq 1) { & $noter $_.Name }
+    }
+    return $prises
+}
 function Lettre-De([object]$partition, [string]$etiquette) {
     if (-not $partition) { throw ("REFUS : partition d'etiquette {0} introuvable sur le disque {1}. Phase 'partitionner' faite ?" -f $etiquette, $DisqueSeagate) }
     if (-not $partition.DriveLetter -or $partition.DriveLetter -eq "`0") {
-        $l = (68..90 | Where-Object { -not (Test-Path ("{0}:" -f [char]$_)) } | Select-Object -First 1)
-        if (-not $l) { throw "REFUS : plus une seule lettre de lecteur libre." }
-        Add-PartitionAccessPath -DiskNumber $partition.DiskNumber -PartitionNumber $partition.PartitionNumber -AccessPath ("{0}:" -f [char]$l)
+        $prises     = Lettres-Prises
+        $candidates = 68..90 | Where-Object { -not $prises[[string][char]$_] }
+        if (-not $candidates) { throw "REFUS : plus une seule lettre de lecteur libre." }
+        $posee = $null
+        foreach ($c in $candidates) {
+            $lettre = "{0}:" -f [char]$c
+            try {
+                Add-PartitionAccessPath -DiskNumber $partition.DiskNumber `
+                    -PartitionNumber $partition.PartitionNumber -AccessPath $lettre -ErrorAction Stop
+                $posee = $lettre
+                break
+            } catch {
+                Dire ("  {0} refusee ({1}), on essaie la suivante" -f $lettre, $_.Exception.Message.Trim()) 'DarkGray'
+            }
+        }
+        if (-not $posee) { throw "REFUS : aucune lettre de D a Z n'a ete acceptee par Windows." }
         Start-Sleep -Seconds 1
         $partition = Get-Partition -DiskNumber $partition.DiskNumber -PartitionNumber $partition.PartitionNumber
     }

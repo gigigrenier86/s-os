@@ -68,6 +68,17 @@ trois zones après écriture et compare.
 > vérifier que l'installateur de S s'ouvre. Une ISO gravée n'est pas une ISO qui
 > démarre. **Ne pas passer à l'étape 2 avant de l'avoir vu.**
 
+**FAIT le 2026-08-24.** La clé a été amorcée par F12 et **l'installateur
+Anaconda s'est ouvert** — rapporté par l'utilisateur, qui a éteint sans rien
+choisir. Aucune photo : l'écran sera photographié à l'étape 8, où il compte
+davantage puisqu'il portera le choix des disques. C'est la dernière inconnue
+d'avant-déménagement qui tombe : l'ISO fabriquée par le CI, gravée au secteur
+près, démarre sur cette machine.
+
+Ce que cela ne dit pas encore : qu'Anaconda **installe** correctement. Il
+s'ouvre, c'est tout ce qui est prouvé. Le filet reste
+`bootc install to-disk` depuis un support live, décrit au geste 8.
+
 ### 2 · La sauvegarde, refaite juste avant
 
 ```powershell
