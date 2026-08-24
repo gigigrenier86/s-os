@@ -62,7 +62,8 @@ param(
     # tout ce qui n'est pas Windows y sera de l'ext4, que Windows ne sait ni
     # ecrire ni meme voir.
     [string] $Wim = 'C:\S-sauvegarde\windows-c.wim',
-    [switch] $SansConfirmation
+    [switch] $SansConfirmation,
+    [switch] $SansAntivirus
 )
 
 $ErrorActionPreference = 'Stop'
@@ -343,11 +344,69 @@ switch ($Phase) {
     }
     Dire ("  monte  : {0}" -f $lien) 'Green'
 
+    # POURQUOI UNE LISTE D'EXCLUSION, ET CE QU'ELLE A COUTE D'APPRENDRE.
+    # Le 2026-08-24, une capture est morte a 64 % apres 2 h 47 de travail, sur
+    # "Error: 6 -- Descripteur non valide". Le journal de DISM nomme le fichier
+    # qui l'a tuee : C:\cliche-s\Users\Ghis\OneDrive\....pdf,
+    # HRESULT=0x80070006.
+    #
+    # Les fichiers "a la demande" de OneDrive ne sont pas des fichiers : ce sont
+    # des marqueurs, dont le contenu est rendu par un pilote de filtre qui va le
+    # chercher dans le nuage a l'ouverture. A travers un cliche VSS EN LECTURE
+    # SEULE cette rehydratation ne peut pas aboutir, et le descripteur rendu est
+    # invalide. Sur cette machine, 2 122 fichiers sur 2 125 sont dans cet etat.
+    #
+    # C'est aussi ce qui rendait la capture si lente : DISM tentait de les
+    # telecharger un par un, et n'avait fait que 64 % en 2 h 47.
+    #
+    # Les exclure ne perd rien -- leur contenu vit dans le nuage, et le clone
+    # resynchronisera a la premiere connexion. On les CHERCHE plutot que de les
+    # coder en dur : un autre compte, un OneDrive d'entreprise, et une liste
+    # figee laisserait repasser trois heures.
+    #
+    # ATTENTION : fournir /ConfigFile REMPLACE les exclusions par defaut de
+    # DISM. Il faut donc les redonner en entier, pagefile et compagnie compris.
+    $exclusions = @('\$ntfs.log', '\hiberfil.sys', '\pagefile.sys',
+                    '\swapfile.sys', '\System Volume Information',
+                    '\RECYCLER', '\$Recycle.Bin', '\Windows\CSC',
+                    '\cliche-s')
+    $nuage = @()
+    Get-ChildItem 'C:\Users' -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        Get-ChildItem $_.FullName -Directory -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like 'OneDrive*' } | ForEach-Object {
+                $nuage += $_.FullName
+                $exclusions += ($_.FullName -replace '^[A-Za-z]:', '')
+            }
+    }
+    foreach ($n in $nuage) {
+        $tous    = @(Get-ChildItem $n -Recurse -File -Force -ErrorAction SilentlyContinue)
+        $enLigne = @($tous | Where-Object { $_.Attributes -band [IO.FileAttributes]::Offline })
+        Dire ("  exclu : {0} -- {1} fichiers, dont {2} en ligne seulement" -f $n, $tous.Count, $enLigne.Count) 'Yellow'
+    }
+    if (-not $nuage) { Dire "  aucun dossier OneDrive trouve" 'Gray' }
+
+    $conf = Join-Path $env:TEMP 's-capture-exclusions.ini'
+    Set-Content -Path $conf -Value (@('[ExclusionList]') + $exclusions) -Encoding ASCII
+    Dire ("  liste d'exclusion : {0} entrees" -f $exclusions.Count) 'Green'
+
+    # L'antivirus scanne chaque octet lu a travers le cliche. C'est le second
+    # facteur de lenteur, et il se retire le temps de la copie -- SUR DEMANDE
+    # SEULEMENT, et remis en place dans le "finally" quoi qu'il arrive.
+    $avPoses = @()
+    if ($SansAntivirus) {
+        foreach ($chemin in @($lien, (Split-Path $wim))) {
+            try { Add-MpPreference -ExclusionPath $chemin -ErrorAction Stop; $avPoses += $chemin } catch {}
+        }
+        Dire ("  antivirus ecarte de : {0}" -f ($avPoses -join ', ')) 'Yellow'
+    } else {
+        Dire "  antivirus ACTIF pendant la copie -- relancer avec -SansAntivirus pour l'ecarter" 'Gray'
+    }
+
     try {
         Dire ""
         Dire ("Capture vers {0} -- comptez plus d'une heure." -f $wim) 'Cyan'
         $chrono = [System.Diagnostics.Stopwatch]::StartNew()
-        & dism.exe /Capture-Image /ImageFile:"$wim" /CaptureDir:"$lien\" /Name:"Windows C" /Description:"Clone de C: de la M720q" /Compress:fast
+        & dism.exe /Capture-Image /ImageFile:"$wim" /CaptureDir:"$lien\" /ConfigFile:"$conf" /Name:"Windows C" /Description:"Clone de C: de la M720q" /Compress:fast
         if ($LASTEXITCODE -ne 0) { throw ("ECHEC : dism /Capture-Image a rendu {0}." -f $LASTEXITCODE) }
         $chrono.Stop()
         $t = Get-Item $wim
@@ -355,6 +414,9 @@ switch ($Phase) {
     } finally {
         cmd /c rmdir "$lien" | Out-Null
         $cliche | Remove-CimInstance -ErrorAction SilentlyContinue
+        foreach ($chemin in $avPoses) { Remove-MpPreference -ExclusionPath $chemin -ErrorAction SilentlyContinue }
+        if ($avPoses) { Dire 'Antivirus remis en place' 'Green' }
+        Remove-Item $conf -Force -ErrorAction SilentlyContinue
         Dire "Cliche libere" 'Green'
     }
 
