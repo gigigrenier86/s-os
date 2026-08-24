@@ -1,0 +1,144 @@
+# Fabrique l'ISO installable de S et la publie en tant qu'artefact.
+#
+# POURQUOI UN WORKFLOW SEPARE, ET DECLENCHE A LA MAIN. Une ISO coute une
+# vingtaine de minutes de runner et une dizaine de gigaoctets de stockage.
+# La construire a chaque commit serait payer ce prix pour rien : l'image, elle,
+# se met a jour par « bootc upgrade » sans qu'aucune ISO soit refaite. L'ISO ne
+# sert qu'a une chose — INSTALLER S sur une machine neuve — et ce geste-la est
+# rare.
+#
+# POURQUOI PAS SUR LA MACHINE. Elle n'a ni podman ni WSL, et bootc-image-builder
+# exige un conteneur privilegie sur un noyau Linux. Meme raison que pour l'image
+# elle-meme, et meme reponse : le CI construit, la machine ne fait que recevoir.
+#
+# CE QUE CETTE ISO EST, ET CE QU'ELLE N'EST PAS. C'est un installateur Anaconda
+# qui porte l'image de S EN ENTIER — donc il installe SANS RESEAU. Ce n'est pas
+# un systeme live : on ne s'en sert pas pour essayer S, on s'en sert pour le
+# poser. La voie deja eprouvee (« bootc install to-disk » depuis un support live
+# Bazzite) continue de marcher et reste le filet si celle-ci echoue.
+
+name: Fabriquer l'ISO de S
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag de l'image a graver dans l'ISO"
+        required: false
+        default: latest
+
+env:
+  IMAGE: ghcr.io/gigigrenier86/s-os
+
+concurrency:
+  group: iso-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  iso:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Recuperer le depot
+        uses: actions/checkout@v4
+
+      - name: Faire de la place, et la mesurer
+        # L'image decompressee pese ~16 Go et l'ISO ~10 : sans cette etape la
+        # construction meurt sur « no space left on device » APRES vingt minutes
+        # de travail. On ecrit les chiffres pour qu'un echec futur se lise.
+        run: |
+          echo "=== Avant ===" && df -h / /mnt
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /usr/local/lib/node_modules \
+                      /opt/hostedtoolcache /usr/share/swift || true
+          sudo docker image prune --all --force || true
+          echo "=== Apres ===" && df -h / /mnt
+          # /mnt est le disque ephemere du runner : c'est la qu'il y a de la
+          # place, et c'est la que tout ce qui est volumineux va vivre.
+          sudo mkdir -p /mnt/sortie /mnt/podman
+          sudo chmod 0777 /mnt/sortie
+
+      - name: Verifier que l'image existe et qu'elle est tirable sans jeton
+        # « La CI est verte » n'est pas « l'image est publiee ». Et une ISO
+        # construite sur une image absente echouerait vingt minutes plus tard,
+        # avec un message qui parle de manifeste et pas de publication.
+        run: |
+          TOK=$(curl -s "https://ghcr.io/token?scope=repository:gigigrenier86/s-os:pull&service=ghcr.io" \
+                | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+          test -n "$TOK" || { echo "ECHEC : ghcr.io ne delivre pas de jeton anonyme." >&2; exit 1; }
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+                 -H "Accept: application/vnd.oci.image.index.v1+json" \
+                 -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+                 -H "Authorization: Bearer $TOK" \
+                 "https://ghcr.io/v2/gigigrenier86/s-os/manifests/${{ inputs.tag }}")
+          echo "manifeste ${{ inputs.tag }} : HTTP $code"
+          test "$code" = "200" || { echo "ECHEC : l'image n'est pas publique ou le tag n'existe pas." >&2; exit 1; }
+
+      - name: Construire l'ISO
+        # --rootfs ext4 : c'est le systeme de fichiers avec lequel S a REELLEMENT
+        # demarre sur du materiel (la Seagate, le 2026-08-21). btrfs a marche en
+        # machine virtuelle ; on grave ce qui a demarre pour de vrai.
+        #
+        # --privileged : bootc-image-builder monte des images disque et pilote
+        # des peripheriques loop. Ce n'est pas une commodite, c'est sa condition
+        # de fonctionnement.
+        run: |
+          set -o pipefail
+          sudo podman --root /mnt/podman run --rm --privileged \
+            --security-opt label=type:unconfined_t \
+            -v /mnt/sortie:/output \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+              --type anaconda-iso \
+              --rootfs ext4 \
+              "${IMAGE}:${{ inputs.tag }}" 2>&1 | tee /tmp/bib.log
+          echo "=== Ce que bootc-image-builder a produit ==="
+          sudo find /mnt/sortie -type f -printf '%10s  %p\n' | sort -rn | head -20
+
+      - name: Nommer, mesurer, empreindre
+        id: iso
+        run: |
+          ISO=$(sudo find /mnt/sortie -name '*.iso' -type f | head -1)
+          test -n "$ISO" || { echo "ECHEC : aucune ISO produite." >&2; exit 1; }
+          sudo chmod 0644 "$ISO"
+          NOM="s-os-${{ inputs.tag }}-$(date -u +%Y%m%d).iso"
+          sudo mv "$ISO" "/mnt/sortie/$NOM"
+          cd /mnt/sortie
+          sha256sum "$NOM" | tee "$NOM.sha256"
+          TAILLE=$(stat -c%s "$NOM")
+          echo "taille : $TAILLE octets ($((TAILLE/1024/1024)) Mio)"
+          # Une ISO hybride porte une table de partitions dans son premier
+          # secteur : c'est ce qui la rend ecrivable telle quelle sur une cle.
+          # Sans ca, la graver au secteur pres ne donnerait rien d'amorcable.
+          sudo apt-get install -y -qq gdisk >/dev/null 2>&1 || true
+          echo "=== Premier secteur ==="
+          sgdisk -p "$NOM" 2>&1 | head -20 || fdisk -l "$NOM" 2>&1 | head -20 || true
+          echo "nom=$NOM"       >> "$GITHUB_OUTPUT"
+          echo "taille=$TAILLE" >> "$GITHUB_OUTPUT"
+
+      - name: Deposer l'ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: s-os-iso
+          path: |
+            /mnt/sortie/*.iso
+            /mnt/sortie/*.sha256
+          # Une ISO ne se comprime pas : demander a l'artefact de la zipper
+          # couterait plusieurs minutes pour quelques pourcents.
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Dire comment la graver
+        run: |
+          echo "ISO   : ${{ steps.iso.outputs.nom }}"
+          echo "Poids : $(( ${{ steps.iso.outputs.taille }} / 1024 / 1024 )) Mio"
+          echo ""
+          echo "Recuperation depuis la machine :"
+          echo "  gh run download <id> -n s-os-iso -D C:\\Users\\Ghis\\Downloads\\s-iso"
+          echo ""
+          echo "Gravure sur la cle SanDisk, depuis un terminal ADMINISTRATEUR :"
+          echo "  powershell -ExecutionPolicy Bypass -File banc\\graver-iso-sur-cle.ps1 -Iso <chemin.iso>"

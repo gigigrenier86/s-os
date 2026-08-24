@@ -93,6 +93,16 @@ COPY galerie/constellation/constellation.html /usr/share/s/constellation/constel
 # KDE vivent dans files/usr/share/wallpapers/FoudreGelee/.
 COPY galerie/foudre-gelee/foudre-gelee.png /usr/share/wallpapers/FoudreGelee/contents/images/3840x2160.png
 
+# L'ecran de connexion porte le logo de S — et il ne peut le porter que par la.
+# Plasma Login Manager n'a AUCUN systeme de themes (son QML est compile dans le
+# binaire) : le fond d'ecran est le seul pixel de cet ecran que S decide. Le
+# logo est donc grave DANS l'image, par galerie/foudre-gelee/graver-le-s.ps1.
+#
+# Il ne va PAS dans le paquet de fonds d'ecran de KDE : ce dossier est indexe
+# par la taille du fichier, et y poser une seconde image 3840x2160 ferait
+# apparaitre deux « Foudre gelee » dans le selecteur de fond du bureau.
+COPY galerie/foudre-gelee/foudre-gelee-connexion.png /usr/share/s/connexion/foudre-gelee-s.png
+
 # S-Constellation : la session propre de S.
 #
 # Elle vient APRES les COPY, parce qu'elle verifie ce qu'ils ont depose — la

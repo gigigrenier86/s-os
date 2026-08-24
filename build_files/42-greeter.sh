@@ -24,12 +24,30 @@ set -euo pipefail
 
 echo "=== 42-greeter : l'ecran de connexion aux couleurs de S ==="
 
-FOND=/usr/share/wallpapers/FoudreGelee/contents/images/3840x2160.png
+# LE LOGO DE S EST DANS CE FICHIER, ET C'EST LE SEUL ENDROIT OU IL PEUT ETRE.
+# Ce greeter n'ayant pas de themes, on ne peut pas lui AJOUTER un logo : on le
+# grave dans le seul pixel qu'il accepte de nous, son fond d'ecran. L'image est
+# produite par galerie/foudre-gelee/graver-le-s.ps1 et entre par COPY.
+#
+# Le fond du BUREAU, lui, reste la Foudre gelee nue — un logo permanent au
+# milieu d'un bureau qu'on regarde toute la journee serait une signature, pas
+# une identite.
+FOND=/usr/share/s/connexion/foudre-gelee-s.png
 SESSION=s.desktop
 
 # Le fond d'ecran entre par COPY, donc AVANT ce script. S'il manque, l'image
 # afficherait un ecran de connexion vide : on prefere ne pas la livrer.
 test -s "$FOND" || { echo "ECHEC : $FOND absent — le COPY a-t-il change ?" >&2; exit 1; }
+# Et il doit VRAIMENT porter le logo. Un fichier present mais identique au fond
+# nu voudrait dire que le graveur n'a pas tourne — le logo aurait disparu de
+# l'ecran de connexion sans qu'une seule etape echoue. Les deux images ne
+# different que par la plaque, donc leurs tailles different : c'est le controle
+# le moins cher qui distingue les deux.
+NU=/usr/share/wallpapers/FoudreGelee/contents/images/3840x2160.png
+if [ -s "$NU" ] && cmp -s "$FOND" "$NU"; then
+    echo "ECHEC : le fond de connexion est identique au fond nu — logo non grave." >&2
+    exit 1
+fi
 test -s "/usr/share/wayland-sessions/$SESSION" \
     || { echo "ECHEC : la session $SESSION n'existe pas." >&2; exit 1; }
 
@@ -77,7 +95,7 @@ install -d /usr/lib/plasmalogin
 ecrire_reglage > /usr/lib/plasmalogin/defaults.conf
 ecrire_reglage > /etc/plasmalogin.conf
 
-echo "  greeter       : fond = Foudre gelee, session preselectionnee = ${SESSION}"
+echo "  greeter       : fond = Foudre gelee AU LOGO DE S, session preselectionnee = ${SESSION}"
 
 # ---------------------------------------------------------------------------
 # 2. « A propos de ce systeme » disait Bazzite malgre os-release

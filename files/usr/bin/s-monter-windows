@@ -11,13 +11,23 @@
 # ce qui n'existe qu'au moment du demarrage se decouvre au moment du
 # demarrage, jamais avant.
 #
-# LA CIBLE EST CHOISIE PAR TAILLE, PAS PAR NOM. La plus grosse partition NTFS
-# interne (non amovible) d'une machine en double amorçage est presque
-# toujours l'installation Windows elle-meme ; les partitions NTFS plus
-# petites sont des partitions de recuperation (WinRE), jamais la bonne cible.
-# Si aucune partition NTFS interne n'existe — S installe seul, sans Windows —
-# ce script se tait et ne pose rien : rien d'inconditionnel quand la machine
-# peut repondre.
+# LA CIBLE EST CHOISIE PAR TAILLE, PAS PAR NOM, ET PLUS PAR « INTERNE ».
+# Ce script filtrait sur RM=0, c'est-a-dire « disque non amovible » : il ne
+# regardait que le disque interne. C'etait juste tant que Windows vivait sur le
+# NVMe de la M720q. Le 2026-08-23 il a ete decide de l'inverse — S natif sur le
+# NVMe, Windows clone sur la Seagate, un disque USB — et ce filtre aurait alors
+# fait exactement ce que ce depot s'interdit : ne rien trouver, ne rien dire, et
+# laisser ~/Windows vide sans qu'une seule commande echoue.
+#
+# Ce qui remplace le filtre : un PLANCHER DE TAILLE. Une installation Windows
+# ne tient pas sous 40 Gio ; une partition de recuperation (WinRE) n'en depasse
+# jamais quelques-uns. Le plancher ecarte donc ce que RM=0 ecartait — les
+# petites partitions de service — sans ecarter le disque qui compte. Il ecarte
+# aussi, au passage, la cle USB de quelqu'un qui passe : personne ne promene
+# 40 Gio de NTFS sur un porte-cles.
+#
+# Si aucune partition NTFS n'existe — S installe seul, sans Windows — ce script
+# se tait et ne pose rien : rien d'inconditionnel quand la machine peut repondre.
 #
 # NON VERIFIE AU MOMENT D'ECRIRE CECI : ce script n'a jamais tourne via ce
 # service, sur aucune machine. Il a ete valide en deux morceaux, a la main,
@@ -33,21 +43,48 @@ set -uo pipefail
 dire() { printf 's-monter-windows : %s\n' "$*" >&2; }
 
 CIBLE=/var/mnt/windows
+PLANCHER=$((40 * 1024 * 1024 * 1024))   # 40 Gio — voir l'en-tete
 
-# --- Trouver la partition Windows : la plus grosse NTFS interne -----------
+# --- Trouver la partition Windows : la plus grosse NTFS au-dessus du plancher
+#
+# SORTIE EN CLE="VALEUR", ET C'EST UNE CORRECTION. La forme « -r » de lsblk
+# separe ses colonnes par un espace et n'ecrit RIEN pour un champ vide : deux
+# espaces de suite, que awk recolle en un seul. Un disque sans systeme de
+# fichiers reconnu decale alors toutes les colonnes suivantes, et la taille se
+# compare a un chemin. La forme « -P » nomme chaque champ : elle ne peut pas se
+# decaler, quoi qu'il manque.
+#
+# Et on la lit en awk, pas par « eval », qui serait plus court : un des champs
+# s'appelle PATH, et l'evaluer ecraserait le PATH du shell — apres quoi plus
+# une seule commande de ce script ne se trouverait.
+TOUTES="$(
+    lsblk -Pbo TYPE,FSTYPE,SIZE,PATH 2>/dev/null | awk '
+        /TYPE="part"/ && /FSTYPE="ntfs"/ {
+            t = ""; c = ""
+            if (match($0, /SIZE="[0-9]+"/))  t = substr($0, RSTART + 6, RLENGTH - 7)
+            if (match($0, /PATH="[^"]+"/))   c = substr($0, RSTART + 6, RLENGTH - 7)
+            if (t != "" && c != "") print t, c
+        }'
+)"
+
 mapfile -t CANDIDATS < <(
-    lsblk -rbno NAME,TYPE,FSTYPE,RM,SIZE,PATH 2>/dev/null \
-        | awk '$2=="part" && $3=="ntfs" && $4=="0" {print $5, $6}' \
-        | sort -rn -k1,1
+    printf '%s\n' "$TOUTES" | awk -v min="$PLANCHER" 'NF==2 && $1+0 >= min' | sort -rn -k1,1
 )
 
 if [[ ${#CANDIDATS[@]} -eq 0 ]]; then
-    dire "aucune partition NTFS interne trouvee — rien a monter"
+    # On dit ce qu'on a ecarte, sinon « rien a monter » ne distingue pas
+    # « pas de Windows » de « une NTFS trop petite pour mon plancher ».
+    ecartees="$(printf '%s\n' "$TOUTES" | awk 'NF==2 {printf "%s (%d Go) ", $2, $1/1024/1024/1024}')"
+    if [[ -n "$ecartees" ]]; then
+        dire "aucune NTFS d'au moins 40 Go — ecartees : $ecartees"
+    else
+        dire "aucune partition NTFS trouvee — rien a monter"
+    fi
     exit 0
 fi
 
 read -r TAILLE PERIPH <<<"${CANDIDATS[0]}"
-dire "cible choisie : $PERIPH ($((TAILLE / 1024 / 1024 / 1024)) Go, la plus grosse NTFS interne)"
+dire "cible choisie : $PERIPH ($((TAILLE / 1024 / 1024 / 1024)) Go, la plus grosse NTFS d'au moins 40 Go)"
 
 # --- Deja monte ? Ne pas dupliquer a chaque demarrage ----------------------
 if findmnt -no SOURCE "$CIBLE" >/dev/null 2>&1; then
