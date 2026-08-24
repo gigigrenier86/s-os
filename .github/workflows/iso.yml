@@ -119,12 +119,29 @@ jobs:
         #   before running bootc-image-builder
         #
         # C'est un changement d'amont, et il coute une minute de journal pour
-        # etre compris. Le tirage se fait dans /mnt/podman, sur le disque
-        # ephemere du runner : l'image decompressee pese ~16 Go et la racine
-        # du runner ne les a pas.
+        # etre compris.
+        #
+        # ET LE MAGASIN NE PEUT PAS CHANGER DE CHEMIN EN ROUTE. Premiere
+        # tentative : tirer dans /mnt/podman (le disque ephemere, seul assez
+        # grand pour 16 Go decompresses) et le monter sur
+        # /var/lib/containers/storage dans le conteneur. Refus net :
+        #
+        #   database static dir "/mnt/podman/libpod" does not match our static
+        #   dir "/var/lib/containers/storage/libpod": database configuration
+        #   mismatch
+        #
+        # La base du magasin retient SON PROPRE CHEMIN. On ne peut donc pas le
+        # deplacer par un point de montage de conteneur. La parade est de faire
+        # coincider les chemins des DEUX cotes : un montage lie sur l'hote met
+        # /mnt/podman a l'adresse /var/lib/containers/storage, et plus rien ne
+        # ment — le magasin est ecrit sur le disque ephemere, et se croit chez
+        # lui.
         run: |
-          sudo podman --root /mnt/podman pull "${IMAGE}:${{ inputs.tag }}"
-          sudo podman --root /mnt/podman images
+          sudo mkdir -p /mnt/podman
+          sudo mount --bind /mnt/podman /var/lib/containers/storage
+          findmnt /var/lib/containers/storage
+          sudo podman pull "${IMAGE}:${{ inputs.tag }}"
+          sudo podman images
           df -h / /mnt
 
       - name: Construire l'ISO
@@ -136,15 +153,16 @@ jobs:
         # des peripheriques loop. Ce n'est pas une commodite, c'est sa condition
         # de fonctionnement.
         #
-        # Le magasin monte dans le conteneur est /mnt/podman, le meme que celui
-        # ou l'etape precedente a tire l'image — sinon bib cherche dans un
-        # magasin vide et redit « image not known ».
+        # Le magasin est /var/lib/containers/storage des deux cotes — c'est
+        # /mnt/podman derriere, par le montage lie de l'etape precedente. Le
+        # chemin doit etre le meme dedans et dehors, sinon la base du magasin
+        # refuse (voir l'etape precedente).
         run: |
           set -o pipefail
-          sudo podman --root /mnt/podman run --rm --privileged \
+          sudo podman run --rm --privileged \
             --security-opt label=type:unconfined_t \
             -v /mnt/sortie:/output \
-            -v /mnt/podman:/var/lib/containers/storage \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
             quay.io/centos-bootc/bootc-image-builder:latest \
               --type anaconda-iso \
               --rootfs ext4 \
