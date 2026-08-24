@@ -118,6 +118,19 @@ function Lettres-Prises {
     }
     return $prises
 }
+# POURQUOI L'ESP NE SE CHERCHE PAS PAR SON ETIQUETTE. Mesure du 2026-08-24 sur
+# la Seagate fraichement partitionnee : Windows NE REND AUCUN VOLUME pour une
+# partition EFI System -- Get-Volume ne la liste pas, meme quand elle porte une
+# lettre et un FAT32 valide. La chercher par FileSystemLabel rend donc TOUJOURS
+# $null, et le refus ne tomberait que deux phases plus loin.
+#
+# On la reconnait a son TYPE GPT, propriete de la TABLE DE PARTITION et non du
+# systeme de fichiers : celui-la, Windows le rend toujours.
+function Trouver-ESP([int]$disque) {
+    Get-Partition -DiskNumber $disque -ErrorAction SilentlyContinue |
+        Where-Object { $_.GptType -eq '{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}' } |
+        Select-Object -First 1
+}
 function Lettre-De([object]$partition, [string]$etiquette) {
     if (-not $partition) { throw ("REFUS : partition d'etiquette {0} introuvable sur le disque {1}. Phase 'partitionner' faite ?" -f $etiquette, $DisqueSeagate) }
     if (-not $partition.DriveLetter -or $partition.DriveLetter -eq "`0") {
@@ -308,7 +321,12 @@ switch ($Phase) {
     # l'instant. C'est le seul moyen, sur un Windows en marche, d'obtenir une
     # copie qui demarre.
     Dire "Cliche instantane de C:..." 'Cyan'
-    $r = (Get-CimInstance -ClassName Win32_ShadowCopy -List | Invoke-CimMethod -MethodName Create -Arguments @{ Volume = 'C:\'; Context = 'ClientAccessible' })
+    # Get-CimInstance N'A PAS de parametre -List : c'est l'idiome de l'ancien
+    # Get-WmiObject, et melanger les deux familles coute une phase entiere.
+    # Pour appeler une methode STATIQUE avec les cmdlets CIM, on vise la CLASSE
+    # directement par Invoke-CimMethod -ClassName.
+    $r = Invoke-CimMethod -ClassName Win32_ShadowCopy -MethodName Create `
+             -Arguments @{ Volume = 'C:\'; Context = 'ClientAccessible' }
     if ($r.ReturnValue -ne 0) { throw ("REFUS : creation du cliche refusee, code {0}." -f $r.ReturnValue) }
     $cliche = Get-CimInstance Win32_ShadowCopy | Where-Object { $_.ID -eq $r.ShadowID }
     if (-not $cliche) { throw "REFUS : cliche cree mais introuvable." }
@@ -387,7 +405,7 @@ switch ($Phase) {
     $null = Exiger-Seagate
     Titre "Rendre le clone amorcable depuis un port USB"
 
-    $esp = Trouver-Partition $DisqueSeagate 'ESP-S'
+    $esp = Trouver-ESP $DisqueSeagate
     $win = Trouver-Partition $DisqueSeagate 'WINDOWS-S'
     $lettreEsp = Lettre-De $esp 'ESP-S'
     $lettreWin = Lettre-De $win 'WINDOWS-S'
@@ -480,10 +498,11 @@ switch ($Phase) {
     Titre "Ce que porte la Seagate"
     $null = Exiger-Seagate
     foreach ($e in @('ESP-S','WINDOWS-S')) {
-        $p = Trouver-Partition $DisqueSeagate $e
+        $p = if ($e -eq 'ESP-S') { Trouver-ESP $DisqueSeagate } else { Trouver-Partition $DisqueSeagate $e }
         if (-not $p) { Dire ("{0,-10} : ABSENTE" -f $e) 'Red'; continue }
-        $v = $p | Get-Volume
-        Dire ("{0,-10} : {1:N1} Go, {2}, lettre {3}" -f $e, ($p.Size/1GB), $v.FileSystem, $p.DriveLetter) 'Green'
+        $v = $p | Get-Volume -ErrorAction SilentlyContinue
+        $fs = if ($v -and $v.FileSystem) { $v.FileSystem } else { 'FAT32 -- volume masque par Windows' }
+        Dire ("{0,-10} : {1:N1} Go, {2}, lettre {3}" -f $e, ($p.Size/1GB), $fs, $p.DriveLetter) 'Green'
     }
     # La grande partition n'a pas de volume que Windows sache lire : on la
     # reconnait a son TYPE GPT, pas a une etiquette. Vue d'ici elle doit avoir
@@ -498,7 +517,7 @@ switch ($Phase) {
     } else {
         Dire ("{0,-10} : ABSENTE" -f 'POUR-S') 'Red'
     }
-    $esp = Trouver-Partition $DisqueSeagate 'ESP-S'
+    $esp = Trouver-ESP $DisqueSeagate
     $win = Trouver-Partition $DisqueSeagate 'WINDOWS-S'
     if ($esp) {
         $l = Lettre-De $esp 'ESP-S'
