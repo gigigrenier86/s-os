@@ -11,6 +11,11 @@ on:
     paths-ignore:
       - '**.md'
       - 'LISEZ-MOI*'
+      # L'atelier ISO ne change rien a l'image : le reconstruire pour une
+      # virgule corrigee dans iso.yml coute neuf minutes pour rien.
+      - '.github/workflows/iso.yml'
+      # Le banc tourne sur la machine, jamais dans l'image.
+      - 'banc/**'
   pull_request:
   schedule:
     # Bazzite publie tous les jours. Sans reconstruction reguliere, l'image de S

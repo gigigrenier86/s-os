@@ -138,7 +138,7 @@ foreach ($d in Get-Disk) {
 }
 $etatDisques += "## Volumes"
 $etatDisques += (Get-Volume | Select-Object DriveLetter,FileSystemLabel,FileSystem,Size,SizeRemaining,UniqueId | Format-Table -AutoSize | Out-String -Width 250)
-$etatDisques -join "`n" | Set-Content "$Vers\ETAT-DISQUES.txt" -Encoding utf8
+[System.IO.File]::WriteAllText("$Vers\ETAT-DISQUES.txt", (($etatDisques -join "`n") -replace "`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
 Dire "   ETAT-DISQUES.txt ecrit" 'Green'
 
 # --- 7. Le manifeste --------------------------------------------------------
@@ -153,7 +153,13 @@ Get-ChildItem $Vers -Recurse -File -Force | Sort-Object FullName | ForEach-Objec
     $lignes.Add("$h  $rel")
     $total += $_.Length
 }
-$lignes | Set-Content "$Vers\MANIFESTE.sha256" -Encoding ascii
+# EN LF, ET CE N'EST PAS UN DETAIL DE STYLE. Set-Content ecrit en CRLF sous
+# Windows. Le manifeste est fait pour etre relu DEPUIS S, par sha256sum -c :
+# il y voit alors un retour chariot colle a chaque nom de fichier et rend
+# "No such file or directory" sur les 613 lignes. Le controle destine a
+# prouver que la copie est entiere echouait donc entierement -- et le defaut
+# n'est apparu qu'en LANCANT vraiment sha256sum, pas en relisant le script.
+[System.IO.File]::WriteAllText("$Vers\MANIFESTE.sha256", (($lignes -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
 Dire ("   {0} fichiers, {1:N2} Go" -f $lignes.Count, ($total/1GB)) 'Green'
 
 # --- 8. Le mode d'emploi ----------------------------------------------------
@@ -206,7 +212,8 @@ ne sera plus a ``c:\Users\Ghis\Desktop\S``, donc le dossier attendu ne portera
 plus ce nom. Il faudra renommer ``c--Users-Ghis-Desktop-S`` d'apres le nouveau
 chemin -- sinon la memoire est la, et personne ne la lit.
 "@
-$lisez | Set-Content "$Vers\LISEZ-MOI.md" -Encoding utf8
+# LF ici aussi : ce fichier se lit depuis S. Meme raison que le manifeste.
+[System.IO.File]::WriteAllText("$Vers\LISEZ-MOI.md", ($lisez -replace "`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
 
 Dire ""
 Dire ("TERMINE : {0}" -f $Vers) 'Green'

@@ -65,17 +65,43 @@ jobs:
         # « La CI est verte » n'est pas « l'image est publiee ». Et une ISO
         # construite sur une image absente echouerait vingt minutes plus tard,
         # avec un message qui parle de manifeste et pas de publication.
+        #
+        # DEUX PIEGES DE ghcr.io, TOUS DEUX MESURES LE 2026-08-23 :
+        #
+        #   1. Un « 401 » anonyme ne prouve RIEN : le registre exige un jeton
+        #      porteur pour tout, public ou prive. Le vrai test est de savoir
+        #      s'il en DELIVRE un a un anonyme, et si ce jeton ouvre le
+        #      manifeste. C'est deja consigne au carnet.
+        #
+        #   2. ghcr.io rend « 404 », pas « 406 », quand l'en-tete Accept ne
+        #      couvre pas le type du manifeste — avec le message
+        #      « OCI manifest found, but Accept header does not support OCI
+        #      manifests ». La premiere version de ce controle n'annoncait que
+        #      les types INDEX, et l'image de S est un manifeste OCI SIMPLE :
+        #      il a donc declare l'image absente alors qu'elle etait bien
+        #      publiee, et fait echouer la fabrication avant tout
+        #      telechargement. Le garde-fou avait tort, pas l'image.
+        #
+        # Et les types vont dans UN SEUL en-tete, separes par des virgules :
+        # plusieurs « -H Accept: » ne s'additionnent pas cote serveur.
         run: |
           TOK=$(curl -s "https://ghcr.io/token?scope=repository:gigigrenier86/s-os:pull&service=ghcr.io" \
                 | grep -o '"token":"[^"]*' | cut -d'"' -f4)
           test -n "$TOK" || { echo "ECHEC : ghcr.io ne delivre pas de jeton anonyme." >&2; exit 1; }
-          code=$(curl -s -o /dev/null -w "%{http_code}" \
-                 -H "Accept: application/vnd.oci.image.index.v1+json" \
-                 -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+          ACCEPT='application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json'
+          code=$(curl -s -o /tmp/manifeste.json -w "%{http_code}" \
+                 -H "Accept: $ACCEPT" \
                  -H "Authorization: Bearer $TOK" \
                  "https://ghcr.io/v2/gigigrenier86/s-os/manifests/${{ inputs.tag }}")
           echo "manifeste ${{ inputs.tag }} : HTTP $code"
-          test "$code" = "200" || { echo "ECHEC : l'image n'est pas publique ou le tag n'existe pas." >&2; exit 1; }
+          if [ "$code" != "200" ]; then
+            echo "--- ce que le registre a repondu ---" >&2
+            head -c 500 /tmp/manifeste.json >&2
+            echo "" >&2
+            echo "ECHEC : l'image n'est pas publique ou le tag n'existe pas." >&2
+            exit 1
+          fi
+          echo "couches : $(grep -o '"digest"' /tmp/manifeste.json | wc -l)"
 
       - name: Construire l'ISO
         # --rootfs ext4 : c'est le systeme de fichiers avec lequel S a REELLEMENT
