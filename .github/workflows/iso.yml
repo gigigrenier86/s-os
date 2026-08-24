@@ -60,9 +60,13 @@ jobs:
           # place, et c'est la que tout ce qui est volumineux va vivre.
           sudo mkdir -p /mnt/sortie /mnt/podman
           sudo chmod 0777 /mnt/sortie
-          # meta.phases : la place restante decide de tout ce qui suit.
-          # 16 Go d'image decompressee + ~10 Go d'ISO, donc /mnt et pas /.
-          test "$(df --output=avail -k /mnt | tail -1)" -gt 35000000             || { echo "ECHEC : moins de 35 Go libres sur /mnt." >&2; exit 1; }
+          # La place restante decide de tout ce qui suit : ~16 Go d'image
+          # decompressee plus ~10 Go d'ISO. Echouer ici coute une seconde ;
+          # echouer au milieu de la construction coute vingt minutes.
+          libre=$(df --output=avail -k /mnt | tail -1)
+          echo "libre sur /mnt : $((libre / 1024 / 1024)) Go"
+          test "$libre" -gt 35000000 \
+            || { echo "ECHEC : moins de 35 Go libres sur /mnt." >&2; exit 1; }
 
       - name: Verifier que l'image existe et qu'elle est tirable sans jeton
         # « La CI est verte » n'est pas « l'image est publiee ». Et une ISO
