@@ -19,12 +19,17 @@
 # fait exactement ce que ce depot s'interdit : ne rien trouver, ne rien dire, et
 # laisser ~/Windows vide sans qu'une seule commande echoue.
 #
-# Ce qui remplace le filtre : un PLANCHER DE TAILLE. Une installation Windows
-# ne tient pas sous 40 Gio ; une partition de recuperation (WinRE) n'en depasse
-# jamais quelques-uns. Le plancher ecarte donc ce que RM=0 ecartait — les
-# petites partitions de service — sans ecarter le disque qui compte. Il ecarte
-# aussi, au passage, la cle USB de quelqu'un qui passe : personne ne promene
-# 40 Gio de NTFS sur un porte-cles.
+# Ce qui remplace le filtre : un PLANCHER DE TAILLE de 40 Gio, puis — et c'est
+# lui qui tranche vraiment — UNE SONDE. Le plancher n'est qu'un pre-tri : il
+# ecarte d'un coup les partitions de recuperation et les cles de passage, sans
+# rien monter. La sonde, elle, monte chaque candidate en lecture seule et
+# cherche dedans la ruche de registre que toute installation Windows porte.
+#
+# POURQUOI LA SONDE EST DEVENUE NECESSAIRE. « La plus grosse NTFS » suffisait
+# tant qu'il n'y en avait qu'une. La Seagate portera desormais le Windows clone
+# ET une partition de donnees de plusieurs teraoctets : le raccourci aurait
+# choisi les donnees, et ~/Windows se serait ouvert sur un dossier vide sans
+# qu'une seule commande echoue.
 #
 # Si aucune partition NTFS n'existe — S installe seul, sans Windows — ce script
 # se tait et ne pose rien : rien d'inconditionnel quand la machine peut repondre.
@@ -83,8 +88,42 @@ if [[ ${#CANDIDATS[@]} -eq 0 ]]; then
     exit 0
 fi
 
-read -r TAILLE PERIPH <<<"${CANDIDATS[0]}"
-dire "cible choisie : $PERIPH ($((TAILLE / 1024 / 1024 / 1024)) Go, la plus grosse NTFS d'au moins 40 Go)"
+# --- Laquelle porte VRAIMENT Windows ? On regarde, on ne devine pas ---------
+#
+# « La plus grosse NTFS » etait un raccourci qui tenait tant qu'il n'y en avait
+# qu'une. Des que la Seagate porte a la fois le Windows clone ET une partition
+# de donnees, le raccourci choisit les donnees — et ~/Windows s'ouvre sur un
+# dossier vide, sans qu'une seule commande echoue. Encore le succes silencieux.
+#
+# Le seul test qui ne se trompe pas est de REGARDER : monter en lecture seule,
+# chercher la ruche de registre que toute installation Windows porte, demonter.
+# Ca coute un montage par candidate, une seule fois par demarrage.
+SONDE="$(mktemp -d)"
+PERIPH=""
+TAILLE=0
+for ligne in "${CANDIDATS[@]}"; do
+    read -r t p <<<"$ligne"
+    if mount -t ntfs3 -o ro "$p" "$SONDE" 2>/dev/null || mount -o ro "$p" "$SONDE" 2>/dev/null; then
+        if [[ -f "$SONDE/Windows/System32/config/SYSTEM" ]]; then
+            umount "$SONDE" 2>/dev/null
+            PERIPH="$p"; TAILLE="$t"
+            dire "cible choisie : $p ($((t / 1024 / 1024 / 1024)) Go) — Windows/System32/config/SYSTEM y est"
+            break
+        fi
+        umount "$SONDE" 2>/dev/null
+        dire "ecartee : $p ($((t / 1024 / 1024 / 1024)) Go) — NTFS, mais pas de Windows dedans"
+    else
+        dire "ecartee : $p — montage de sonde refuse (hibernee ? sale ?)"
+    fi
+done
+rmdir "$SONDE" 2>/dev/null
+
+if [[ -z "$PERIPH" ]]; then
+    # Aucune ne porte Windows : on ne monte rien plutot que de monter au hasard.
+    # ~/Windows vide est moins trompeur que ~/Windows plein d'autre chose.
+    dire "aucune NTFS ne contient d'installation Windows — rien a monter"
+    exit 0
+fi
 
 # --- Deja monte ? Ne pas dupliquer a chaque demarrage ----------------------
 if findmnt -no SOURCE "$CIBLE" >/dev/null 2>&1; then
