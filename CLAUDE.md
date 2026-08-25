@@ -46,7 +46,102 @@ lancement).
 
 ---
 
-## Où on en est — 2026-08-22
+## Où on en est — 2026-08-24
+
+**S tourne sur le NVMe, Windows est passé sur la Seagate, et les deux coutures
+que ce carnet réclamait depuis le 20 août existent.** Trois chantiers menés le
+2026-08-24, tous partis d'une mesure sur la machine plutôt que d'une intention.
+
+### Ce qui a été mesuré, et qui contredisait ce carnet
+
+| Ce qu'on croyait | Ce que la machine a dit |
+|---|---|
+| Le fond de S est posé partout | `35-identite.sh` n'écrivait `Image=` que dans les paquets look-and-feel en portant déjà une — `com.valve.vapor` n'en a pas, et c'est lui que `/etc/xdg/kdeglobals` impose. Le fond était dans **neuf paquets inertes et absent du seul qui sert** |
+| L'écran de verrouillage suit le look-and-feel | Non : `/etc/xdg/kscreenlockerrc`, livré par la base, pointe en dur sur `convergence.jxl`. Rien dans S ne le recouvrait |
+| L'écran d'amorçage attend une décision | `43-amorcage.sh` était écrit depuis le 23 mais **jamais branché** dans le Containerfile |
+| La session graphique existe | `graphical-session.target` était **inactive**, et le gestionnaire systemd de l'utilisateur ne connaissait **aucune** variable de session |
+
+**La dernière ligne est la plus coûteuse, et elle explique des pannes qu'on
+attribuait ailleurs.** Tout ce qui porte `PartOf=graphical-session.target` ne
+démarrait jamais : `xdg-desktop-portal`, `gvfs-*`, `at-spi`, et
+`plasma-dolphin` — le gestionnaire de fichiers — qui était en échec. Et comme
+le portail est **le seul chemin** par lequel un programme Windows peut demander
+« ouvre cette page » depuis le bac à sable de Proton, un clic sur « Login »
+dans Cursor ne produisait rien du tout. Pas une erreur : rien.
+`s-session.target` tire désormais la cible, même patron que
+`plasma-workspace.target`.
+
+### Constellation n'est plus une page web
+
+Elle était servie en HTTP sur `127.0.0.1:7373` et affichée par Vivaldi en
+`--app`. C'est un client Wayland natif QtQuick : plus de navigateur, plus de
+port ouvert, plus de moteur de rendu web dans la session. Le moteur
+d'inventaire n'a pas été réécrit mais **extrait** dans `files/usr/lib/s/noyau.py`
+— 17 fonctions sur 18 identiques au mot près, seule `composer_etoiles` refaite.
+
+Le clic droit **n'existait pas** : il tombait sur le menu du navigateur.
+L'épinglage non plus — la barre affichait `ordre[:7]`, les sept plus lancées,
+sans aucune prise. Les deux existent maintenant.
+
+**Trois défauts trouvés en rendant la scène, pas en la relisant** — et aucun
+n'aurait été visible autrement :
+
+- `MultiEffect` ne dessine **rien** sans shaders : l'étoile sortait vide, sans
+  message ;
+- un `Shape` **ne respecte pas le découpage de ses ancêtres**, vérifié au rendu
+  logiciel *et* sur le vrai pipeline GPU — les anneaux des tuiles hors panneau
+  se peignaient par-dessus le bureau ;
+- `Popup { Item { anchors.fill: parent } }` ne parente pas où l'on croit.
+
+`build_files/verifier-constellation.py` charge désormais la scène **pendant la
+construction**, avec un pont leurre, et fait échouer l'image au moindre
+avertissement QML. Éprouvé contre deux fautes délibérées.
+
+### Les coutures
+
+**Le dossier partagé existe** : un seul dossier, trois noms — `~/Partage` sous
+Linux, `P:\` sous Windows, `/sdcard/Partage` sous Android. Lien symbolique dans
+`dosdevices` d'un côté, montage lié de l'autre : un lien symbolique ne survit
+pas à la couche de stockage d'Android. Cinq comportements éprouvés au banc,
+dont un fichier écrit sous Linux relu en `P:\essai.txt`.
+
+**Et le retour des connexions Windows.** Un logiciel Windows moderne se connecte
+en renvoyant vers `monappli://callback?token=…`. Il inscrit ce protocole dans le
+registre **du préfixe**, que Linux ne lit pas. `s-lien-windows` et `registre.py`
+l'y lisent et le déclarent côté Linux. Sur le préfixe réel : 1 protocole trouvé,
+200+ types de fichiers écartés.
+
+### Une correction à ce que j'ai écrit dans le commit
+
+Le message de `7d4d324` dit que Waydroid n'avait jamais tourné faute d'une
+ligne. **C'est trop fort, et ce carnet dit le contraire plus bas :** Android a
+tourné le 2026-08-23. Le fait exact est plus étroit :
+`waydroid-container.service` n'était pas **activé**, donc `dev-binderfs.mount`
+— qui est `static` et ne se lève que tirée — n'était jamais montée au
+démarrage. `s-android` compensait en démarrant le conteneur à la main via
+`pkexec`. L'activer supprime l'invite de mot de passe et rend Android
+disponible dès l'ouverture de session ; ça ne débloque pas cinq jours.
+
+### Ce qui n'est toujours pas éprouvé
+
+- **`43-amorcage.sh` n'a jamais tourné.** Il régénère l'initramfs, seul
+  changement du dépôt qui puisse empêcher la machine de démarrer. Il est branché
+  dans cette version. `bootc rollback` n'a toujours jamais été exercé.
+- **La coquille native n'a jamais démarré une vraie session.** Elle a été rendue
+  en image, hors écran, sur les deux pipelines — jamais ouverte par le greeter.
+- **Le presse-papiers commun n'existe pas.** Linux↔Windows fonctionne déjà, Wine
+  s'en charge. Linux↔Android demande un pont, et il n'a pas été écrit : il ne
+  peut pas être mesuré tant que Waydroid n'a pas redémarré sur cette
+  installation.
+- **`s-partage` côté Android n'a jamais été exercé** — le montage lié attend que
+  `waydroid init` ait déplié ses données.
+
+`banc/etat-des-mondes.sh` relève tout cela d'une commande, sur la machine, sans
+rien supposer.
+
+---
+
+## Où on en est — 2026-08-22 *(dépassé, voir plus haut)*
 
 **S a démarré sur du vrai matériel, et personne n'a encore diagnostiqué ce qu'on
 y a vu.** Le premier amorçage a eu lieu le **2026-08-21 au soir** : bureau Plasma

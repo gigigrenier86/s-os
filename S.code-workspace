@@ -1,0 +1,65 @@
+{
+	// L'espace de travail de S. Double-clic sur ce fichier plutot que
+	// « Ouvrir un dossier » : tout arrive deja regle — l'arbre, les couleurs,
+	// les taches, et les extensions qui manquent te sont proposees.
+	"folders": [
+		{
+			"name": "S — le systeme",
+			"path": "."
+		}
+	],
+	"settings": {
+		// --- Ce qu'on voit en ouvrant -----------------------------------
+		"workbench.startupEditor": "readme",
+		"explorer.sortOrder": "type",
+		"explorer.compactFolders": false,
+		"explorer.fileNesting.enabled": true,
+		"explorer.fileNesting.expand": false,
+		"explorer.fileNesting.patterns": {
+			"Containerfile": "image.toml, .gitattributes, .gitignore",
+			"CLAUDE.md": "ALCHEMIST.md, Contremaitre.md, LePeintre.md"
+		},
+		// Le .git n'a rien a faire dans l'arbre ; les caches Python non plus.
+		"files.exclude": {
+			"**/.git": true,
+			"**/__pycache__": true,
+			"**/*.pyc": true
+		},
+		// --- Les fichiers de S que VS Code ne reconnait pas seul ---------
+		// Les gestes de S n'ont pas d'extension : sans ceci ils s'ouvrent en
+		// texte brut, sans coloration ni reperage des fonctions.
+		"files.associations": {
+			"s-*": "shellscript",
+			"*.qml": "qml",
+			"qmldir": "properties",
+			"*.reg": "ini",
+			"Containerfile": "dockerfile"
+		},
+		"[shellscript]": { "editor.tabSize": 4, "editor.insertSpaces": true },
+		"[python]": { "editor.tabSize": 4, "editor.rulers": [79] },
+		"[qml]": { "editor.tabSize": 4 },
+		// --- Le depot est lu par des scripts, pas seulement par toi ------
+		// Une fin de ligne Windows dans un script casse le shebang : « bad
+		// interpreter: /usr/bin/bash^M ». Le depot a deja ete edite sous
+		// Windows, donc on force.
+		"files.eol": "\n",
+		"files.trimTrailingWhitespace": true,
+		"files.insertFinalNewline": true,
+		"search.exclude": {
+			"**/.git": true,
+			"galerie/constellation/archive-page-web": true
+		},
+		"git.autofetch": true,
+		"terminal.integrated.cwd": "${workspaceFolder}"
+	},
+	"extensions": {
+		"recommendations": [
+			"anthropic.claude-code",
+			"ms-ceintl.vscode-language-pack-fr",
+			"bbenoist.QML",
+			"ms-python.python",
+			"timonwong.shellcheck",
+			"ms-azuretools.vscode-containers"
+		]
+	}
+}
