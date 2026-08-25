@@ -32,10 +32,15 @@ for _essai in (os.environ.get("S_NOYAU"),
                os.path.join(_ICI, "..", "lib", "s")):
     if _essai and os.path.isfile(os.path.join(_essai, "noyau.py")):
         sys.path.insert(0, os.path.abspath(_essai))
+        _LIB = os.path.abspath(_essai)
         break
+else:
+    _LIB = "/usr/lib/s"
 
 import noyau  # noqa: E402
 import notifications  # noqa: E402
+import fenetres as fenetres_mod  # noqa: E402
+import importlib.util as _iu  # noqa: E402
 
 from PySide6.QtCore import QObject, QUrl, Slot  # noqa: E402
 from PySide6.QtGui import QGuiApplication  # noqa: E402
@@ -168,10 +173,36 @@ def main():
     if ennui:
         print("s-constellation : pas de bulles — " + ennui, file=sys.stderr)
 
+    # LA BARRE DES TACHES A BESOIN DE DEUX CHOSES QU'UN CLIENT WAYLAND N'A PAS :
+    # la liste des fenetres, et le droit d'en activer une. kwin n'annonce ni
+    # org_kde_plasma_window_management ni zwlr_foreign_toplevel_manager_v1 —
+    # releve sur la machine. On passe donc par son moteur de scripts, qui est
+    # l'interface qu'il ouvre volontairement. Voir /usr/lib/s/fenetres.py.
+    liste_fenetres, ennui = fenetres_mod.publier(
+        app, os.path.join(_LIB, "fenetres.js"))
+    if ennui:
+        print("s-constellation : barre sans fenetres — " + ennui, file=sys.stderr)
+
+    # LES REGLES kwin SE POSENT ICI PARCE QUE C'EST ICI QU'ON CONNAIT L'ECRAN.
+    # La barre et la bulle ne peuvent pas se placer elles-memes — le protocole
+    # l'interdit — et leurs positions dependent de la taille de l'ecran.
+    ecran = app.primaryScreen()
+    if ecran is not None:
+        _spec = _iu.spec_from_file_location(
+            "regles_kwin", os.path.join(_LIB, "regles-kwin.py"))
+        if _spec is not None:
+            _regles = _iu.module_from_spec(_spec)
+            _spec.loader.exec_module(_regles)
+            _taille = ecran.geometry()
+            _phrase = _regles.appliquer(_taille.width(), _taille.height())
+            if _phrase:
+                print("s-constellation : " + _phrase, file=sys.stderr)
+
     # Le pont est pose AVANT le chargement : une propriete de contexte ajoutee
     # apres coup n'est pas vue par les liaisons deja evaluees.
     moteur.rootContext().setContextProperty("pont", pont)
     moteur.rootContext().setContextProperty("notifications", serveur)
+    moteur.rootContext().setContextProperty("fenetres", liste_fenetres)
     moteur.load(QUrl.fromLocalFile(os.path.join(QML, "Constellation.qml")))
 
     if not moteur.rootObjects():

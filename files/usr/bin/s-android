@@ -39,6 +39,36 @@ if [ ! -f /var/lib/waydroid/waydroid.cfg ]; then
     fi
 fi
 
+# --- Android en FENETRES, pas en plein ecran --------------------------------
+# CE QUE L'UTILISATEUR VOYAIT, ET POURQUOI. Sans « multi_windows », Waydroid
+# rend UNE seule surface plein ecran ou vit tout Android : une application
+# lancee prend l'ecran entier, et rien ne se range a cote d'une fenetre Linux.
+# Ce n'est pas un reglage de confort, c'est ce qui decide si le monde Android
+# est une machine a part ou une application parmi les autres — c'est-a-dire la
+# promesse de S.
+#
+# LA PROPRIETE SE POSE AVANT LE DEMARRAGE DE LA SESSION, PAS APRES : elle est
+# lue quand le conteneur monte. Posee a chaud, elle ne prend qu'au demarrage
+# suivant, et l'utilisateur conclurait qu'elle ne marche pas.
+#
+# Elle vit dans [properties] de waydroid.cfg, ce que la recette de l'amont
+# prevoit pour cela — et pas dans un « prop set » qu'il faudrait rejouer.
+if ! grep -q 'persist.waydroid.multi_windows' /var/lib/waydroid/waydroid.cfg 2>/dev/null; then
+    pkexec /usr/bin/python3 - <<'PY' >/dev/null 2>&1 || true
+import configparser, io
+p = "/var/lib/waydroid/waydroid.cfg"
+c = configparser.ConfigParser(interpolation=None, strict=False)
+c.optionxform = str
+c.read(p, encoding="utf-8")
+if not c.has_section("properties"):
+    c.add_section("properties")
+c.set("properties", "persist.waydroid.multi_windows", "true")
+t = io.StringIO()
+c.write(t, space_around_delimiters=True)
+io.open(p, "w", encoding="utf-8").write(t.getvalue())
+PY
+fi
+
 # --- Demarrer la session, si elle ne tourne pas -----------------------------
 if ! waydroid status 2>/dev/null | grep -qi 'RUNNING'; then
     s_dire "Android" "Demarrage…" phone
@@ -53,6 +83,13 @@ fi
 
 waydroid status 2>/dev/null | grep -qi 'RUNNING' || \
     s_echec "Android n'a pas demarre" "Detail dans $S_ETAT/android-session.log"
+
+# Une session deja lancee avant ce correctif garde son mode plein ecran : la
+# propriete posee ici ne prendra qu'au prochain demarrage du conteneur. On la
+# pose quand meme plutot que de laisser la machine dans deux etats differents.
+if [ "$(waydroid prop get persist.waydroid.multi_windows 2>/dev/null)" != "true" ]; then
+    waydroid prop set persist.waydroid.multi_windows true >/dev/null 2>&1 || true
+fi
 
 # --- Poser le magasin, une seule fois --------------------------------------
 if [ ! -f "$MARQUE" ]; then

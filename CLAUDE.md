@@ -173,6 +173,131 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-25, apres-midi — une vraie barre des taches, et Android en fenetres
+
+Deux demandes de l'utilisateur, toutes deux parties d'un usage reel : *« la
+barre des tâches, j'aimerais pouvoir l'utiliser normalement, toujours visible en
+bas »*, et *« les applis Android sont plein écran par défaut et l'image se brise
+— je préfère des fenêtres »*.
+
+### Android en fenêtres : une propriété, et cinq jours de suppositions tombent
+
+`persist.waydroid.multi_windows` était **vide**. Sans elle, Waydroid rend **une
+seule surface plein écran** où vit tout Android : une application lancée prend
+l'écran entier, et rien ne se range à côté d'une fenêtre Linux. Posée à `true`,
+session redémarrée, `kwin` voit ceci :
+
+```
+waydroid.com.android.documentsui | Files | 1920x1080 | fenetre
+```
+
+**Une vraie fenêtre, avec ses boutons de titre, et l'image est nette.** Le
+« glitch » que ce carnet traîne non diagnostiqué depuis le 2026-08-23 ne s'est
+pas reproduit une fois en mode fenêtré. Ce n'est pas une preuve qu'il est
+corrigé — il n'a pas été *cherché*, il a cessé d'apparaître — mais l'hypothèse
+change de camp : le carnet supposait que `multi_windows false` serait un
+*remède* au glitch, et c'est l'inverse qui s'est produit.
+
+**Et cela éclaire un autre défaut, écrit dans `s-android` depuis le
+2026-08-23** : le gel de l'écran « autoriser les sources inconnues » y était
+attribué à *« une fenêtre que le multi-fenêtrage de Waydroid n'affiche pas »*.
+Le multi-fenêtrage n'était pas activé du tout. Une boîte de dialogue qui n'a pas
+de fenêtre à elle dans un Android plein écran ressemble exactement à un gel.
+
+La propriété entre dans `[properties]` de `waydroid.cfg` — la persistance que
+l'amont prévoit — **avant** le démarrage de la session, parce qu'elle est lue
+quand le conteneur monte. Posée à chaud, elle ne prend qu'au démarrage suivant,
+et l'utilisateur conclurait qu'elle ne marche pas.
+
+### La barre des tâches : ce que Wayland refuse, et par où on passe
+
+Une barre des tâches a besoin de deux choses qu'un client Wayland **n'a pas le
+droit d'avoir** : la liste des fenêtres des autres, et le pouvoir d'en activer
+une. Relevé sur la machine, dans les soixante-dix protocoles annoncés par
+`kwin` :
+
+| Protocole | État |
+|---|---|
+| `org_kde_plasma_window_management` | **absent** |
+| `zwlr_foreign_toplevel_manager_v1` | **absent** |
+| `zwlr_layer_shell_v1` | présent — mais aucune liaison Python de cette image ne sait le parler |
+
+Les deux qui auraient servi ne sont pas là, et **c'est une décision de sécurité
+juste** : une application qui énumère les fenêtres des autres peut les espionner.
+
+**L'interface que kwin ouvre volontairement, elle, est son moteur de scripts.**
+Un script kwin tourne *dans* le compositeur — il sait tout — et `callDBus` lui
+permet de le dire au dehors. C'est la porte prévue, pas une porte forcée. Deux
+sens, deux chemins différents :
+
+- **kwin → S** : un script résident, `fenetres.js`, appelle Constellation à
+  chaque fenêtre ouverte, fermée, activée, **renommée** ou réduite. Le titre
+  compte autant que le reste : un navigateur qui change d'onglet ne crée pas de
+  fenêtre, il renomme la sienne.
+- **S → kwin** : un script kwin ne peut rien **recevoir** — pas de service, pas
+  de file d'attente, pas même un fichier à relire. Le seul canal entrant est le
+  chargement lui-même. On écrit donc un script d'une ligne qui porte
+  l'identifiant, on le charge, on le lance, on le décharge.
+
+Ce qui sort est délibérément pauvre : un identifiant, une classe, un titre, deux
+états. Pas de capture, pas de contenu, pas de géométrie.
+
+### La barre a quitté la scène du bureau, et il le fallait
+
+Elle y était, en pilule flottante — donc **invisible dès qu'une fenêtre
+s'ouvrait**, puisque le bureau reste derrière. Une barre qu'il faut dégager pour
+voir n'en est pas une. Elle vit maintenant dans une fenêtre à elle, posée
+au-dessus des autres par une règle kwin, comme la bulle.
+
+**Ce que le protocole ne permet pas, et qu'il faut dire :** un client Wayland ne
+réserve pas d'espace à l'écran. Cela demande `zwlr_layer_shell_v1` ou
+`org_kde_plasma_shell`, que rien ici ne sait parler. **Une fenêtre maximisée
+passe donc sous la barre au lieu de s'arrêter au-dessus.** C'est le prix, il est
+connu, et il vaut mieux qu'une barre qu'on ne voit jamais.
+
+Les deux règles kwin sont désormais posées **par Constellation** et non par
+`s-coquille` : elles dépendent de la taille de l'écran, que seul un programme
+connecté au compositeur connaît. La deviner en lisant `kscreen-doctor` serait
+une seconde source de vérité pour une chose que Qt sait déjà.
+
+### Éprouvé sur la machine, vers 13 h 55
+
+| | |
+|---|---|
+| Le rapporteur | chargé dans kwin (`isScriptLoaded` → `true`), rejoue à chaque changement |
+| La liste | trois fenêtres rendues avec classe, titre, actif, réduit |
+| L'activation | `activer(id)` → la fenêtre visée passe à **`ACTIVE`** au rapport suivant |
+| Android dans la barre | « Google Play Store », **liseré vert**, avec sa vraie icône, à côté de deux Konsole à liseré rouge |
+| L'heure, les épinglées | en place, la grammaire des trois mondes conservée |
+
+**Un défaut trouvé en essayant, pas en relisant :** `loadScript` existe en deux
+versions sur le bus — `loadScript(s)` et `loadScript(ss)` — et `dbus-python`
+choisit la première trouvée dans l'introspection, puis se plaint que Python lui
+donne deux arguments. La barre s'ouvrait vide, et le journal parlait de
+*« Fewer items found in D-Bus signature »*, ce qui ne ressemble en rien au
+problème réel. La signature est désormais imposée à l'appel.
+
+**Et une correction de lisibilité, mesurée à l'écran :** à 86 % d'opacité — le
+verre des panneaux — le texte du bureau transparaissait à travers la barre et se
+mêlait aux titres des fenêtres. Un panneau qu'on regarde de temps en temps peut
+être translucide ; une barre qu'on lit pour choisir une fenêtre, non. L'aide du
+bureau, elle, remonte de 52 pixels : elle était passée sous la barre.
+
+### Ce que cette passe ne prouve pas
+
+- **Rien n'est dans l'image.** Tout a tourné depuis le dépôt, dans une seconde
+  Constellation lancée à côté de la vraie.
+- **Le clic n'a jamais été essayé à la souris.** `activer()` a été appelée
+  directement ; le chemin QML `TapHandler → fenetres.activer` est écrit et
+  vérifié sans avertissement par le contrôleur de construction, pas exercé.
+- **La capture de la Galerie montre l'ancienne barre flottante.** Elle est
+  datée et vraie pour son image ; elle sera à refaire quand celle-ci sera posée.
+- **Le glitch de Waydroid n'est pas diagnostiqué** — il a cessé d'apparaître, ce
+  qui n'est pas la même chose.
+- **La barre ne réserve pas son espace**, faute de layer-shell.
+
+---
+
 ## 2026-08-25, midi — la coquille sait enfin parler, et la Galerie a son premier tableau
 
 Deux chantiers que le carnet réclamait depuis le matin. Les deux sont finis, et

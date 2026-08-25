@@ -96,19 +96,12 @@ else
 fi
 
 # --------------------------------------------------------------------------
-# LA PLACE DE LA BULLE — une fenetre Wayland ne se place pas elle-meme
+# LES REGLES kwin NE SE POSENT PLUS ICI
 # --------------------------------------------------------------------------
-# Constellation publie desormais org.freedesktop.Notifications et dessine ses
-# bulles dans une fenetre a part. Cette fenetre ne peut pas demander sa propre
-# position : le protocole ne le permet pas, et kwin l'a centree a l'essai du
-# 2026-08-25. Une regle kwin la pose en haut a droite ; elle vit dans le
-# dossier personnel parce qu'une « [General] rules= » vide y masquerait
-# n'importe quelle regle livree par l'image. Le code qui la pose, lui, est
-# dans l'image — donc il se repare a chaque ouverture de session.
-if [[ -f /usr/lib/s/regle-bulle.py ]]; then
-    python3 /usr/lib/s/regle-bulle.py >>"$JOURNAL/coquille.log" 2>&1 || \
-        dire "la bulle n'a pas pu etre placee — elle s'affichera au centre"
-fi
+# Elles y etaient le 2026-08-25 au matin, pour la bulle. Il en faut une seconde
+# pour la barre des taches, et les deux dependent de la TAILLE DE L'ECRAN — que
+# seul un programme connecte au compositeur connait. Constellation les pose donc
+# elle-meme au demarrage, ou cette taille est deja sous la main.
 
 lancer_coquille() {
     "$COQUILLE" >>"$JOURNAL/coquille.log" 2>&1

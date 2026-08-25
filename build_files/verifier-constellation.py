@@ -97,6 +97,7 @@ def main():
     # coquille pose la meme valeur quand le nom du bus est deja pris. La scene
     # doit charger sans bulles comme elle charge avec.
     moteur.rootContext().setContextProperty("notifications", None)
+    moteur.rootContext().setContextProperty("fenetres", None)
     moteur.load(QUrl.fromLocalFile(os.path.join(QML, "Constellation.qml")))
 
     if not moteur.rootObjects():

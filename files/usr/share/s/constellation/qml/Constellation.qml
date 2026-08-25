@@ -190,126 +190,28 @@ ApplicationWindow {
     }
 
     // ══ 3. LA BARRE ═══════════════════════════════════════════════════════
-    Verre {
-        id: barre
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 22
-        radius: height / 2
-        height: 56
-        width: rangee.implicitWidth + 18
+    // ELLE N'EST PLUS DANS CETTE SCENE, ET C'EST LE CHANGEMENT DU 2026-08-25.
+    // Elle y etait, en pilule flottante, et elle disparaissait donc sous la
+    // premiere fenetre ouverte — le bureau reste derriere, c'est sa place.
+    // Une barre des taches qu'il faut degager pour voir n'en est pas une.
+    // Elle vit maintenant dans une fenetre a elle, posee au-dessus des autres
+    // par une regle kwin. Voir Barre.qml.
+    Barre {
+        id: barreTaches
+        onMenuDemande: {
+            // LE MENU EST DESSINE ICI, DANS LA FENETRE DU BUREAU, qui reste
+            // derriere. On remonte donc le bureau avant d'ouvrir, sinon le
+            // bouton aurait l'air casse : il ouvrirait un menu invisible.
+            if (typeof fenetres !== "undefined" && fenetres)
+                fenetres.activerBureau();
+            menuDemarrer.visible ? menuDemarrer.close() : menuDemarrer.open();
+        }
+    }
 
-        Row {
-            id: rangee
-            anchors.centerIn: parent
-            spacing: 10
-
-            // Le noyau : le menu Demarrer de S.
-            Rectangle {
-                width: 42; height: 42; radius: 21
-                anchors.verticalCenter: parent.verticalCenter
-                border.color: Theme.bordVif
-                border.width: 1
-                gradient: Gradient {
-                    GradientStop { position: 0.0; color: "#33333f" }
-                    GradientStop { position: 0.78; color: "#07070f" }
-                }
-                scale: (survolNoyau.hovered || menuDemarrer.visible) ? 1.05 : 1.0
-                Behavior on scale { NumberAnimation { duration: 260 } }
-
-                HoverHandler { id: survolNoyau; cursorShape: Qt.PointingHandCursor }
-
-                Rectangle {
-                    anchors.centerIn: parent
-                    width: 9; height: 9; radius: 4.5
-                    color: "#ffffff"
-                }
-                TapHandler {
-                    onTapped: menuDemarrer.visible ? menuDemarrer.close() : menuDemarrer.open()
-                }
-            }
-
-            // Les epinglees. ELLES SONT DESORMAIS CELLES QUE L'UTILISATEUR A
-            // CHOISIES — voir noyau.charger_epingles.
-            Repeater {
-                model: bureau.donnees.epingles
-
-                delegate: Item {
-                    required property string modelData
-                    readonly property var app: bureau.appParId(modelData)
-                    visible: app !== null
-                    width: visible ? 34 : 0
-                    height: 34
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: 17
-                        color: "transparent"
-                        border.width: 1.5
-                        border.color: app ? Theme.teinte(app.src) : "transparent"
-                        antialiasing: true
-                    }
-                    Image {
-                        anchors.fill: parent
-                        source: "../glyphes/sphere.svg"
-                        sourceSize.width: 68; sourceSize.height: 68
-                        smooth: true
-                        z: -1
-                    }
-                    Image {
-                        id: icoRacc
-                        anchors.centerIn: parent
-                        width: 18; height: 18
-                        source: parent.app ? (parent.app.img || "") : ""
-                        sourceSize.width: 36; sourceSize.height: 36
-                        fillMode: Image.PreserveAspectFit
-                        smooth: true
-                        visible: source !== "" && status === Image.Ready
-                    }
-                    Glyphe {
-                        anchors.centerIn: parent
-                        width: 16; height: 16
-                        nom: parent.app ? (parent.app.ico || "i-boite") : "i-boite"
-                        couleur: parent.app ? Theme.teinte(parent.app.src) : Theme.texte2
-                        visible: !icoRacc.visible
-                    }
-
-                    HoverHandler { id: survolRacc; cursorShape: Qt.PointingHandCursor }
-                    y: survolRacc.hovered ? -3 : 0
-                    Behavior on y { NumberAnimation { duration: 160 } }
-
-                    ToolTip.visible: survolRacc.hovered
-                    ToolTip.text: app ? app.nom : ""
-                    ToolTip.delay: 400
-
-                    TapHandler {
-                        acceptedButtons: Qt.LeftButton
-                        onTapped: { bureau.dire(pont.lancer(parent.app.id)); bureau.relire(); }
-                    }
-                    TapHandler {
-                        acceptedButtons: Qt.RightButton
-                        onTapped: function (e) {
-                            var p = parent.mapToItem(null, e.position.x, e.position.y);
-                            menuContextuel.ouvrirPour(parent.app, p.x, p.y);
-                        }
-                    }
-                }
-            }
-
-            Text {
-                id: horloge
-                anchors.verticalCenter: parent.verticalCenter
-                leftPadding: 6; rightPadding: 12
-                color: Theme.texte2
-                font.family: Theme.policeMono
-                font.pixelSize: 12
-                text: "--:--"
-                Timer {
-                    interval: 1000; running: true; repeat: true; triggeredOnStart: true
-                    onTriggered: horloge.text = Qt.formatTime(new Date(), "HH:mm")
-                }
-            }
+    Connections {
+        target: typeof fenetres !== "undefined" ? fenetres : null
+        function onChangees(liste) {
+            barreTaches.fenetres = JSON.parse(liste);
         }
     }
 
@@ -819,7 +721,9 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: 20
-        anchors.bottomMargin: 22
+        // LA BARRE DES TACHES OCCUPE MAINTENANT LES 52 PIXELS DU BAS, et elle
+        // est posee AU-DESSUS de cette fenetre : l'aide y disparaissait.
+        anchors.bottomMargin: 74
         spacing: 2
         visible: bureau.width > 760
         Repeater {

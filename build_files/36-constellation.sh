@@ -92,6 +92,20 @@ assert notifications.NOM == 'org.freedesktop.Notifications'
 " || { echo "ECHEC : /usr/lib/s/notifications.py ne s'importe pas." >&2; exit 1; }
 echo "  notifications : importe"
 
+# LA BARRE DES TACHES TIENT A DEUX FICHIERS, ET L'UN N'EST PAS DU PYTHON. Le
+# rapporteur est un script kwin : s'il manquait, la barre s'ouvrirait vide et
+# rien n'echouerait — l'utilisateur croirait qu'aucune fenetre n'est ouverte.
+python3 -c "
+import sys; sys.path.insert(0, '/usr/lib/s')
+import fenetres
+assert fenetres.NOM == 'org.s.Constellation'
+" || { echo "ECHEC : /usr/lib/s/fenetres.py ne s'importe pas." >&2; exit 1; }
+test -s /usr/lib/s/fenetres.js \
+    || { echo "ECHEC : /usr/lib/s/fenetres.js absent — barre sans fenetres." >&2; exit 1; }
+test -s /usr/lib/s/regles-kwin.py \
+    || { echo "ECHEC : /usr/lib/s/regles-kwin.py absent." >&2; exit 1; }
+echo "  barre         : rapporteur et regles en place"
+
 # LE FOURNISSEUR DE PLASMA DOIT ETRE RECOUVERT. L'original lance
 # « plasma_waitforname », qui attend pour toujours dans une session sans
 # plasmashell — c'est la panne qui a gele toutes les coutures le 2026-08-25.
@@ -111,7 +125,7 @@ echo "  activation    : plasma_waitforname ecarte"
 
 # --- La scene QML ---------------------------------------------------------
 for f in Constellation.qml Theme.qml Astre.qml Tuile.qml Glyphe.qml Anneau.qml \
-         Verre.qml Rangee.qml ArticleMenu.qml SeparateurMenu.qml Bulle.qml \
+         Verre.qml Rangee.qml ArticleMenu.qml SeparateurMenu.qml Bulle.qml Barre.qml \
          Fonds.js Glyphes.js qmldir; do
     [[ -s "$QML/$f" ]] || { echo "ECHEC : $QML/$f absent." >&2; exit 1; }
 done
