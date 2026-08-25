@@ -76,6 +76,7 @@ ApplicationWindow {
         // LE BUREAU SE DECLARE AVANT DE FAIRE QUOI QUE CE SOIT. Les delegues du
         // menu ne peuvent pas l'atteindre par son identifiant — voir Session.qml.
         Session.bureau = bureau;
+        Session.menu = menuDemarrer;
         relire();
         listeDossiers = pont.dossiers();
         // Les reglages AVANT tout le reste : sans cela le fond par defaut se
@@ -381,7 +382,7 @@ ApplicationWindow {
                     id: grilleApps
                     anchors.horizontalCenter: parent.horizontalCenter
                     y: 14
-                    width: parent.width - 32
+                    width: Math.max(0, parent.width - 32)
                     height: Math.max(cellHeight,
                                      Math.floor((parent.height - 22) / cellHeight) * cellHeight)
                     clip: true
@@ -405,7 +406,7 @@ ApplicationWindow {
                         onOuvrir: {
                             Session.bureau.dire(pont.lancer(app.id));
                             Session.bureau.relire();
-                            menuDemarrer.close();
+                            Session.menu.close();
                         }
                         onEpingler: function (oui) {
                             pont.epingler(app.id, oui);
@@ -433,12 +434,36 @@ ApplicationWindow {
                     id: corps
                     width: parent.width
                     padding: 16
+                    // LA LARGEUR NEGATIVE, ET C'EST LA CAUSE DES ERREURS DE
+                    // Fonds.js QUE LE CARNET DISAIT INCONNUES.
+                    //
+                    // Tant que la ScrollView n'a pas mesure, « parent.width »
+                    // vaut 0. Les Column filles portaient « parent.width - 32 »
+                    // pour compenser le padding : elles valaient donc -32. La
+                    // Grid dessous heritait -32, son « columns » retombait a 1
+                    // par le Math.max, et chaque vignette calculait
+                    // (-32 - 0) / 1 = -32 de large, -20 de haut.
+                    //
+                    // Releve sur la machine le 2026-08-25 a 18 h, par le temoin
+                    // pose le matin meme :
+                    //     qml: vignette trois : dimensions refusees -32x-20
+                    //
+                    // ET C'EST POURQUOI LE BANC DU MATIN AVAIT REFUTE LA BONNE
+                    // HYPOTHESE. Il avait essaye une taille NULLE, qui n'appelle
+                    // jamais onPaint — vrai, et sans rapport. Une taille
+                    // NEGATIVE, elle, appelle onPaint et passe des valeurs
+                    // impossibles a createRadialGradient. Le banc mesurait le
+                    // mauvais cas et rendait un verdict assure.
+                    //
+                    // Le Math.max borne la soustraction a sa source. Le garde et
+                    // le temoin restent en place : ils ne coutent rien et ils
+                    // viennent de prouver leur valeur.
                     spacing: 14
 
                     // ---- Dossiers ----
                     Column {
                         visible: menuDemarrer.vue === "dossiers"
-                        width: parent.width - 32
+                        width: Math.max(0, parent.width - 32)
                         spacing: 1
                         Repeater {
                             model: bureau.listeDossiers
@@ -448,8 +473,8 @@ ApplicationWindow {
                                 detail: modelData.detail
                                 glyphe: modelData.ico
                                 onChoisi: {
-                                    bureau.dire(pont.ouvrirDossier(modelData.chemin));
-                                    menuDemarrer.close();
+                                    Session.bureau.dire(pont.ouvrirDossier(modelData.chemin));
+                                    Session.menu.close();
                                 }
                             }
                         }
@@ -458,7 +483,7 @@ ApplicationWindow {
                     // ---- Reglages ----
                     Column {
                         visible: menuDemarrer.vue === "reglages"
-                        width: parent.width - 32
+                        width: Math.max(0, parent.width - 32)
                         spacing: 14
 
                         Text {
@@ -587,7 +612,7 @@ ApplicationWindow {
                     // ---- Alimentation ----
                     Column {
                         visible: menuDemarrer.vue === "alim"
-                        width: parent.width - 32
+                        width: Math.max(0, parent.width - 32)
                         spacing: 1
                         Repeater {
                             model: [
@@ -602,7 +627,7 @@ ApplicationWindow {
                                 glyphe: modelData.ico
                                 grave: modelData.grave
                                 onChoisi: {
-                                    menuDemarrer.close();
+                                    Session.menu.close();
                                     pont.session(modelData.act);
                                 }
                             }

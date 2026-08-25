@@ -39,13 +39,56 @@ if [ ! -f /var/lib/waydroid/waydroid.cfg ]; then
     fi
 fi
 
-# --- Android en FENETRES, pas en plein ecran --------------------------------
-# CE QUE L'UTILISATEUR VOYAIT, ET POURQUOI. Sans « multi_windows », Waydroid
-# rend UNE seule surface plein ecran ou vit tout Android : une application
-# lancee prend l'ecran entier, et rien ne se range a cote d'une fenetre Linux.
-# Ce n'est pas un reglage de confort, c'est ce qui decide si le monde Android
-# est une machine a part ou une application parmi les autres — c'est-a-dire la
-# promesse de S.
+# --- Android en FENETRES — ET LE MODE A CHANGE LE 2026-08-25 AU SOIR --------
+#
+# CE QUE CE BLOC DISAIT AVANT, ET QUI ETAIT VRAI A MOITIE. Il posait
+# « multi_windows = true » et expliquait que sans lui, Waydroid rend une seule
+# surface plein ecran ou vit tout Android. C'est vrai du mode « full_ui », et
+# c'est faux du mode qu'on emploie desormais.
+#
+# CE QUE MULTI_WINDOWS COUTAIT, MESURE SUR LA MACHINE. Une video jouee dans une
+# application Android laissait un TROU : on voyait le bureau au travers. Pas un
+# ecran noir — rien. Le son marchait, la barre de progression avancait, les
+# sous-titres s'affichaient PAR-DESSUS le vide. Seule la surface video manquait.
+#
+# LA CAUSE, LUE DANS LA TABLE DES SYMBOLES DE hwcomposer.waydroid.so :
+#
+#     compositing_full_ui_mode        / non_compositing_full_ui_mode
+#     compositing_single_window_mode  / non_compositing_single_window_mode
+#     multi_window_mode               <- SEUL, sans variante « compositing »
+#
+# « full_ui » et « single_window » ont chacun une variante qui COMPOSE les
+# couches d'Android ensemble avant de les rendre. « multi_window_mode » n'en a
+# pas : il ne sait que faire correspondre UNE couche a UNE fenetre — d'ou son
+# « can_handle_layer() », et d'ou la couche video qui n'a nulle part ou aller.
+#
+# Ce n'est donc pas un bogue de Waydroid : c'est une capacite que ce mode n'a
+# jamais eue. Le releve de SurfaceFlinger le montrait sans qu'on sache le lire :
+#
+#     TID:23#…/HomeActivity#115      DEVICE  1920x1028   <- la fenetre, posee
+#          …/HomeActivity(BLAST)#126 DEVICE  1280x714    <- la video, perdue
+#
+# CE QU'ON EMPLOIE A LA PLACE. « multi_windows = false » AVEC
+# « waydroid app launch <paquet> » ne donne PAS le plein ecran d'Android : il
+# donne « compositing_single_window_mode » — une fenetre qui ne montre que
+# l'application, sans barre d'etat, sans barre de navigation, sans lanceur, et
+# dont le compositeur assemble lui-meme toutes les couches. La video y est.
+#
+# C'est la regle 9 du projet appliquee jusqu'au bout : une couture ne montre
+# jamais son moteur. Une icone, un clic, l'application — et rien d'Android.
+#
+# CE QUE CA COUTE, ET IL FAUT LE DIRE. Waydroid ne tient qu'UNE fenetre Android
+# a la fois dans ce mode : ouvrir Gmail pendant que YouTube tourne remplace la
+# fenetre au lieu d'en ajouter une. C'est le prix, il est connu, et il vaut
+# mieux qu'une video invisible.
+#
+# CINQ HYPOTHESES ONT ETE REFUTEES AVANT CELLE-CI, toutes par la mesure : les
+# codecs (27 decodeurs OMX presents), le plein ecran de l'application
+# (identique), le masquage reseau (la regle existe et compte ses paquets),
+# « use_subsurface » dans les deux sens (les couches restent DEVICE), et forcer
+# la composition GPU par SurfaceFlinger (plus AUCUNE fenetre Android — ce qui a
+# d'ailleurs livre le mecanisme : le compositeur fabrique les fenetres A PARTIR
+# des couches DEVICE). Aucune n'est entree dans le depot.
 #
 # LA PROPRIETE SE POSE AVANT LE DEMARRAGE DE LA SESSION, PAS APRES : elle est
 # lue quand le conteneur monte. Posee a chaud, elle ne prend qu'au demarrage
@@ -56,13 +99,30 @@ fi
 #
 # ET DEUX AUTRES REGLAGES QUI SE POSENT AU MEME ENDROIT, POUR LA MEME RAISON.
 #
-#   suspend_action = none — MESURE DU 2026-08-25 : la valeur livree est
-#   « freeze », et la machine a ete relevee avec « Session RUNNING / Container
-#   FROZEN ». Un conteneur gele cesse de rendre : au bout d'une seconde
-#   d'inactivite, la surface d'Android ne se redessine plus et on voit le
-#   bureau AU TRAVERS. Ce n'est pas un defaut d'affichage, c'est une economie
-#   d'energie pensee pour un telephone dans une poche, appliquee a une fenetre
-#   qu'on regarde.
+#   suspend_action = none — ET CE REGLAGE NE FAIT RIEN. C'est ecrit ici parce
+#   que le carnet a affirme le contraire le 2026-08-25 au matin, et qu'il avait
+#   tort. Le code de l'amont, hardware_manager.py:22-27 :
+#
+#       def suspend():
+#           if cfg["waydroid"]["suspend_action"] == "stop":
+#               session_manager.stop(args)
+#           else:
+#               container_manager.freeze(args)      # <- tout le reste tombe ici
+#
+#   Il n'y a que DEUX comportements : « stop », ou geler. « none » n'est
+#   implemente nulle part dans waydroid 1.6.3 — le mot n'apparait pas une seule
+#   fois dans tools/ — et tombe donc dans le else, ou il gele exactement comme
+#   la valeur par defaut.
+#
+#   MESURE DU 2026-08-25 a 17 h, avec « suspend_action = none » deja pose dans
+#   waydroid.cfg : « Session RUNNING / Container FROZEN ». Le gel est intact.
+#
+#   On garde la clef, inoffensive, et juste le jour ou l'amont implementera
+#   « none ». Mais LE GEL N'EST PAS CORRIGE, et ce fichier ne doit plus laisser
+#   croire qu'il l'est. Le seul autre choix offert — « stop » — arrete la
+#   session entiere, ce qui est pire. Poser au hasard une propriete Android
+#   pour empecher la mise en veille serait la faute que ce carnet s'interdit
+#   depuis le halt de QEMU : une variable a la fois, et apres avoir regarde.
 #
 #   ro.sf.lcd_density = 140 — la valeur livree est 180, pensee pour un ecran de
 #   telephone tenu a trente centimetres. Sur un 1920x1080 de bureau, tout est
@@ -74,10 +134,49 @@ fi
 # recu le premier avant que les deux autres n'existent doit encore les recevoir ;
 # sinon le correctif ne rattrape que les installations neuves, ce qui est
 # exactement la faute que ce carnet reproche aux marqueurs de premier demarrage.
+# LE GARDE INTERROGE ANDROID, PAS LE FICHIER DE CONFIGURATION — CORRECTIF DU
+# 2026-08-25 AU SOIR.
+#
+# Il lisait waydroid.cfg et concluait « c'est pose, il n'y a rien a faire ». Le
+# carnet a repris cette lecture telle quelle et ecrit que les trois reglages
+# etaient « appliques sur cette machine ». Ils ne l'etaient pas. Releve le
+# 2026-08-25 a 17 h, sur la machine, session en marche :
+#
+#     waydroid.cfg          dit  ro.sf.lcd_density = 140
+#     waydroid prop get     dit  180
+#
+# LA CAUSE, LUE DANS LE CODE DE L'AMONT. La section [properties] de
+# waydroid.cfg n'est versee dans le conteneur que par make_base_props(), qui
+# ecrit /var/lib/waydroid/waydroid_base.prop. Et make_base_props n'est appele
+# que de deux endroits : initializer.py (waydroid init) et upgrader.py
+# (waydroid upgrade). PAS au demarrage du conteneur, PAS au demarrage de la
+# session. Releve : waydroid_base.prop date de 10 h 44, ne contient aucun des
+# trois reglages, et le conteneur a demarre a 16 h 52 sans le regenerer.
+#
+# Donc tout ce qu'on ecrit dans [properties] APRES l'initialisation n'atteint
+# jamais Android. multi_windows faisait exception, et par accident : c'est une
+# propriete « persist. », que le prop set plus bas repose a chaque lancement et
+# qu'Android garde dans son propre magasin.
+#
+# C'est le succes silencieux dans sa forme la plus exacte : le fichier disait
+# vrai, la machine disait autre chose, et personne n'avait demande a la machine.
 manque=0
-for reglage in 'persist.waydroid.multi_windows' 'ro.sf.lcd_density' 'suspend_action = none'; do
-    grep -q "$reglage" /var/lib/waydroid/waydroid.cfg 2>/dev/null || manque=1
-done
+if waydroid status 2>/dev/null | grep -qi 'RUNNING'; then
+    # Session en marche : on demande a Android lui-meme. C'est la seule reponse
+    # qui vaille, et celle que l'ancien garde n'allait pas chercher.
+    [ "$(waydroid prop get ro.sf.lcd_density 2>/dev/null)" = "140" ] || manque=1
+    [ "$(waydroid prop get persist.waydroid.multi_windows 2>/dev/null)" = "false" ] || manque=1
+else
+    # Session arretee : Android ne peut rien dire. On retombe sur le fichier, en
+    # sachant que c'est une reponse plus faible.
+    for reglage in 'persist.waydroid.multi_windows' 'ro.sf.lcd_density' 'suspend_action = none'; do
+        grep -q "$reglage" /var/lib/waydroid/waydroid.cfg 2>/dev/null || manque=1
+    done
+fi
+# waydroid_base.prop est ce qu'Android lit vraiment au demarrage du conteneur.
+# S'il ne porte pas la densite, elle n'a jamais ete versee, quoi que dise
+# waydroid.cfg — et c'est exactement l'etat trouve sur cette machine.
+grep -q '^ro.sf.lcd_density=140' /var/lib/waydroid/waydroid_base.prop 2>/dev/null || manque=1
 if [ "$manque" = 1 ]; then
     s_dire "Android" "Reglage de l'affichage — un mot de passe va etre demande, une seule fois." phone
     pkexec /usr/bin/python3 - <<'PY' >/dev/null 2>&1 || true
@@ -88,7 +187,7 @@ c.optionxform = str
 c.read(p, encoding="utf-8")
 if not c.has_section("properties"):
     c.add_section("properties")
-c.set("properties", "persist.waydroid.multi_windows", "true")
+c.set("properties", "persist.waydroid.multi_windows", "false")
 c.set("properties", "ro.sf.lcd_density", "140")
 # suspend_action vit dans [waydroid], pas dans [properties] : ce n'est pas une
 # propriete Android, c'est une decision de waydroid lui-meme.
@@ -98,6 +197,15 @@ t = io.StringIO()
 c.write(t, space_around_delimiters=True)
 io.open(p, "w", encoding="utf-8").write(t.getvalue())
 PY
+    # ECRIRE LA CONFIGURATION NE SUFFIT PAS — il faut la verser. Sans cette
+    # ligne, ro.sf.lcd_density reste a 180 dans Android quoi qu'on ecrive, et
+    # la seule trace du reglage est un fichier que personne ne lit.
+    # « -o » : l'amont le decrit lui-meme comme « just for updating configs »
+    # — pas de telechargement d'images, seulement la configuration lxc et
+    # waydroid_base.prop, puis le conteneur repart s'il tournait. On ne
+    # reimplemente donc rien : on appelle ce que l'amont maintient.
+    s_dire "Android" "Application des reglages a Android…" phone
+    pkexec /usr/bin/waydroid upgrade -o >>"$S_ETAT/android-init.log" 2>&1 || true
 fi
 
 # --- Demarrer la session, si elle ne tourne pas -----------------------------
@@ -118,8 +226,107 @@ waydroid status 2>/dev/null | grep -qi 'RUNNING' || \
 # Une session deja lancee avant ce correctif garde son mode plein ecran : la
 # propriete posee ici ne prendra qu'au prochain demarrage du conteneur. On la
 # pose quand meme plutot que de laisser la machine dans deux etats differents.
-if [ "$(waydroid prop get persist.waydroid.multi_windows 2>/dev/null)" != "true" ]; then
-    waydroid prop set persist.waydroid.multi_windows true >/dev/null 2>&1 || true
+if [ "$(waydroid prop get persist.waydroid.multi_windows 2>/dev/null)" != "false" ]; then
+    waydroid prop set persist.waydroid.multi_windows false >/dev/null 2>&1 || true
+fi
+
+# --- EMPECHER ANDROID DE S'ENDORMIR ----------------------------------------
+#
+# LE DEFAUT, MESURE LE 2026-08-25 AU SOIR, ET IL NE RESSEMBLAIT PAS A CA.
+# L'utilisateur a rapporte « aucune connexion internet » dans les applications
+# Android, alors que l'hote avait internet et que le masquage reseau comptait
+# ses paquets. Releve dans le conteneur :
+#
+#     ip route          → 192.168.240.0/24 dev eth0 ... et RIEN d'autre
+#     getprop net.dns1  → (vide)
+#     ping 8.8.8.8      → Network is unreachable
+#
+# Android avait son adresse et aucun moyen de sortir de son sous-reseau.
+#
+# LA CAUSE, LUE DANS waydroid.log :
+#     17:55:52  lxc-freeze → FROZEN
+#     17:58:32  FROZEN → lxc-unfreeze
+# et pendant ce temps le compteur du pont waydroid0 fige a RX = 8862 paquets.
+#
+# Un conteneur gele, ce sont TOUS ses processus arretes : plus de pile reseau,
+# plus d'ARP, plus de bail DHCP. Au degel, Android ne recupere ni sa route par
+# defaut ni son DNS. Le gel ne casse donc pas que l'affichage — il casse le
+# reseau, durablement, et rien ne le dit.
+#
+# ON NE PEUT PAS REFUSER LE GEL. « suspend_action » n'a que deux comportements
+# dans waydroid 1.6.3 : « stop », qui arrete la session entiere, ou geler. La
+# valeur « none » n'existe pas (voir le bloc des reglages plus haut).
+#
+# LE LEVIER EST DE L'AUTRE COTE. Le gel n'est pas decide par Waydroid : Android
+# le DEMANDE, en appelant suspend() sur IHardware quand il eteint son ecran.
+# Un ecran qui ne s'eteint jamais ne demande jamais rien. C'est une politique
+# d'economie d'energie pensee pour un telephone dans une poche, appliquee a une
+# fenetre de bureau — la meme famille que la densite de 180.
+#
+# MESURE SUR LA MACHINE : 25 gels dans la journee, le dernier a 17 h 55, AUCUN
+# apres avoir pose ces deux reglages.
+#
+# Le garde interroge Android, jamais un fichier — la lecon de la journee.
+# LE GARDE NE PEUT PAS INTERROGER ANDROID ICI, ET IL FAUT LE DIRE.
+# « waydroid shell » exige les droits d'administrateur : un garde qui lirait la
+# valeur demanderait donc le mot de passe A CHAQUE lancement d'Android, pour
+# decouvrir neuf fois sur dix qu'il n'y a rien a faire. C'est le contraire de ce
+# qu'on veut.
+#
+# On garde donc la trace de la VALEUR appliquee, pas le fait d'etre passe. La
+# nuance est celle que ce carnet reproche aux marqueurs de premier demarrage de
+# l'amont : un marqueur qui dit « c'est fait » empeche tout correctif futur ;
+# un marqueur qui dit « j'ai applique 2147483647 » se perime tout seul le jour
+# ou la valeur voulue change, et la machine recoit la nouvelle.
+VEILLE_VOULUE=2147483647
+VEILLE_VUE="$(cat "$S_ETAT/android-veille" 2>/dev/null || true)"
+if [ "$VEILLE_VUE" != "$VEILLE_VOULUE" ]; then
+    s_dire "Android" "Reglage de la mise en veille — un mot de passe va etre demande." phone
+    if pkexec /usr/bin/sh -c "
+        waydroid shell -- settings put system screen_off_timeout ${VEILLE_VOULUE} &&
+        waydroid shell -- settings put global stay_on_while_plugged_in 7
+    " >>"$S_ETAT/android-init.log" 2>&1; then
+        printf '%s\n' "$VEILLE_VOULUE" > "$S_ETAT/android-veille"
+    fi
+    # Rien n'est ecrit si pkexec echoue ou si l'utilisateur annule : le prochain
+    # lancement reessaiera, plutot que de croire le travail fait.
+fi
+
+# --- LA COUCHE VIDEO, ET POURQUOI ELLE DISPARAISSAIT ------------------------
+#
+# En fenetre par application, une video jouee dans une SurfaceView laissait un
+# TROU : on voyait le bureau au travers. Pas un ecran noir — rien du tout.
+# Android decodait (la barre de progression avancait), l'application dessinait
+# son interface, et la couche video n'arrivait nulle part.
+#
+# Ecarte par la mesure, dans cet ordre : les codecs (l'image declare 27
+# decodeurs OMX dont vp9, vp8, opus, aac), le mode plein ecran (identique), et
+# l'hote (kwin annonce NV12 et P010, wl_subcompositor et wp_viewporter sont la).
+#
+# LE LEVIER EST NOMME DANS LE BINAIRE DU COMPOSITEUR. « strings » sur
+# /vendor/lib64/hw/hwcomposer.waydroid.so rend :
+#
+#     persist.waydroid.use_subsurface
+#     persist.waydroid.no_background_subsurface
+#     "usage of subsurfaces requested but wl_subcompositor is not supported."
+#     wl_subsurface · wp_viewport · apply_hwc_layer_to_window
+#
+# Sans « use_subsurface », Waydroid compose les couches lui-meme au lieu de les
+# confier a kwin comme sous-surfaces — et la couche video se perd en route.
+# Elle etait vide sur cette machine.
+#
+# RESERVE ASSUMEE : ce reglage n'a PAS ete juge a l'ecran au moment ou ces
+# lignes sont ecrites. Il est pose parce que le levier est nomme, eteint, et que
+# kwin annonce les deux protocoles qu'il faut — pas parce qu'on l'a vu marcher.
+# Si la video reste trouee, c'est ici qu'il faut revenir, et le compromis
+# suivant est « multi_windows », qui est un choix d'usage et non technique.
+# « false » N'EST PAS « on n'y touche pas » : c'est ce qui choisit la variante
+# COMPOSITING du mode fenetre unique. « true » demanderait des sous-surfaces —
+# essaye dans les deux sens le 2026-08-25, sans effet sur la video, et c'est la
+# variante non-compositing. On pose donc la valeur explicitement plutot que de
+# compter sur un defaut qui pourrait changer en amont.
+if [ "$(waydroid prop get persist.waydroid.use_subsurface 2>/dev/null)" != "false" ]; then
+    waydroid prop set persist.waydroid.use_subsurface false >/dev/null 2>&1 || true
 fi
 
 # --- Poser le magasin, une seule fois --------------------------------------

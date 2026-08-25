@@ -165,13 +165,433 @@ c'est la première fois qu'elle tient debout.
   changé pour lui. La marche à suivre écrite le 2026-08-23 tient toujours :
   `waydroid bugreport` **pendant** que le glitch se produit, puis une variable
   à la fois.
-- **Le presse-papiers Linux↔Android n'existe pas.** Il est maintenant
-  mesurable — Android tourne — et il ne l'était pas hier.
+- ~~**Le presse-papiers Linux↔Android n'existe pas.**~~ **Il existait depuis
+  le début, et il fonctionne depuis le 2026-08-25 à 17 h** : Waydroid fournit le
+  pont binder entier, il lui manquait le paquet `python3-pyclip`. Éprouvé dans
+  les deux sens à l'écran. Voir la section de 17 h.
 - **`bootc rollback` n'a toujours jamais été exercé**, alors que deux
   déploiements coexistent sur cette machine.
 - ~~`galerie/constellation` n'a toujours aucune capture.~~ **Elle en a une,
   prise le 2026-08-25 à 12 h 23 sur cette machine**, et c'est la première pièce
   de la Galerie rendue par une vraie carte graphique. Voir plus bas.
+
+---
+
+## 2026-08-25, soir — Android en usage reel, et le temoin du matin qui parle
+
+Quatre pannes rapportees par l'usage, toutes sur Android. **Trois sont reglees et
+mesurees ; la quatrieme est cernee a une seule variable.** Et le journal de la
+coquille a livre au passage la cause que le carnet disait inconnue le matin meme.
+
+### La methode d'abord, parce qu'elle a paye
+
+**Quatre hypotheses formees, trois refutees par la mesure avant d'entrer nulle
+part.** Aucune n'est partie dans le depot.
+
+| Hypothese | Ce qui l'a tuee |
+|---|---|
+| `debug.stagefright.ccodec=0` prive YouTube de decodeurs | l'image declare **27 codecs OMX**, dont vp9, vp8, opus, aac |
+| Le multi-fenetrage casse la video, donc le plein ecran la repare | l'utilisateur : *« c'est pareil en plein ecran »* |
+| Le masquage reseau manque | `firewall-cmd` disait non ; `nft` a montre la regle, **218 paquets deja traduits**, posee par iptables-nft hors de firewalld |
+
+Et la mesure qui a le plus servi ne vient pas de moi : **l'utilisateur a trouve
+que YouTube lance par `s-android` marche, et que le meme YouTube lance depuis la
+barre echoue.** Deux chemins, une seule variable — `waydroid show-full-ui`
+contre `waydroid app launch`. C'est ce qui a isole le defaut.
+
+### Le gel : la cause reelle, et le levier qui marche
+
+Le carnet accusait le gel du conteneur depuis le 2026-08-23 et le croyait corrige
+par `suspend_action = none`. **Les deux moities etaient fausses en meme temps** :
+la valeur ne fait rien (voir la section de 17 h), et le gel n'etait pas la cause
+du trou dans la video — la barre de progression avancait, donc le conteneur
+tournait.
+
+**Mais le gel cassait autre chose, et personne ne l'avait relie.** Releve dans
+`/var/lib/waydroid/waydroid.log` :
+
+```
+17:21:35  FROZEN → lxc-unfreeze      l'utilisateur lance la video
+17:55:52  lxc-freeze → FROZEN        le conteneur gele
+17:58:32  FROZEN → lxc-unfreeze      il degele
+```
+
+Et pendant ce temps, cote hote, le compteur du pont `waydroid0` **n'a pas bouge
+d'un paquet** : `RX = 8862`, fige. Un conteneur gele, ce sont tous ses processus
+arretes — plus de pile reseau, plus d'ARP, plus de bail DHCP. Au degel, Android
+ne recupere rien. Releve dans le conteneur, apres :
+
+```
+ip route  →  192.168.240.0/24 dev eth0 ... src 192.168.240.112     (et rien d'autre)
+getprop net.dns1  →  (vide)
+ping 8.8.8.8      →  Network is unreachable
+```
+
+**Il avait son adresse et aucun moyen de sortir de son propre sous-reseau.**
+C'est ca, « aucune connexion internet » dans les applications Android.
+
+Le gel n'est pas decide par Waydroid : **Android le demande**, en appelant
+`suspend()` sur `IHardware` quand il eteint son ecran. On ne peut pas refuser le
+gel — `none` n'existe pas, `stop` est pire. On peut empecher Android de
+s'endormir :
+
+```
+settings put system screen_off_timeout 2147483647
+settings put global stay_on_while_plugged_in 7
+```
+
+**Mesure : 25 gels dans la journee, le dernier a 17 h 55, aucun depuis.**
+
+### Le son n'etait pas casse, il etait inatteignable
+
+L'hote etait hors de cause de bout en bout, et ca valait d'etre mesure avant de
+chercher ailleurs : `wpctl` montre le flux **Waydroid** vivant, volume 1.00, non
+coupe, branche sur la meme sortie que Vivaldi — que l'utilisateur entendait.
+
+Le silence venait d'Android : `volume_music = 5`. **Et surtout, aucun moyen de
+le changer** — une fenetre par application n'a ni barre d'etat, ni panneau de
+volume, ni touches de volume. Le reglage existe et rien ne le presente.
+
+Monte, le son marche partout, y compris dans les fenetres par application.
+
+### La video : cerne a une variable, pas encore prouve
+
+Symptome exact, et il a fallu la formulation de l'utilisateur pour le comprendre :
+**ce n'est pas un ecran noir, c'est un trou.** On voit le bureau au travers.
+Android decode (la barre avance), l'application dessine son interface, et la
+couche video n'apparait nulle part.
+
+Ce qui a ete ecarte : les codecs, le mode plein ecran, l'hote (kwin annonce NV12
+et P010, `wl_subcompositor` et `wp_viewporter` sont la).
+
+**Le levier trouve dans le binaire du compositeur** —
+`strings` sur `hwcomposer.waydroid.so` :
+
+```
+persist.waydroid.use_subsurface
+persist.waydroid.no_background_subsurface
+"usage of subsurfaces requested but wl_subcompositor is not supported."
+wl_subsurface  ·  wp_viewport  ·  apply_hwc_layer_to_window
+```
+
+`use_subsurface` etait **vide**. Essaye a `true`, puis a `false`, session
+redemarree entre les deux (le conteneur redemarre bien, verifie dans
+waydroid.log) : **aucun effet**, les couches restent `DEVICE` dans les deux cas.
+Refutee.
+
+### ET LA SOLUTION, TROUVEE DANS LA TABLE DES SYMBOLES
+
+L'amont n'avait rien de plus recent — l'image systeme du 2026-04-03 **est** la
+derniere publiee, le vendor du 2026-04-28 aussi. Verifie sur les deux flux OTA.
+Il fallait donc trouver, pas attendre.
+
+`strings` sur `hwcomposer.waydroid.so`, puis `c++filt`, rend la hierarchie
+entiere des modes du compositeur :
+
+```
+compositing_full_ui_mode        / non_compositing_full_ui_mode
+compositing_single_window_mode  / non_compositing_single_window_mode
+multi_window_mode               <- SEUL, sans variante « compositing »
+closed_mode
+```
+
+**« full_ui » et « single_window » ont chacun une variante qui COMPOSE les
+couches ensemble. « multi_window_mode » n'en a pas.** Il ne sait que faire
+correspondre une couche a une fenetre — d'ou son `can_handle_layer()`, d'ou
+`skipped_layers_helper`, et d'ou la couche video qui n'a nulle part ou aller.
+
+**Ce n'est donc pas un bogue : c'est une capacite que ce mode n'a jamais eue.**
+Trois jours de carnet ont cherche un defaut la ou il n'y avait qu'une absence.
+
+Et le releve de SurfaceFlinger le montrait depuis le debut, sans qu'on sache le
+lire :
+
+```
+TID:23#…/HomeActivity#115       DEVICE  1920x1028   <- la fenetre, posee
+     …/HomeActivity(BLAST)#126  DEVICE  1280x714    <- la video, perdue
+```
+
+**LE CORRECTIF : `multi_windows = false` AVEC `waydroid app launch <paquet>`.**
+Ce n'est PAS le plein ecran d'Android — c'est
+`compositing_single_window_mode` : une fenetre qui ne montre que
+l'application, **sans barre d'etat, sans barre de navigation, sans lanceur**, et
+dont le compositeur assemble lui-meme toutes les couches.
+
+**Eprouve a l'ecran par l'utilisateur le 2026-08-25 au soir : la video joue.**
+Avec le son, dans une fenetre, sans une seule interface d'Android visible.
+
+C'est la regle 9 du projet tenue jusqu'au bout — *une couture ne montre jamais
+son moteur* — et c'est la demande de l'utilisateur, mot pour mot : *« une icone,
+clique, fonctionne, je ne veux aucunes interfaces tierces »*.
+
+**Ce que ca coute, et le carnet ne le cache pas :** Waydroid ne tient qu'UNE
+fenetre Android a la fois dans ce mode. Ouvrir Gmail pendant que YouTube tourne
+remplace la fenetre au lieu d'en ajouter une.
+
+**Et ce que ca corrige dans ce carnet :** l'entree du 2026-08-25 apres-midi
+celebrait `multi_windows = true` comme ayant fait tomber cinq jours de
+suppositions. C'etait vrai — il a rendu Android fenetre au lieu de plein ecran —
+et c'est lui qui a introduit le trou dans la video. Les deux sont vrais ; la
+seconde moitie a mis une soiree a se voir.
+
+### SIX HYPOTHESES, CINQ REFUTEES, ET AUCUNE N'EST ENTREE DANS LE DEPOT
+
+| Hypothese | Ce qui l'a tuee |
+|---|---|
+| `debug.stagefright.ccodec=0` prive des decodeurs | 27 decodeurs OMX presents, vp9/vp8/opus/aac compris |
+| Le plein ecran de l'application repare | l'utilisateur : « c'est pareil » |
+| Le masquage reseau manque | la regle existe, 218 paquets deja traduits |
+| `use_subsurface` | essaye dans les deux sens, couches inchangees |
+| Forcer la composition GPU (`SurfaceFlinger 1008`) | **plus AUCUNE fenetre Android** |
+| **Le mode fenetre unique compositing** | **eprouve a l'ecran : la video joue** |
+
+Et la cinquieme, en echouant, a livre le mecanisme : **le compositeur fabrique
+les fenetres Wayland A PARTIR des couches `DEVICE`.** Sans elles, pas de
+fenetres. C'est ce qui a permis de comprendre que la couche video, elle, n'etait
+rattachee a aucune.
+
+**La mesure qui a tout debloque ne vient pas de moi.** L'utilisateur a remarque
+que YouTube lance par `s-android` marchait et que le meme YouTube lance depuis
+la barre echouait. Deux chemins, une seule variable — `show-full-ui` contre
+`app launch`. Sans ca, je cherchais encore dans les codecs.
+
+### Un plantage du compositeur, releve et non explique
+
+```
+Cmdline: /vendor/bin/hw/android.hardware.graphics.composer@2.1-service
+Abort message: 'Binder threadpool cannot be shrunk after starting'
+  #04 libhidlbase.so (configureBinderRpcThreadpool)
+  #05 hwcomposer.waydroid.so (hwc_binder_thread+81)
+```
+
+Un seul plantage, au demarrage de la session ; `init` relance le service, sinon
+il n'y aurait aucune image. **Ce n'est pas la cause du trou** — l'affichage
+fonctionne apres. C'est ecrit ici parce que ca reviendra.
+
+### Et le temoin du matin a nomme la cause que le carnet disait inconnue
+
+Le journal de la coquille, releve du demarrage de 16 h 52 :
+
+```
+qml: vignette trois : dimensions refusees -32x-20      (18 fois)
+Constellation.qml:408: ReferenceError: menuDemarrer is not defined
+```
+
+**La chaine se lit d'un bout a l'autre :**
+
+```
+Column { id: corps ; width: parent.width }       0 tant que la ScrollView n'a pas mesure
+  Column { width: parent.width - 32 }            0 - 32 = -32
+    Grid { width: parent.width }                 -32, columns retombe a 1
+      delegate { width: (-32 - 0) / 1 }          -32 de large, -20 de haut
+```
+
+Une marge fixe soustraite d'une largeur encore nulle.
+
+**ET C'EST POURQUOI LE BANC DU MATIN AVAIT REFUTE LA BONNE HYPOTHESE.** Il avait
+essaye une taille **nulle**, qui n'appelle jamais `onPaint` — vrai, et sans
+rapport. Une taille **negative**, elle, appelle `onPaint` et passe des valeurs
+impossibles a `createRadialGradient`. Le banc mesurait le mauvais cas et rendait
+un verdict assure. *Le garde et le temoin poses le matin, eux, ont fait
+exactement ce qu'on leur demandait : rendre la prochaine occurrence lisible.*
+
+Corrige a la source par un `Math.max(0, ...)` sur les **quatre** occurrences.
+
+### Deux defauts latents trouves en corrigeant le premier
+
+`menuDemarrer` ne resout pas dans les delegues de `Repeater`, comme `bureau`
+avant lui. Le journal n'en signalait qu'un — la ligne 408, l'ouverture d'une
+application depuis le menu. **Deux autres etaient dans le meme cas sans avoir
+ete cliques :**
+
+- ligne 452, ouvrir un dossier ;
+- **ligne 605, « Eteindre » et « Redemarrer »** — `menuDemarrer.close()` y est la
+  PREMIERE ligne, donc `pont.session()` n'etait jamais atteint. **Eteindre depuis
+  le menu Demarrer ne faisait rien**, et personne ne l'avait signale.
+
+Le singleton `Session` porte desormais le menu comme il porte le bureau.
+Controle de construction repasse : *« scene QML : chargee, menu ouvert, aucun
+avertissement »*.
+
+### Et une reponse a la question posee
+
+*« L'appli YouTube de ma barre, est-ce que ca roule sur Waydroid ? »* Oui — les
+deux. `usage.json` compte **18 lancements** de
+`waydroid.com.google.android.youtube` : la barre a bien emis l'ordre a chaque
+clic, et la coquille n'a rien journalise. Le defaut est entierement du cote de
+Waydroid, pas de S.
+
+### Ce que cette passe ne prouve pas
+
+- ~~**`use_subsurface` n'a pas ete juge.**~~ Juge dans les deux sens, sans effet.
+  Le correctif est ailleurs — voir plus haut.
+- **Le plantage du compositeur n'est pas explique**, seulement releve.
+- **Les correctifs QML de ce soir ne sont pas dans l'image** — controle de
+  construction passe, pas de clic reel.
+- ~~**Le correctif du gel n'est pas dans `s-android`.**~~ Il y est, avec le mode
+  fenetre unique et la densite. **Mais rien de tout cela n'est encore dans
+  l'IMAGE** : il faut une construction et un `bootc upgrade`. Sur cette machine
+  les reglages sont poses a la main et tiennent ; sur une machine neuve, ils
+  n'arriveront qu'avec l'image.
+
+---
+
+## 2026-08-25, 17 h — le presse-papiers existait deja, et trois lignes de ce carnet etaient fausses
+
+Cinq chantiers repris d'un coup. Trois sont clos ; le chemin a fait tomber
+**trois affirmations de ce carnet**, toutes du meme type : *un fichier de
+configuration lu a la place de la machine.*
+
+### Vivaldi ne se lancait plus, et la cause etait le nom de la machine
+
+```
+~/.config/vivaldi/SingletonLock -> bazzite-15646
+```
+
+Un profil Chromium se protege par un lien symbolique « machine-pid ». Au
+demarrage le navigateur le relit, et **son comportement depend du nom** : meme
+machine, il verifie si le PID vit encore et casse le verrou tout seul s'il est
+mort ; **autre machine, il n'y touche JAMAIS** — il suppose un dossier personnel
+partage en reseau et refuse, pour ne pas l'abimer.
+
+Or S renomme la machine. `35-identite.sh` ecrit `DEFAULT_HOSTNAME="s"` dans
+`os-release`, et comme `/etc/hostname` est vide, c'est ce nom que systemd
+retient. **Le jour ou S a pris son nom, tout profil ne sous « bazzite » a herite
+d'un verrou que rien ne casserait plus.** Deux etaient dans ce cas : Vivaldi, et
+l'ancienne Constellation servie en page web.
+
+Ce n'est donc pas un incident : c'est une **consequence permanente de l'identite
+de S**, qui frappera toute machine mise a jour depuis une image anterieure.
+`s-corriger-machine` gagne une cinquieme correction — elle ne retire que les
+verrous portant un AUTRE nom, jamais ceux que Chromium sait reparer. Eprouvee
+sur quatre profils factices : les trois noms etrangers tombent avec leurs trois
+fichiers, le local reste intact, et un nom a tirets est coupe au bon endroit.
+
+*Et le silence s'explique aussi* : Chromium voulait afficher « le profil est
+utilise sur un autre ordinateur » dans une boite de dialogue, et le journal le
+dit — `Unable to show message box`. La coquille n'avait rien a montrer.
+
+### La cible de session, prouvee sur la vraie cible
+
+Le carnet ecrivait a 16 h : *« Le correctif de `s-session.target` n'est pas dans
+l'image. Il est prouve au banc, pas sur la vraie cible. »* Le `bootc upgrade` de
+16 h 52 l'a embarque, et la mesure est faite :
+
+```
+16:53:02  Reached target s-session.target - S - la session graphique.
+16:53:02  Reached target graphical-session.target - Current graphical user session.
+```
+
+**Et aucune ligne « Stopped target » derriere**, la ou le demarrage de 15 h 50 en
+portait une a la meme seconde. Les deux cibles sont toujours actives sept minutes
+plus tard, le portail XDG et l'accessibilite tournent, zero unite en echec —
+systeme et session. La session ne tient plus par accident.
+
+### Le presse-papiers Linux <-> Android : il existait, il lui manquait un paquet
+
+Le carnet le portait comme un chantier a ecrire depuis le 2026-08-24. **Waydroid
+le fournit en entier, et personne n'avait regarde.**
+
+```
+tools/interfaces/IClipboard.py        service binder « waydroidclipboard »
+                                      transaction 1  sendClipboardData
+                                      transaction 2  getClipboardData
+tools/services/clipboard_manager.py   demarre dans la session (session_manager.py:108)
+```
+
+Ce qui l'eteignait tient en trois lignes : le gestionnaire s'ouvre sur un
+`try: import pyclip`, et si l'import echoue il se saute lui-meme en journalisant
+**au niveau `debug`**. Invisible partout. Le paquet `waydroid` de Fedora ne tire
+pas `python3-pyclip`, qui existe pourtant dans les depots et se pose entierement
+dans `/usr`.
+
+**Eprouve AVANT de reconstruire l'image**, en depliant le RPM et en l'injectant
+par `PYTHONPATH` dans une vraie session Waydroid — la recette est au Grimoire.
+Deux sessions, une seule variable :
+
+| | fils du processus de session |
+|---|---|
+| avec pyclip | **7** |
+| sans pyclip | 6 |
+| avec pyclip | **7** (reproduit) |
+
+Puis la mesure qui compte, a l'ecran, dans les deux sens : un temoin ecrit sous
+Linux colle dans Android, et **du texte copie dans YouTube sous Android relu
+sous Linux par `wl-paste`** — un outil qui ne sait rien de Waydroid :
+
+```
+Provided to YouTube by JVCKENWOOD Victor Entertainment Corp.
+```
+
+**C'est la seconde moitie du jalon 5, et elle tient debout.**
+
+### Deux reglages Android que le carnet declarait appliques, et qui ne l'etaient pas
+
+**`suspend_action = none` ne fait rien.** Le code de l'amont,
+`hardware_manager.py:22-27`, n'a que deux branches :
+
+```python
+if cfg["waydroid"]["suspend_action"] == "stop":  session_manager.stop(args)
+else:                                            container_manager.freeze(args)
+```
+
+« none » n'est implemente nulle part dans waydroid 1.6.3 — le mot n'apparait pas
+une seule fois dans `tools/` — et tombe dans le `else`, ou il gele exactement
+comme la valeur par defaut. Releve a 17 h, la valeur `none` deja posee :
+**`Session RUNNING / Container FROZEN`**. Le gel est intact, et le carnet
+affirmait le contraire depuis le matin.
+
+**La densite n'a jamais atteint Android.** `waydroid.cfg` dit 140 ;
+`waydroid prop get ro.sf.lcd_density` dit **180**. La cause, lue dans le code :
+la section `[properties]` n'est versee dans le conteneur que par
+`make_base_props()`, appele **uniquement** depuis `initializer.py`
+(`waydroid init`) et `upgrader.py` (`waydroid upgrade`) — jamais au demarrage du
+conteneur, jamais au demarrage de la session. Releve :
+`waydroid_base.prop` date de **10 h 44**, ne porte aucun des trois reglages, et
+le conteneur a demarre a **16 h 52** sans le regenerer.
+
+`multi_windows` faisait exception, et **par accident** : c'est une propriete
+`persist.`, que `s-android` repose a chaque lancement et qu'Android garde dans
+son propre magasin. Un seul des trois reglages marchait, pour une raison qui
+n'avait rien a voir avec le mecanisme cense les poser.
+
+`s-android` appelle desormais `waydroid upgrade -o` — que l'amont decrit lui-meme
+comme *« just for updating configs »* — et **son garde interroge Android au lieu
+de relire le fichier**. C'est la lecon de la passe, et elle est ancienne :
+*« Je ne peux pas voir » n'est pas « il n'y a rien »*, et son symetrique, *« le
+fichier le dit » n'est pas « la machine le fait »*.
+
+### Et l'outil ecrit pour detecter le succes silencieux l'a commis
+
+`controler_place_rpm`, dans la piece neuve du Grimoire, filtre la liste des
+fichiers d'un paquet et refuse ceux qui se posent hors de `/usr`. Essaye sur
+**`vivaldi-stable`** — le paquet qui, dans ce projet, a coute un detour entier
+par `/opt` — il a repondu **« tout est dans /usr »**.
+
+Parce que le paquet n'est pas dans les depots actives ici : `repoquery` a rendu
+une liste **vide**, le `grep` n'a rien trouve, et l'absence de mauvaise nouvelle
+a ete lue comme une bonne. Corrige : une liste vide rend desormais 2 et dit
+qu'on ne peut rien conclure. *Le defaut a ete trouve en exercant la fonction
+dans les deux sens, pas en la relisant.*
+
+### Ce que cette passe ne prouve pas
+
+- **Le glitch d'affichage de Waydroid n'est toujours pas diagnostique** — et on
+  sait maintenant que le gel du conteneur, qu'on l'accusait d'avoir cause,
+  **n'a jamais ete desarme**. L'hypothese redevient testable.
+- **La densite n'a pas encore ete versee sur cette machine** : le correctif est
+  ecrit, `waydroid upgrade -o` n'a pas tourne. Android est toujours a 180.
+- **La capture de la Galerie n'est pas prise.** Le bureau virtuel vide rend une
+  image **blanche** : ni Constellation ni la barre n'y sont — donc un second
+  bureau virtuel donne aujourd'hui un ecran sans bureau et sans barre, ce qui est
+  un defaut a part entiere, releve et non corrige.
+- **`bootc rollback` n'a toujours pas ete exerce.** Les deux deploiements sont
+  mesures : celui qui tourne (`1c3b96d2`, 16 h 46) porte le clavier CSA et la
+  cible corrigee ; la cible du rollback (`39f70f4f`, 15 h 44) porte ni l'un ni
+  l'autre — elle a encore `StopWhenUnneeded`. Revenir en arriere coute donc
+  exactement ces deux correctifs, et un second rollback les rend.
+- **Rien de ces trois fichiers n'est dans l'image.** Le presse-papiers a tourne
+  par injection `PYTHONPATH`, pas depuis `/usr`.
 
 ---
 
@@ -338,9 +758,8 @@ Releve du 2026-08-25 a 16 h, sur une machine redemarree a 15 h 50 :
   fait pas tomber pour voir sur une session qu'on est en train d'utiliser.
 - **La cause des erreurs de `Fonds.js` reste inconnue.** Seul un temoin a ete
   pose.
-- **Le presse-papiers Linux↔Android n'existe toujours pas**, et c'est desormais
-  le manque le plus visible du jalon 4, puisque les trois mondes servent le meme
-  jour.
+- ~~**Le presse-papiers Linux↔Android n'existe toujours pas.**~~ **Corrige le
+  2026-08-25 a 17 h** — il ne manquait qu'un paquet. Voir la section de 17 h.
 - **`bootc rollback` n'a toujours jamais ete exerce.**
 
 ---
@@ -581,10 +1000,14 @@ compositeur ne l'en fait pas demordre. Les fenetres Android couvriront donc les
 - **Le bornage n'a ete essaye que sur une Konsole**, une seule fois, sur un seul
   ecran.
 - ~~Les trois reglages Waydroid n'ont pas ete appliques sur cette machine.~~
-  **Ils le sont** — releve dans `/var/lib/waydroid/waydroid.cfg` le 2026-08-25
-  a 16 h : `suspend_action = none`, `persist.waydroid.multi_windows = true`,
-  `ro.sf.lcd_density = 140`. Le gel du conteneur et la demesure de l'affichage
-  sont donc regles sur cette machine, pas seulement dans le depot.
+  ~~**Ils le sont** — releve dans `/var/lib/waydroid/waydroid.cfg` le 2026-08-25
+  a 16 h.~~ **FAUX, corrige le 2026-08-25 a 17 h : ce releve lisait le fichier
+  de configuration, pas la machine.** Un seul des trois est effectif.
+  `waydroid prop get ro.sf.lcd_density` rend **180**, pas 140 — `[properties]`
+  n'est verse dans le conteneur que par `waydroid init` ou `waydroid upgrade`.
+  Et `suspend_action = none` **n'existe pas** dans waydroid 1.6.3 : il tombe
+  dans le `else` qui gele. Seul `multi_windows` marche, et par accident — c'est
+  une propriete `persist.` reposee a chaque lancement. Voir la section de 17 h.
 - **Le glitch d'affichage d'Android n'est toujours pas diagnostique** — et il se
   peut que le gel du conteneur en ait toujours ete la cause, ce qui reste a
   verifier plutot qu'a proclamer.

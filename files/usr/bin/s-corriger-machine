@@ -2,7 +2,7 @@
 # S — ce qu'aucune image ne peut poser d'avance, parce que le compte
 # n'existe pas au moment de la construction.
 #
-# TROIS CORRECTIONS, TOUTES POSEES A CHAQUE DEMARRAGE, TOUTES IDEMPOTENTES :
+# QUATRE CORRECTIONS, TOUTES POSEES A CHAQUE DEMARRAGE, TOUTES IDEMPOTENTES :
 #
 #   1. Le compte cree par plasma-setup n'entre pas forcement dans « wheel »,
 #      et sans ce groupe, sudo echoue silencieusement. Note dans le carnet :
@@ -20,6 +20,13 @@
 #      On ne force JAMAIS un choix entre S et son bureau de secours — seule
 #      une session ETRANGERE aux deux est corrigee, pour que la premiere
 #      connexion tombe directement sur S sans qu'on ait a la choisir a la main.
+#
+#   4. Les verrous de profil Chromium portant un ancien nom de machine. S
+#      renomme la machine en « s » (DEFAULT_HOSTNAME dans os-release) ; tout
+#      profil ne sous le nom precedent garde un verrou que le navigateur ne
+#      cassera jamais de lui-meme, et refuse alors de s'ouvrir sans rien dire
+#      de visible. Mesure sur cette machine le 2026-08-25 : Vivaldi bloque
+#      depuis la veille par « bazzite-15646 ». Detail complet a la section 5.
 #
 # CE SCRIPT NE SUPPOSE PAS avoir verifie le format exact d'AccountsService sur
 # cette version precise de Bazzite : il ecrit la forme documentee du projet
@@ -114,5 +121,57 @@ for compte in "${COMPTES[@]}"; do
        && ! grep -q '^Icon=' "$fichier"; then
         sed -i "/^\[User\]/a Icon=$icone" "$fichier"
         dire "$compte : Icon=$icone declare"
+    fi
+
+    # --- 5. Les verrous Chromium orphelins d'un ancien nom de machine -------
+    # LE DEFAUT, MESURE LE 2026-08-25 : Vivaldi refusait de s'ouvrir, sans
+    # fenetre ni message visible. Sa cause n'etait pas Vivaldi.
+    #
+    #   ~/.config/vivaldi/SingletonLock -> bazzite-15646
+    #
+    # Un profil Chromium se protege par un lien symbolique « machine-pid ». Au
+    # demarrage, le navigateur le relit :
+    #   - si la machine est LA MEME, il regarde si le PID vit encore, et casse
+    #     le verrou tout seul s'il est mort. Ce cas se repare sans nous.
+    #   - si la machine est AUTRE, il n'y touche jamais : il suppose un dossier
+    #     personnel partage en reseau, et refuse pour ne pas l'abimer. Il
+    #     affiche « le profil est utilise sur un autre ordinateur » — dans une
+    #     boite de dialogue que la coquille n'a pas pu montrer, d'ou le silence.
+    #
+    # OR S CHANGE LE NOM DE LA MACHINE. 35-identite.sh ecrit
+    # DEFAULT_HOSTNAME="s" dans os-release, et comme /etc/hostname est vide,
+    # c'est ce nom que systemd retient. Le jour ou S a pris son nom, tout profil
+    # ne avant — sous « bazzite » — s'est retrouve avec un verrou que rien ne
+    # cassera plus JAMAIS. Ni un redemarrage, ni une reinstallation du paquet.
+    # Deux profils etaient dans ce cas sur cette machine : celui de Vivaldi, et
+    # celui de l'ancienne Constellation servie en page web.
+    #
+    # Ce n'est donc pas un incident : c'est une consequence permanente de
+    # l'identite de S, qui frappera toute machine mise a jour depuis une image
+    # anterieure, et tout navigateur Chromium du systeme.
+    #
+    # ON NE TOUCHE QUE CE QUE CHROMIUM NE SAIT PAS REPARER. Un verrou portant le
+    # nom courant est laisse intact — il peut appartenir a une instance vivante,
+    # et le navigateur s'en occupe lui-meme. Un verrou portant un AUTRE nom ne
+    # peut appartenir a aucun processus d'ici : son numero de PID ne veut rien
+    # dire sur cette machine, et le tester serait pire que de ne pas le faire.
+    #
+    # RESERVE ASSUMEE : un dossier personnel reellement partage entre deux
+    # machines (NFS) porterait legitimement un tel verrou, et on le retirerait a
+    # tort. S monte un seul dossier personnel local ; le jour ou ce n'est plus
+    # vrai, cette section doit etre relue.
+    nom_machine="$(cat /proc/sys/kernel/hostname 2>/dev/null || true)"
+    if [[ -n "$nom_machine" && -d "$maison" ]]; then
+        while IFS= read -r verrou; do
+            cible="$(readlink "$verrou" 2>/dev/null)" || continue
+            [[ "$cible" == *-* ]] || continue
+            # Le nom peut contenir des tirets : on coupe au DERNIER, qui separe
+            # le PID. « ma-machine-15646 » doit rendre « ma-machine ».
+            if [[ "${cible%-*}" != "$nom_machine" ]]; then
+                rm -f "$verrou" "${verrou%Lock}Cookie" "${verrou%Lock}Socket"
+                dire "$compte : verrou perime retire ($cible) dans $(dirname "$verrou")"
+            fi
+        done < <(find "$maison/.config" "$maison/.local/share" "$maison/.var/app" \
+                      -maxdepth 3 -name SingletonLock -type l 2>/dev/null)
     fi
 done

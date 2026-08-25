@@ -43,6 +43,7 @@ preuve.** Pas la construction verte, pas le code écrit : la mesure.
 | [disque-sonde-ecriture.sh](disque-sonde-ecriture.sh) | Savoir avant d'engager si un disque acceptera l'écriture | 2026-08-21 |
 | [linux-couper-zram.sh](linux-couper-zram.sh) | Empêcher le zram de figer une grosse écriture | 2026-08-21 |
 | [banc-preambule.ps1](banc-preambule.ps1) | Les cinq murs de Windows sur un disque physique | 2026-08-21 |
+| [ostree-eprouver-dependance-python.sh](ostree-eprouver-dependance-python.sh) | Éprouver une dépendance Python manquante sans toucher à `/usr` | 2026-08-25 |
 | [banc-controler-scripts.sh](banc-controler-scripts.sh) | Quatre contrôles à une seconde qui évitent quatre cycles perdus | 2026-08-21 |
 | [ci-trouver-execution.sh](ci-trouver-execution.sh) | Retrouver la bonne exécution de CI sous `paths-ignore` | 2026-08-20 |
 | [qemu-observer-sans-casser.sh](qemu-observer-sans-casser.sh) | Diagnostiquer un QEMU « figé » sans aggraver son cas | 2026-08-21 |

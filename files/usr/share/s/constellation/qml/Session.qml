@@ -33,6 +33,17 @@ import QtQuick
 // la chaine des contextes : c'est un type, resolu a la compilation.
 //
 // Le bureau se pose ici lui-meme au demarrage, et rien d'autre n'y touche.
+// AJOUT DU 2026-08-25 AU SOIR : le menu, pour exactement la meme raison.
+// Le journal du demarrage de 16 h 52 porte, a chaque ouverture du menu :
+//
+//   Constellation.qml:408: ReferenceError: menuDemarrer is not defined
+//
+// Et deux autres appels sont dans le meme cas sans avoir encore ete cliques :
+// la ligne 452 (ouvrir un dossier) et la ligne 605 — celle-la ferme le menu
+// AVANT d'appeler pont.session(), donc « Eteindre » et « Redemarrer » depuis
+// le menu Demarrer echouaient a leur premiere ligne et ne faisaient rien.
+// Un defaut qui ne se voit qu'en cliquant, et que personne n'avait signale.
 QtObject {
     property var bureau: null
+    property var menu: null
 }

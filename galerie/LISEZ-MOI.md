@@ -94,6 +94,7 @@ des tâches.
 | Pièce | Ce que ça peint | Capture | Machine |
 |---|---|---|---|
 | **[constellation/](constellation/)** | Le bureau de S : un ciel, et les applications en étoiles | [constellation-2026-08-25.png](constellation/constellation-2026-08-25.png) | `s` — Intel UHD 630, pilote `i915` |
+| **[trois-mondes/](trois-mondes/)** | Les trois mondes servis ensemble — et une vidéo Android qui joue enfin | [android-video-2026-08-25.png](trois-mondes/android-video-2026-08-25.png) | `s` — Intel UHD 630, pilote `i915` |
 
 ### Constellation — la première pièce rendue par une vraie carte graphique
 
@@ -119,6 +120,27 @@ qui la servait : c'est d'elle que sort tout le vocabulaire visuel, et
 `Theme.qml` en reprend la palette couleur pour couleur.
 
 Publiée aussi ici : <https://claude.ai/code/artifact/92657e1b-fac5-449d-a5a4-492f09e252a8>
+
+### Les trois mondes — la pièce qui prouve la promesse du projet
+
+Prise le **2026-08-25 à 19 h 15**, sur `s`. Une vidéo YouTube joue plein cadre
+dans une fenêtre Android, et la barre de S porte six tuiles venues de deux
+mondes.
+
+**Ce qu'on ne voit pas est ce qui compte** : aucune barre d'état d'Android,
+aucune barre de navigation, aucun lanceur, aucun cadre de Waydroid. Une icône,
+un clic, l'application. C'est la règle 9 — *une couture ne montre jamais son
+moteur* — tenue jusqu'au bout, et c'est la demande de l'utilisateur mot pour
+mot.
+
+Le dossier garde aussi **deux captures du défaut**, prises le même soir, avant
+que la cause soit trouvée. Elles restent parce qu'elles ont servi : c'est en
+regardant `le-trou-2026-08-25.png` — où les sous-titres s'écrivent en plein
+milieu du vide, par-dessus une vidéo absente — qu'on a écarté d'un coup les
+codecs, le réseau, le son et l'application.
+
+*Une capture qui montre un défaut a sa place ici autant qu'une capture qui
+montre une réussite — à condition qu'elle dise laquelle des deux elle est.*
 
 ---
 
