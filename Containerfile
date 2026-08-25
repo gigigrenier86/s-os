@@ -83,10 +83,14 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # geste. Seul 40-coutures.sh en a besoin, donc il descend jusqu'a lui.
 COPY files/ /
 
-# Constellation, le bureau etoile — le prototype de galerie/ entre tel quel.
-# Une seule source : le fichier reste dans galerie/, l'image le recopie. Son
-# lanceur vit dans files/usr/share/applications/, meme forme que RapidO.
-COPY galerie/constellation/constellation.html /usr/share/s/constellation/constellation.html
+# Constellation n'a plus de COPY depuis galerie/, et c'est le changement du
+# 2026-08-24 : le bureau n'est plus une page web recopiee dans l'image, c'est
+# un client Wayland natif. Sa scene QML et son noyau Python entrent par le
+# COPY files/ ci-dessus, comme tout le reste de S.
+#
+# L'ancienne page et son pont HTTP restent dans
+# galerie/constellation/archive-page-web/ — la Galerie garde ses oeuvres, meme
+# remplacees — mais ne sortent plus dans l'image.
 
 # Foudre gelee, le fond d'ecran de S — meme principe : l'oeuvre et son script
 # semeur vivent dans galerie/, l'image ne recoit que le rendu. Ses metadonnees
@@ -155,9 +159,26 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/44-depots.sh
 
-# 43-amorcage.sh n'est PAS branche ici, et c'est delibere : il regenere
-# l'initramfs, seul changement de ce depot qui puisse empecher la machine de
-# demarrer. Lire son en-tete avant de le brancher.
+# L'ecran d'amorcage graphique aux couleurs de S.
+#
+# BRANCHE LE 2026-08-24, A LA DEMANDE EXPLICITE DE L'UTILISATEUR : « je vois
+# encore des images de Bazzite au demarrage, c'est NON ». C'etait la derniere
+# surface de l'amont qui restait visible, et la seule que 42-greeter.sh
+# declarait « NON TRAITE ».
+#
+# CE QU'IL FAUT SAVOIR AVANT DE RECONSTRUIRE. Cette etape regenere l'initramfs.
+# C'est le SEUL changement de tout ce depot qui puisse rendre la machine
+# incapable de demarrer, et le filet prevu — « bootc rollback » — n'a jamais
+# ete exerce. L'en-tete de 43-amorcage.sh recommandait de le brancher SEUL,
+# sans aucun autre changement dans la meme version. Ce n'est pas le cas ici :
+# cette version porte aussi la refonte native de Constellation. Si la machine
+# ne revient pas, deux causes possibles au lieu d'une.
+#
+# Pour la retirer sans rien casser d'autre : commenter ce seul RUN.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/43-amorcage.sh
 
 # Les coutures — la partie qui bouge le plus
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \

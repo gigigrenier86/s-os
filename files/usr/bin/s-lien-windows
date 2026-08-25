@@ -1,0 +1,113 @@
+#!/usr/bin/bash
+# S — les liens que Windows enregistre, rendus cliquables depuis Linux.
+#
+# LE PROBLEME, MESURE SUR CURSOR LE 2026-08-24.
+# Un programme Windows moderne se connecte en trois temps :
+#   1. il ouvre une page web dans le navigateur ;
+#   2. l'utilisateur s'y identifie ;
+#   3. la page renvoie vers « monappli://callback?token=... », et le systeme
+#      rend la main au programme, qui recoit son jeton.
+#
+# Sous Wine, l'etape 3 tombe dans le vide. Le programme a bien enregistre son
+# protocole — mais DANS le registre du prefixe, que Linux ne lit pas. Le
+# navigateur est cote Linux, l'application cote Wine, et rien ne les relie.
+# Resultat exact, releve dans les journaux de Cursor :
+#
+#     "key":"auth","message":"Authorization omitted: no access token"
+#
+# repete toutes les trente secondes, indefiniment. Aucune erreur a l'ecran :
+# on clique sur « Login », et il ne se passe rien.
+#
+# CE QUE CE GESTE FAIT. Il se declare cote Linux comme le gestionnaire des
+# protocoles que les programmes Windows ont enregistres, et il leur repasse
+# l'adresse telle quelle. Le pont manquant, dans le sens qui manquait.
+#
+# DEUX MODES :
+#   s-lien-windows <url>     ouvre l'url dans le programme Windows qui l'a
+#                            enregistree. C'est ce que le navigateur appelle.
+#   s-lien-windows --recenser  relit le registre du prefixe et declare cote
+#                            Linux tous les protocoles qu'il y trouve.
+#                            s-ouvrir-exe l'appelle apres chaque installation.
+set -uo pipefail
+source /usr/bin/s-monde
+
+# Proton fabrique le VRAI prefixe dans « pfx/ » a l'interieur de ce qu'on lui
+# donne. Meme correction que dans s-partage, meme raison.
+PFX="$S_PREFIXE"
+[ -f "$S_PREFIXE/pfx/user.reg" ] && PFX="$S_PREFIXE/pfx"
+
+# --- Le lecteur de registre -------------------------------------------------
+# La lecture du registre de Wine est en Python (voir /usr/lib/s/registre.py) :
+# son echappement a deja fait echouer deux tentatives en awk, et un analyseur
+# qui se trompe ici declarerait « Cursor.asp » comme un protocole reseau.
+REGISTRE=/usr/lib/s/registre.py
+
+# --- Mode recensement -------------------------------------------------------
+if [ "${1:-}" = "--recenser" ]; then
+    LANCEUR="$S_LANCEURS/s-lien-windows.desktop"
+    mkdir -p "$S_LANCEURS"
+    liste="$(python3 "$REGISTRE" --liste "$PFX" 2>/dev/null)"
+    if [ -z "$liste" ]; then
+        echo "s-lien-windows : aucun protocole enregistre dans le prefixe" >&2
+        exit 0
+    fi
+    mimes=""
+    for s in $liste; do mimes="${mimes}x-scheme-handler/${s};"; done
+    cat > "$LANCEUR" <<DESK
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Lien Windows
+Comment=Ouvre un lien enregistré par un programme Windows
+Exec=/usr/bin/s-lien-windows %u
+Icon=s-logo
+Terminal=false
+NoDisplay=true
+MimeType=${mimes}
+DESK
+    for s in $liste; do
+        xdg-mime default s-lien-windows.desktop "x-scheme-handler/$s" 2>/dev/null || true
+        echo "s-lien-windows : ${s}:// confie au programme Windows qui l'a enregistre" >&2
+    done
+    update-desktop-database "$S_LANCEURS" >/dev/null 2>&1 || true
+    exit 0
+fi
+
+# --- Mode ouverture ---------------------------------------------------------
+URL="${1:?s-lien-windows attend une adresse}"
+SCHEME="${URL%%:*}"
+[ -n "$SCHEME" ] && [ "$SCHEME" != "$URL" ] \
+    || s_echec "Adresse invalide" "$URL"
+
+CMD="$(S_SCHEME="$SCHEME" python3 "$REGISTRE" --commande "$PFX" 2>/dev/null)" \
+    || s_echec "Protocole inconnu" "Aucun programme Windows n'a enregistre ${SCHEME}://"
+
+# %1 est l'emplacement de l'adresse dans la commande enregistree. On substitue
+# SANS passer par un shell intermediaire pour l'adresse elle-meme : elle vient
+# du navigateur, donc de l'exterieur, et une adresse forgee ne doit pas pouvoir
+# devenir une commande.
+export S_URL="$URL"
+mapfile -t ARGV < <(python3 - "$CMD" <<'PY'
+import shlex, os, sys
+# La commande du registre est du Windows : ses guillemets se lisent comme ceux
+# d'un shell POSIX pour ce qui nous interesse, mais les antislashs de chemin ne
+# doivent PAS etre traites comme des echappements.
+cmd = sys.argv[1]
+lex = shlex.shlex(cmd, posix=True)
+lex.escape = ""            # « C:\Program Files » n'est pas un echappement
+lex.whitespace_split = True
+for morceau in lex:
+    print(morceau.replace("%1", os.environ.get("S_URL", "")))
+PY
+)
+[ "${#ARGV[@]}" -gt 0 ] || s_echec "Commande illisible" "$CMD"
+
+# Meme moteur, meme prefixe, meme Proton que s-ouvrir-exe : le lien arrive dans
+# l'instance qui tourne deja, et non dans une seconde.
+export WINEPREFIX="$S_PREFIXE"
+VERSION="$(cat /usr/lib/s/windows/proton.version 2>/dev/null || true)"
+[ -n "$VERSION" ] && [ -d "$S_PROTON_RACINE/$VERSION" ] && export PROTONPATH="$S_PROTON_RACINE/$VERSION"
+
+mkdir -p "$S_ETAT"
+umu-run "${ARGV[@]}" >>"$S_ETAT/liens-windows.log" 2>&1 &
+echo "s-lien-windows : ${SCHEME}:// transmis au programme Windows" >&2

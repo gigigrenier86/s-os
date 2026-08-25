@@ -58,4 +58,80 @@ if find /var /opt -maxdepth 3 -name 's-*' -o -maxdepth 3 -name 'fdroid.apk' 2>/d
 fi
 
 echo "  associations posees : $(grep -c '=' /etc/xdg/mimeapps.list) types"
+
+# --- LE DOSSIER PARTAGE : la couture que le carnet reclamait -----------------
+# « Les coutures n'existent pas : menu unique, dossier partage entre les trois
+# mondes, presse-papiers commun. C'est ce qui ferait de S autre chose qu'une
+# Bazzite avec des logiciels en plus. » — LISEZ-MOI.md, depuis le 2026-08-20.
+#
+# Le menu unique existait deja (Constellation, plus s-menu-windows et les
+# .desktop que Waydroid pose pour ses applications). Le dossier partage, non.
+# Il existe maintenant : un seul dossier, trois noms.
+chmod 0755 /usr/bin/s-partage
+bash -n /usr/bin/s-partage
+echo "  s-partage     : syntaxe analysee"
+
+test -s /usr/lib/systemd/system/s-partage.service \
+    || { echo "ECHEC : s-partage.service absent." >&2; exit 1; }
+systemctl enable s-partage.service
+systemctl is-enabled s-partage.service >/dev/null \
+    || { echo "ECHEC : s-partage.service n'est pas active." >&2; exit 1; }
+echo "  s-partage     : service active (apres le conteneur Android)"
+
+# La lettre de lecteur cote Windows ne se pose qu'une fois le prefixe cree.
+# s-ouvrir-exe rappelle s-partage juste apres l'avoir fabrique : on verifie ici
+# que l'appel y est vraiment, sinon la couture serait a moitie posee et
+# personne ne le saurait avant d'ouvrir un programme Windows.
+grep -q 's-partage' /usr/bin/s-ouvrir-exe \
+    || { echo "ECHEC : s-ouvrir-exe ne rappelle pas s-partage — P: ne serait jamais posee." >&2; exit 1; }
+echo "  s-ouvrir-exe  : pose la lettre P: apres creation du prefixe"
+
+
+# --- LES LIENS QUE WINDOWS ENREGISTRE ---------------------------------------
+# Un logiciel Windows moderne se connecte en renvoyant vers
+# « monappli://callback?token=... ». Il inscrit ce protocole dans le registre
+# DU PREFIXE ; Linux ne le lit pas, et le retour de connexion tombe dans le
+# vide. Mesure du 2026-08-24 : c'est ce qui rendait Cursor inutilisable — on
+# cliquait « Login », il ne se passait rien, et le journal repetait
+# « Authorization omitted: no access token » toutes les trente secondes.
+chmod 0755 /usr/bin/s-lien-windows
+bash -n /usr/bin/s-lien-windows
+python3 -m py_compile /usr/lib/s/registre.py
+rm -rf /usr/lib/s/__pycache__ 2>/dev/null || true
+echo "  s-lien-windows : syntaxe analysee"
+
+# Le lecteur de registre a deja echoue deux fois sur l'echappement de Wine :
+# on l'eprouve sur un registre fabrique plutot que d'esperer.
+python3 - <<'ESSAI'
+import sys, tempfile, os
+sys.path.insert(0, "/usr/lib/s")
+import registre
+d = tempfile.mkdtemp()
+open(os.path.join(d, "user.reg"), "w", encoding="utf-8").write(
+    '[Software\\\\Classes\\\\essai] 1787620468\n'
+    '@="URL:essai"\n'
+    '"URL Protocol"=""\n\n'
+    '[Software\\\\Classes\\\\essai\\\\shell\\\\open\\\\command] 1787620468\n'
+    '@="\\"C:\\\\Program Files\\\\App\\\\App.exe\\" --open-url -- \\"%1\\""\n\n'
+    '[Software\\\\Classes\\\\App.txt] 1787620447\n'
+    '@="Fichier texte"\n'
+)
+p = registre.protocoles(d)
+assert list(p) == ["essai"], "protocoles trouves : %r" % p
+assert p["essai"] == '"C:\\Program Files\\App\\App.exe" --open-url -- "%1"', p["essai"]
+print("  registre.py    : protocole extrait, type de fichier ecarte")
+ESSAI
+
+test -s /usr/lib/systemd/user/s-session.target \
+    || { echo "ECHEC : s-session.target absente — le portail XDG ne demarrerait jamais." >&2; exit 1; }
+grep -q 'BindsTo=graphical-session.target' /usr/lib/systemd/user/s-session.target \
+    || { echo "ECHEC : s-session.target ne tire pas graphical-session.target." >&2; exit 1; }
+grep -q 's-session.target' /usr/bin/s-coquille \
+    || { echo "ECHEC : la coquille ne leve pas la session graphique." >&2; exit 1; }
+echo "  session systemd : s-session.target -> graphical-session.target -> portail XDG"
+
+grep -q 's-lien-windows --recenser' /usr/bin/s-ouvrir-exe \
+    || { echo "ECHEC : s-ouvrir-exe ne recense pas les protocoles." >&2; exit 1; }
+echo "  s-ouvrir-exe    : recense les protocoles apres chaque execution"
+
 echo "=== 40-coutures : fait ==="

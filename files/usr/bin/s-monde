@@ -10,6 +10,7 @@ S_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/S"
 S_PREFIXE="$S_DATA/windows"          # le prefixe Wine unique, vu comme « le Windows de S »
 S_LANCEURS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 S_ETAT="${XDG_STATE_HOME:-$HOME/.local/state}/S"
+S_PARTAGE="$HOME/Partage"            # le dossier commun aux trois mondes
 
 # Proton vit dans le dossier personnel, JAMAIS dans /usr : pressure-vessel, le
 # bac a sable qu'umu utilise, reserve /usr et refuse de le partager dans son
@@ -60,14 +61,20 @@ s_rafraichir_menu() {
 # La distinction est donc : le ciel ne se remplit pas tout seul du passe, mais
 # il accueille tout de suite ce qu'on y ajoute.
 #
-# On passe par le pont plutot que d'ecrire placees.json directement : c'est lui
-# qui possede ce fichier, et deux ecrivains sur un meme fichier finissent
-# toujours par se marcher dessus. S'il ne repond pas — session KDE de secours,
-# bureau ferme — il n'y a rien a placer, et l'echec est sans consequence.
+# ON N'APPELLE PLUS DE PONT : IL N'Y EN A PLUS. Jusqu'au 2026-08-24 cette
+# fonction postait sur http://127.0.0.1:7373/api/placer, parce que le bureau
+# etait une page web et que le serveur qui la servait possedait placees.json.
+# Constellation etant devenue un client natif, ce serveur n'existe plus.
+#
+# On ecrit donc par le noyau, qui est desormais le seul proprietaire du
+# fichier — et qui le remplace d'un seul geste (ecriture dans un temporaire
+# puis os.replace). Deux ecrivains simultanes ne peuvent donc PAS corrompre le
+# fichier ; au pire l'un des deux ajouts est perdu, ce qui se rattrape d'un
+# glisser-deposer. C'est un compromis assume, et il est meilleur que l'ancien :
+# avant, si le bureau n'etait pas ouvert, le placement etait perdu a coup sur.
 s_placer_etoile() {
     local ident="$1"
-    local port="${S_ETOILES_PORT:-7373}"
-    command -v curl >/dev/null 2>&1 || return 0
+    command -v python3 >/dev/null 2>&1 || return 0
     # Une position pseudo-aleatoire mais STABLE pour un identifiant donne : deux
     # installations de suite ne posent pas deux etoiles au meme endroit, et
     # replacer la meme application la remet ou elle etait.
@@ -75,8 +82,29 @@ s_placer_etoile() {
     graine="$(printf '%s' "$ident" | cksum | cut -d' ' -f1)"
     x="0.$(( 20 + graine % 60 ))"
     y="0.$(( 20 + (graine / 60) % 55 ))"
-    curl -fsS --max-time 3 -X POST \
-         -H 'Content-Type: application/json' \
-         -d "{\"id\":\"${ident}\",\"x\":${x},\"y\":${y}}" \
-         "http://127.0.0.1:${port}/api/placer" >/dev/null 2>&1 || true
+    python3 - "$ident" "$x" "$y" <<'PY' 2>/dev/null || true
+import sys
+sys.path.insert(0, "/usr/lib/s")
+import noyau
+placees = noyau.charger_placees()
+placees[sys.argv[1]] = {"x": float(sys.argv[2]), "y": float(sys.argv[3])}
+noyau.sauver_placees(placees)
+PY
+}
+
+# OU EST LE /sdcard DE WAYDROID, VU DE LINUX.
+#
+# Il n'y a pas UN chemin : Waydroid le lit dans sa propre configuration, et il
+# differe entre une installation systeme et une installation par utilisateur.
+# On le demande donc a waydroid.cfg plutot que de le deviner — deviner un
+# chemin est la faute que le carnet nomme le plus souvent dans ce depot.
+s_partage_media_android() {
+    local cfg base
+    for cfg in /var/lib/waydroid/waydroid.cfg "$HOME/.local/share/waydroid/waydroid.cfg"; do
+        [ -f "$cfg" ] || continue
+        base="$(sed -n 's/^[[:space:]]*data_path[[:space:]]*=[[:space:]]*//p' "$cfg" | head -1)"
+        [ -n "$base" ] || base="$(dirname "$cfg")/data"
+        [ -d "$base/media/0" ] && { printf '%s\n' "$base/media/0"; return 0; }
+    done
+    return 1
 }

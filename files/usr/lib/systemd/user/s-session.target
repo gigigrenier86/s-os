@@ -1,0 +1,39 @@
+[Unit]
+Description=S - la session graphique
+Documentation=man:systemd.special(7)
+
+# POURQUOI CETTE CIBLE EXISTE, ET CE QU'ELLE REPARE.
+#
+# systemd tient une cible « graphical-session.target » a laquelle se rattachent
+# tous les services qui n'ont de sens qu'une fois un bureau ouvert : le portail
+# XDG (dialogues de fichiers, ouverture de liens, partage d'ecran), gvfs, le
+# gestionnaire de fichiers, l'accessibilite. Ces services portent
+# « PartOf=graphical-session.target » et ne demarrent JAMAIS tant qu'elle est
+# inactive.
+#
+# Or « graphical-session.target » porte « RefuseManualStart=yes » : on ne peut
+# pas la demarrer a la main, elle ne se leve que TIREE par la cible d'une
+# session. Plasma a la sienne (plasma-workspace.target), GNOME aussi. S n'en
+# avait pas — s-session lancait le compositeur et la coquille sans jamais rien
+# dire au gestionnaire systemd de l'utilisateur.
+#
+# CE QUE CA CASSAIT, MESURE SUR LA MACHINE LE 2026-08-24 :
+#   xdg-desktop-portal        : « Dependency failed », jamais demarre
+#   plasma-dolphin.service    : echoue — le gestionnaire de fichiers
+#   plasma-kactivitymanagerd  : echoue
+#   gvfs-*                    : jamais demarres
+#   at-spi-dbus-bus           : jamais demarre
+#
+# Et par ricochet : un programme Windows qui demande « ouvre cette page » ne
+# recevait rien, puisque c'est le portail qui rend ce service a travers le bac
+# a sable. C'est ce qui faisait qu'un clic sur « Login » dans Cursor ne
+# produisait rien du tout — pas une erreur, rien.
+#
+# BindsTo + Before : la cible de systemd se leve avec la notre et retombe avec
+# elle. C'est le patron employe par les sessions Wayland qui ne sont pas des
+# bureaux complets (sway, Hyprland) ; il n'invente rien, il applique la regle.
+BindsTo=graphical-session.target
+Before=graphical-session.target
+Wants=graphical-session-pre.target
+After=graphical-session-pre.target
+StopWhenUnneeded=yes

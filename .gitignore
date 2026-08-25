@@ -8,3 +8,7 @@
 .vscode/
 .idea/
 *~
+
+# Les caches de Python : produits en essayant le noyau, jamais livres.
+__pycache__/
+*.pyc

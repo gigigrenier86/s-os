@@ -1,0 +1,170 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""Constellation — le bureau de S, en client Wayland natif.
+
+CE QUE CE PROGRAMME REMPLACE. Jusqu'au 2026-08-24, la coquille de S etait
+Vivaldi lance en « --app=http://127.0.0.1:7373/ », affichant une page servie
+par s-etoiles. Le bureau dependait donc d'un navigateur : de sa presence, de
+son profil, de sa memoire — et de son menu contextuel, qui proposait
+« Recharger » et « Inspecter » la ou l'utilisateur cherchait « Epingler ».
+
+CE QU'IL EST MAINTENANT : un processus, une fenetre Wayland, une scene QtQuick.
+Le noyau (lecture des .desktop, lancement, gestes de session) est appele
+DIRECTEMENT, dans ce processus. Plus de serveur HTTP, plus de port ouvert,
+plus de moteur de rendu web au demarrage de la session.
+
+POURQUOI PySide6 ET NON UN BINAIRE C++. La logique de S est deja en Python et
+elle a deja tourne sur la machine : la reecrire en C++ pour le plaisir de
+compiler aurait perdu ses corrections. PySide6 est la meme bibliotheque Qt que
+celle du bureau de la base — version pour version, 6.11 ici — et l'interface
+est du QML, c'est-a-dire des donnees, pas du code compile.
+"""
+
+import os
+import sys
+
+# Le noyau vit dans /usr/lib/s. On accepte aussi une copie de travail a cote de
+# ce fichier : c'est la seule facon d'essayer la coquille sans reconstruire une
+# image de plusieurs gigaoctets.
+_ICI = os.path.dirname(os.path.abspath(__file__))
+for _essai in (os.environ.get("S_NOYAU"),
+               "/usr/lib/s",
+               os.path.join(_ICI, "..", "lib", "s")):
+    if _essai and os.path.isfile(os.path.join(_essai, "noyau.py")):
+        sys.path.insert(0, os.path.abspath(_essai))
+        break
+
+import noyau  # noqa: E402
+
+from PySide6.QtCore import QObject, QUrl, Slot  # noqa: E402
+from PySide6.QtGui import QGuiApplication  # noqa: E402
+from PySide6.QtQml import QQmlApplicationEngine  # noqa: E402
+
+
+QML = os.environ.get("S_QML") or "/usr/share/s/constellation/qml"
+if not os.path.isdir(QML):
+    QML = os.path.join(_ICI, "..", "share", "s", "constellation", "qml")
+
+
+class Pont(QObject):
+    """Ce que QML peut demander a la machine. Rien de plus.
+
+    Chaque methode ici etait une route HTTP du pont d'avant. Les noms et le
+    comportement sont conserves : ce qui avait ete exerce sur la machine
+    continue de se comporter pareil, seul le transport a disparu.
+    """
+
+    # ---- Lecture ---------------------------------------------------------
+    @Slot(result="QVariant")
+    def etoiles(self):
+        return noyau.composer_etoiles()
+
+    @Slot(result="QVariant")
+    def dossiers(self):
+        """Les endroits ou l'utilisateur range ses affaires.
+
+        On ne montre que ceux qui EXISTENT : proposer « Disque » sur une
+        machine dont le grand disque n'a pas ete prepare ouvrirait une fenetre
+        vide, et l'utilisateur croirait a une panne du bureau.
+        """
+        maison = os.path.expanduser("~")
+        candidats = [
+            ("Dossier personnel", maison,                              "i-maison"),
+            # LE DOSSIER PARTAGE PASSE EN TETE APRES LA MAISON, ET C'EST VOULU :
+            # c'est le seul endroit de la machine ou les trois mondes se
+            # rejoignent. S'il fallait le chercher, il ne servirait a personne.
+            ("Partage (3 mondes)", os.path.join(maison, "Partage"),    "i-grille"),
+            ("Documents",         os.path.join(maison, "Documents"),   "i-doc"),
+            ("Telechargements",   os.path.join(maison, "Downloads"),   "i-telech"),
+            ("Images",            os.path.join(maison, "Images"),      "i-image"),
+            ("Le grand disque",   os.path.join(maison, "Disque"),      "i-disque"),
+            ("Windows",           os.path.join(maison, "Windows"),     "i-fenetre"),
+        ]
+        sortie = []
+        for nom, chemin, ico in candidats:
+            if os.path.isdir(chemin):
+                sortie.append({"nom": nom, "chemin": chemin, "ico": ico,
+                               "detail": ""})
+        return sortie
+
+    # ---- Gestes ----------------------------------------------------------
+    @Slot(str, result=str)
+    def lancer(self, ident):
+        apps = noyau.inventaire()
+        if ident not in apps:
+            return "inconnue : " + ident
+        ok, dit = noyau.lancer(apps[ident])
+        if ok:
+            usage = noyau.charger_usage()
+            usage[ident] = usage.get(ident, 0) + 1
+            noyau.sauver_usage(usage)
+            return apps[ident]["nom"]
+        return dit
+
+    @Slot(str, bool)
+    def epingler(self, ident, oui):
+        noyau.epingler(ident, oui)
+
+    @Slot(str, float, float)
+    def placer(self, ident, x, y):
+        x = min(1.0, max(0.0, float(x)))
+        y = min(1.0, max(0.0, float(y)))
+        placees = noyau.charger_placees()
+        placees[ident] = {"x": x, "y": y}
+        noyau.sauver_placees(placees)
+
+    @Slot(str)
+    def retirerDuBureau(self, ident):
+        placees = noyau.charger_placees()
+        if ident in placees:
+            del placees[ident]
+            noyau.sauver_placees(placees)
+
+    @Slot(str, result=str)
+    def session(self, action):
+        ok, dit = noyau.geste_session(action)
+        return dit
+
+    @Slot(result="QVariant")
+    def reglages(self):
+        return noyau.charger_reglages()
+
+    @Slot(str, "QVariant")
+    def reglerFond(self, cle, valeur):
+        noyau.sauver_reglage(cle, valeur)
+
+    @Slot(str, result=str)
+    def ouvrirDossier(self, chemin):
+        import subprocess
+        try:
+            subprocess.Popen(["xdg-open", chemin], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as err:
+            return str(err)
+        return os.path.basename(chemin) or chemin
+
+
+def main():
+    # L'IDENTIFIANT D'APPLICATION EST CE QUE LE COMPOSITEUR LIT. Sans lui, kwin
+    # nomme la fenetre d'apres le binaire et l'associe a la mauvaise icone.
+    QGuiApplication.setDesktopFileName("s-constellation")
+    app = QGuiApplication(sys.argv)
+    app.setApplicationName("Constellation")
+    app.setOrganizationName("S")
+
+    moteur = QQmlApplicationEngine()
+    pont = Pont()
+    # Le pont est pose AVANT le chargement : une propriete de contexte ajoutee
+    # apres coup n'est pas vue par les liaisons deja evaluees.
+    moteur.rootContext().setContextProperty("pont", pont)
+    moteur.load(QUrl.fromLocalFile(os.path.join(QML, "Constellation.qml")))
+
+    if not moteur.rootObjects():
+        print("s-constellation : la scene n'a pas charge — voir les erreurs QML "
+              "ci-dessus.", file=sys.stderr)
+        return 1
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

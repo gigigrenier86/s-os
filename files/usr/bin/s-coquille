@@ -1,71 +1,83 @@
 #!/usr/bin/bash
-# La coquille de S — le pont, puis Constellation, et un filet dessous.
+# La coquille de S — Constellation, et un filet dessous.
 #
 # C'est ici que S cesse d'etre une base habillee : la coquille est TOUT ce que
 # l'utilisateur voit. Le compositeur, lui, ne s'annonce jamais — voir s-session.
 #
-# LE FILET, ET POURQUOI IL EXISTE : une machine dont le bureau ne demarre pas
+# CE QUI A CHANGE LE 2026-08-24, ET C'EST LE CŒUR DE LA DEMANDE. Cette coquille
+# lancait Vivaldi en « --app=http://127.0.0.1:7373/ » : le bureau de S etait une
+# page web dans un navigateur sans barre d'adresse. Trois consequences que
+# personne n'avait ecrites noir sur blanc :
+#
+#   - une mise a jour de Vivaldi pouvait casser le bureau ;
+#   - le pont ouvrait un port sur la machine pour se parler a lui-meme ;
+#   - LE CLIC DROIT ETAIT CELUI DU NAVIGATEUR. « Recharger », « Enregistrer
+#     sous », « Inspecter » — la ou l'utilisateur cherchait « Epingler ».
+#
+# Constellation est desormais un client Wayland natif (s-constellation, QtQuick).
+# Il n'y a plus de pont, plus de port, plus de moteur de rendu web dans la
+# session. Le navigateur redevient ce qu'il aurait toujours du etre ici : une
+# application parmi les autres.
+#
+# LE FILET RESTE, ET IL EST INCHANGE : une machine dont le bureau ne demarre pas
 # est irreparable pour qui n'a pas de seconde machine. Si Constellation ne tient
 # pas debout, cette coquille ne laisse pas un ecran noir : elle repose un bureau
 # de secours et le dit. On perd l'apparence, jamais la machine.
 set -uo pipefail
 
-PORT="${S_ETOILES_PORT:-7373}"
-export S_ETOILES_PORT="$PORT"
-ADRESSE="http://127.0.0.1:${PORT}/"
-
-# Le navigateur qui porte la coquille est un MOTEUR, pas une application : il
-# n'a ni onglet, ni barre d'adresse, ni menu, et son profil est le sien.
-#
-# On vise le chemin de l'IMAGE, jamais /usr/bin/vivaldi-stable. Ce dernier est
-# un lien vers /opt/vivaldi/vivaldi, qui ne resout que si systemd-tmpfiles a
-# refait le pont /var/opt au demarrage — et c'est exactement ce qui a manque sur
-# la machine reelle le 2026-08-21 : « Impossible de trouver le programme
-# /usr/bin/vivaldi-stable ». Le bureau de S ne peut pas dependre d'un lien qui
-# se refait a chaque allumage.
-MOTEUR=""
-for essai in /usr/lib/opt/vivaldi/vivaldi /usr/bin/vivaldi-stable \
-             /usr/bin/chromium-browser /usr/bin/chromium; do
-    [[ -x "$essai" ]] && { MOTEUR="$essai"; break; }
-done
-
-PROFIL="${XDG_DATA_HOME:-$HOME/.local/share}/s/coquille"
+COQUILLE=/usr/bin/s-constellation
 JOURNAL="${XDG_STATE_HOME:-$HOME/.local/state}/s"
-mkdir -p "$PROFIL" "$JOURNAL"
+mkdir -p "$JOURNAL"
 
 dire() { printf 's-coquille : %s\n' "$*" >&2; }
 
-# --- Le pont ---------------------------------------------------------------
-/usr/bin/s-etoiles >>"$JOURNAL/etoiles.log" 2>&1 &
-PONT=$!
-# Attendre qu'il ECOUTE, plutot que de dormir un temps arbitraire : un delai
-# fixe est trop long quand tout va bien et trop court quand la machine rame.
-# Le disque de S est un plateau USB — un demarrage lent n'y est pas anormal.
-attendu=0
-until exec 3<>"/dev/tcp/127.0.0.1/${PORT}" 2>/dev/null; do
-    exec 3>&- 2>/dev/null || true
-    kill -0 "$PONT" 2>/dev/null || { dire "le pont est mort au demarrage"; break; }
-    (( attendu++ >= 100 )) && { dire "le pont n'ecoute toujours pas"; break; }
-    sleep 0.1
-done
-exec 3>&- 2>/dev/null || true
+# --------------------------------------------------------------------------
+# DIRE A systemd QU'UNE SESSION GRAPHIQUE EXISTE — ce qui n'etait jamais fait
+# --------------------------------------------------------------------------
+# systemd tient une cible « graphical-session.target » a laquelle se rattache
+# tout ce qui n'a de sens qu'avec un bureau ouvert. S ne la levait jamais.
+#
+# MESURE DU 2026-08-24, SUR LA MACHINE, DANS CETTE SESSION :
+#   graphical-session.target  : inactive
+#   xdg-desktop-portal        : « Dependency failed » — jamais demarre
+#   plasma-dolphin.service    : echoue  (le gestionnaire de fichiers)
+#   gvfs-*                    : jamais demarres
+#   at-spi-dbus-bus           : jamais demarre
+#   systemctl --user show-environment : AUCUNE variable de session
+#
+# LA CONSEQUENCE QUI A COUTE UNE SOIREE. Un programme Windows qui demande
+# « ouvre cette page » passe par le portail XDG — c'est le seul chemin depuis
+# le bac a sable de Proton, ou le /usr de l'hote n'est pas monte. Portail mort
+# = rien ne s'ouvre, et sans le moindre message. C'est exactement ce que
+# donnait un clic sur « Login » dans Cursor : rien.
+#
+# On importe d'abord les variables — le gestionnaire systemd de l'utilisateur
+# demarre avant la session et n'en sait rien —, puis on leve la cible. Elle est
+# posee ICI et non dans s-session parce que WAYLAND_DISPLAY n'existe qu'une
+# fois le compositeur demarre, donc seulement dans ce processus-ci.
+systemctl --user import-environment \
+    WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP \
+    2>/dev/null || dire "les variables de session n'ont pas pu etre transmises a systemd"
 
-nettoyer() { kill "$PONT" 2>/dev/null || true; }
-trap nettoyer EXIT
+# « graphical-session.target » refuse le demarrage manuel : elle ne se leve que
+# TIREE par la cible d'une session. C'est le role de s-session.target, qui la
+# porte en BindsTo — meme patron que plasma-workspace.target chez KDE.
+if systemctl --user start s-session.target 2>/dev/null; then
+    dire "session graphique declaree a systemd"
+else
+    dire "s-session.target n'a pas demarre — portail et gvfs resteront muets"
+fi
 
-# --- Constellation ---------------------------------------------------------
+# A la sortie, on redescend la cible : sans cela les services resteraient
+# accroches a une session qui n'existe plus, et la connexion suivante les
+# retrouverait dans un etat que personne n'a prevu.
+fermer_session_systemd() {
+    systemctl --user stop s-session.target 2>/dev/null || true
+}
+trap fermer_session_systemd EXIT
+
 lancer_coquille() {
-    "$MOTEUR" \
-        --app="$ADRESSE" \
-        --user-data-dir="$PROFIL" \
-        --class=SConstellation \
-        --window-name=Constellation \
-        --start-fullscreen \
-        --no-first-run \
-        --no-default-browser-check \
-        --disable-features=Translate,MediaRouter \
-        --ozone-platform-hint=auto \
-        >>"$JOURNAL/coquille.log" 2>&1
+    "$COQUILLE" >>"$JOURNAL/coquille.log" 2>&1
 }
 
 # --- Le filet --------------------------------------------------------------
@@ -87,8 +99,8 @@ secours() {
     fi
 }
 
-if [[ -z "$MOTEUR" ]]; then
-    dire "aucun moteur de rendu trouve pour la coquille"
+if [[ ! -x "$COQUILLE" ]]; then
+    dire "$COQUILLE absent ou non executable"
     secours
 fi
 
@@ -101,8 +113,8 @@ while true; do
     # UN BUREAU NE SE FERME PAS PAR ACCIDENT. La coquille est une fenetre ;
     # Alt+F4 la ferme proprement, code 0, et sans ce qui suit la session
     # s'arreterait la — l'utilisateur perdrait tout parce qu'il a manque un
-    # raccourci. On ne s'arrete donc que si le pont a pose le temoin, c'est-a-dire
-    # si « Se deconnecter », « Redemarrer » ou « Eteindre » a ete choisi.
+    # raccourci. On ne s'arrete donc que si le temoin est pose, c'est-a-dire si
+    # « Se deconnecter », « Redemarrer » ou « Eteindre » a ete choisi.
     if [[ -f "$JOURNAL/quitter" ]]; then
         rm -f "$JOURNAL/quitter"
         dire "sortie demandee par l'utilisateur"

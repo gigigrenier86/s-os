@@ -1,0 +1,154 @@
+#!/usr/bin/bash
+# S — UN dossier, trois mondes, trois noms.
+#
+# CE QUE CA FAIT, ET POURQUOI CA N'EXISTE NULLE PART AILLEURS.
+# Sur une machine ordinaire, les trois mondes ne partagent rien :
+#   - un programme Windows sous Wine ne voit que les lettres de son prefixe ;
+#   - une application Android sous Waydroid ne voit que le /sdcard du conteneur ;
+#   - Linux voit les deux, mais chacun a un chemin different et illisible.
+# Deposer un fichier de l'un a l'autre veut donc dire le COPIER, et se retrouver
+# avec trois versions qui divergent.
+#
+# Ici il n'y a qu'un seul dossier, et donc un seul fichier :
+#
+#     Linux    ~/Partage
+#     Windows  P:\              (une lettre de lecteur, comme n'importe quelle cle)
+#     Android  /sdcard/Partage  (visible de tous les gestionnaires de fichiers)
+#
+# Le meme octet, trois noms. On glisse un .pdf depuis Android, on l'ouvre dans
+# un logiciel Windows, on l'edite sous Linux : c'est le meme fichier, pas trois.
+#
+# LES DEUX MECANIQUES, ET POURQUOI ELLES DIFFERENT.
+#
+#   WINDOWS — un lien symbolique dans dosdevices/. C'est LE mecanisme de Wine
+#   pour les lettres de lecteur : « dosdevices/p: » pointe sur un dossier, et
+#   tout programme Windows voit « P:\ ». Aucun droit particulier, aucun demon,
+#   et ca marche pour tout ce qui tourne dans le prefixe, y compris les jeux.
+#
+#   ANDROID — un montage lie (bind). On NE PEUT PAS poser un lien symbolique
+#   dans /sdcard : la couche de stockage d'Android (sdcardfs/FUSE) ne les suit
+#   pas, et l'application verrait un fichier casse. Le montage lie, lui, presente
+#   le meme inode a deux endroits — Android n'a rien a comprendre. Il demande les
+#   droits d'administration, d'ou le service s-partage.service qui s'en charge
+#   au demarrage, apres le conteneur.
+set -uo pipefail
+
+# --------------------------------------------------------------------------
+# MODE ROOT : poser le montage lie. C'est ce que s-partage.service appelle.
+# --------------------------------------------------------------------------
+# Il vit dans le MEME fichier que le mode utilisateur, a dessein : la logique
+# de decouverte du /sdcard est la meme des deux cotes, et deux fichiers qui
+# doivent rester d'accord finissent toujours par diverger.
+if [ "${1:-}" = "--lier" ]; then
+    [ "$EUID" -eq 0 ] || { echo "s-partage --lier : reserve a l'administrateur" >&2; exit 1; }
+
+    # QUEL UTILISATEUR. S est une machine personnelle : le compte cree a
+    # l'installation porte l'UID 1000. On ne le devine pas par son nom — il
+    # change d'une installation a l'autre — mais par son UID, qui est fixe.
+    compte="$(getent passwd 1000 | cut -d: -f1)"
+    maison="$(getent passwd 1000 | cut -d: -f6)"
+    [ -n "$maison" ] || { echo "s-partage : aucun compte d'UID 1000" >&2; exit 0; }
+    source_dir="$maison/Partage"
+
+    # Trouver le /sdcard, sans le deviner.
+    media=""
+    for cfg in /var/lib/waydroid/waydroid.cfg "$maison/.local/share/waydroid/waydroid.cfg"; do
+        [ -f "$cfg" ] || continue
+        base="$(sed -n 's/^[[:space:]]*data_path[[:space:]]*=[[:space:]]*//p' "$cfg" | head -1)"
+        [ -n "$base" ] || base="$(dirname "$cfg")/data"
+        [ -d "$base/media/0" ] && { media="$base/media/0"; break; }
+    done
+    if [ -z "$media" ]; then
+        echo "s-partage : Waydroid pas encore initialise — rien a lier" >&2
+        exit 0
+    fi
+
+    cible="$media/Partage"
+    if mountpoint -q "$cible"; then
+        echo "s-partage : $cible deja lie"
+        exit 0
+    fi
+
+    # Le dossier source appartient a l'utilisateur, pas a root : le creer en
+    # root sans corriger le proprietaire donnerait un dossier ou l'utilisateur
+    # ne peut pas ecrire — un partage en lecture seule que rien n'expliquerait.
+    install -d -o "$compte" -g "$compte" -m 0755 "$source_dir"
+
+    # Android voit les fichiers par un UID a lui : le dossier doit lui
+    # appartenir cote conteneur. On monte, puis on laisse Android faire — la
+    # couche media d'Android reecrit les droits qu'elle presente a ses
+    # applications, et forcer un chown ici casserait justement cela.
+    mkdir -p "$cible"
+    if mount --bind "$source_dir" "$cible"; then
+        echo "s-partage : $source_dir -> $cible"
+        exit 0
+    fi
+    echo "s-partage : le montage lie a echoue" >&2
+    exit 1
+fi
+
+# --------------------------------------------------------------------------
+# MODE UTILISATEUR
+# --------------------------------------------------------------------------
+source /usr/bin/s-monde
+
+PARTAGE="${S_PARTAGE:-$HOME/Partage}"
+LETTRE=p
+
+dire() { printf 's-partage : %s\n' "$*" >&2; }
+
+# --- 1. Le dossier lui-meme -------------------------------------------------
+mkdir -p "$PARTAGE"
+dire "Linux    : $PARTAGE"
+
+# --- 2. Windows : la lettre P ------------------------------------------------
+# On ne cree PAS le prefixe ici. S'il n'existe pas encore, c'est que
+# l'utilisateur n'a jamais ouvert de programme Windows ; s-ouvrir-exe rappellera
+# ce script juste apres l'avoir fabrique. Fabriquer un prefixe en arriere-plan
+# couterait une minute de machine pour un dossier que personne n'a demande.
+# OU EST LE VRAI PREFIXE — ET CE N'EST PAS CELUI QU'ON CROIT.
+#
+# s-ouvrir-exe exporte WINEPREFIX=$S_PREFIXE. Mais Proton ne prend pas cette
+# valeur pour un prefixe : il la prend pour un DOSSIER DE DONNEES de
+# compatibilite, et fabrique le vrai prefixe dans « pfx/ » a l'interieur.
+# Mesure du 2026-08-24 sur la machine, sur un Cursor en train de tourner :
+#
+#   WINEPREFIX passe au programme = .../S/windows/pfx/
+#
+# Les deux dossiers existent et portent chacun un dosdevices/, ce qui rend la
+# confusion parfaitement silencieuse : on pose la lettre, elle apparait, et
+# aucun programme Windows ne la voit jamais. On prend donc pfx/ quand il est la.
+prefixe_reel="$S_PREFIXE"
+[ -d "$S_PREFIXE/pfx/dosdevices" ] && prefixe_reel="$S_PREFIXE/pfx"
+
+if [ -d "$prefixe_reel/dosdevices" ]; then
+    lien="$prefixe_reel/dosdevices/${LETTRE}:"
+    # Si la lettre pointe deja ailleurs, on ne l'ecrase pas en silence : ce
+    # serait deplacer sous les pieds d'un programme un lecteur qu'il utilise.
+    if [ -L "$lien" ] && [ "$(readlink "$lien")" != "$PARTAGE" ]; then
+        dire "ATTENTION : ${LETTRE^^}: pointe deja sur $(readlink "$lien") — laissee telle quelle"
+    else
+        ln -sfn "$PARTAGE" "$lien"
+        dire "Windows  : ${LETTRE^^}:\\"
+    fi
+else
+    dire "Windows  : prefixe pas encore cree — la lettre sera posee au premier .exe"
+fi
+
+# --- 3. Android : le montage lie --------------------------------------------
+# On ne monte pas ici : ce script tourne sous l'utilisateur. On demande au
+# service, qui tourne en root. S'il n'est pas la, on le dit plutot que de faire
+# croire que le partage est complet.
+media="$(s_partage_media_android)"
+if [ -z "$media" ]; then
+    dire "Android  : Waydroid pas encore initialise — rien a lier pour l'instant"
+elif mountpoint -q "$media/Partage" 2>/dev/null; then
+    dire "Android  : /sdcard/Partage (deja lie)"
+else
+    if systemctl start s-partage.service >/dev/null 2>&1 || \
+       pkexec systemctl start s-partage.service >/dev/null 2>&1; then
+        dire "Android  : /sdcard/Partage"
+    else
+        dire "Android  : le lien n'a pas pu etre pose — 'sudo systemctl start s-partage'"
+    fi
+fi

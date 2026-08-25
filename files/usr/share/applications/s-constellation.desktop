@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Constellation
+GenericName=Bureau étoilé
+Comment=Le bureau de S : chaque logiciel est une étoile, son anneau dit son monde
+Exec=/usr/bin/s-constellation
+Icon=s-logo
+Terminal=false
+StartupNotify=true
+StartupWMClass=s-constellation
+Categories=Utility;
+Keywords=constellation;bureau;etoiles;s;
+# CONSTELLATION N'EST PAS UNE APPLICATION, C'EST LE BUREAU. Ce fichier existe
+# pour une seule raison : QGuiApplication.setDesktopFileName("s-constellation")
+# le designe, et c'est par lui que le compositeur trouve l'icone et le nom de la
+# fenetre. Le montrer dans le menu proposerait a l'utilisateur d'ouvrir son
+# bureau depuis son bureau.
+NoDisplay=true

@@ -1,0 +1,19 @@
+[Unit]
+Description=S - le dossier partage entre Linux, Windows et Android
+Documentation=man:mount(8)
+# APRES le conteneur, jamais avant : le /sdcard n'existe pas tant que Waydroid
+# n'a pas deplie ses donnees. « Wants » et non « Requires » : sur une machine ou
+# Android n'a jamais servi, ce service doit se terminer sans bruit, pas echouer.
+Wants=waydroid-container.service
+After=waydroid-container.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/s-partage --lier
+# Le montage doit survivre a la fin du service : sans cela systemd le defait
+# en rangeant l'espace de noms du service, et le partage disparaitrait aussitot.
+PrivateMounts=no
+
+[Install]
+WantedBy=multi-user.target

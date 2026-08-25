@@ -133,15 +133,14 @@ fi
 # ---------------------------------------------------------------------------
 # Ce qui RESTE a la base, et qu'il faut ecrire plutot que laisser croire
 # ---------------------------------------------------------------------------
-# L'ecran d'amorcage graphique (Plymouth) porte encore la marque de la base :
-# le theme « bgrt » affiche /usr/share/plymouth/themes/spinner/watermark.png,
-# que Bazzite remplace par la sienne, plus /usr/share/pixmaps/system-logo-white.png.
-# Les remplacer NE SUFFIT PAS : les deux fichiers sont embarques dans
-# l'initramfs, qu'il faut donc regenerer — et c'est le seul changement de tout
-# ce depot qui puisse empecher la machine de demarrer. Le filet, « bootc
-# rollback », n'a jamais ete exerce. La recette est prete dans
-# build_files/43-amorcage.sh ; elle n'est PAS branchee dans le Containerfile.
-echo "  amorcage      : NON TRAITE — voir 43-amorcage.sh, non branche (risque de non-demarrage)"
+# L'ecran d'amorcage graphique (Plymouth) est traite depuis le 2026-08-24 par
+# build_files/43-amorcage.sh, DESORMAIS BRANCHE dans le Containerfile — il pose
+# le logo de S sur le theme « bgrt » et regenere l'initramfs, sans quoi les
+# images de l'amont continueraient de s'afficher depuis l'initramfs.
+#
+# Ce paragraphe disait « NON TRAITE » depuis le premier jour, et c'etait la
+# derniere surface de la base que l'utilisateur voyait encore.
+echo "  amorcage      : traite par 43-amorcage.sh (branche) — initramfs regenere"
 
 # La liste des sessions du greeter, elle, ne se filtre pas : Plasma Login
 # Manager liste tous les .desktop de wayland-sessions SANS honorer NoDisplay,

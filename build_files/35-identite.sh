@@ -64,16 +64,59 @@ grep -q '^LOGO=s-logo$' /usr/lib/os-release
 # Le PNG lui-meme entre plus tard par COPY ; ecrire son nom ici ne demande
 # que le nom. Les comptes existants ne sont pas touches — un fond d'ecran
 # deja choisi par l'utilisateur est un reglage, pas un defaut.
+# LA BOUCLE D'AVANT NE TOUCHAIT QUE LES PAQUETS PORTANT DEJA « Image= », ET
+# C'EST EXACTEMENT CELUI QUI COMPTE QU'ELLE SAUTAIT. Mesure du 2026-08-24 sur
+# la machine : com.valve.vapor.desktop et com.valve.vgui.desktop n'ont AUCUNE
+# ligne Image=, et /etc/xdg/kdeglobals de la base impose justement
+# « LookAndFeelPackage=com.valve.vapor.desktop ». Le fond de S etait donc ecrit
+# dans neuf paquets inertes et absent du seul qui sert — un succes silencieux
+# parfait, invisible a la construction comme au controle de l'image.
+#
+# On POSE donc la section quand elle manque, au lieu de passer son chemin. La
+# cle vit dans un groupe « [Wallpaper] » a elle : l'ajouter en fin de fichier
+# la ferait tomber dans le dernier groupe rencontre, ou personne ne la lit.
 trouve=0
+pose=0
 for d in /usr/share/plasma/look-and-feel/*/contents/defaults; do
   [ -f "$d" ] || continue
+  paquet="$(basename "$(dirname "$(dirname "$d")")")"
   if grep -q '^Image=' "$d"; then
-    echo "look-and-feel : $d"
-    grep '^Image=' "$d"
     sed -i 's|^Image=.*|Image=FoudreGelee|' "$d"
-    trouve=1
+    echo "  $paquet : Image= remplacee"
+    trouve=$((trouve + 1))
+  else
+    printf '\n[Wallpaper]\nImage=FoudreGelee\n' >> "$d"
+    echo "  $paquet : section [Wallpaper] POSEE (elle manquait)"
+    pose=$((pose + 1))
   fi
 done
-# Aucun paquet trouve = la structure de KDE a change sous nos pieds. On
-# echoue bruyamment plutot que de livrer un defaut qui n'en est pas un.
-[ "$trouve" -eq 1 ] || { echo "ECHEC : aucun defaults de look-and-feel avec Image=." >&2; exit 1; }
+
+# L'ecran de demarrage de Plasma porte lui aussi un nom qui n'est pas le notre
+# — « Theme=com.valve.vapor » chez la base. On le ramene sur Breeze, neutre :
+# S n'a pas de paquet look-and-feel a lui, et inventer un nom de theme absent
+# donnerait un ecran de demarrage casse au lieu d'un ecran sans marque.
+sed -i 's|^Theme=com\.valve\..*|Theme=org.kde.breeze.desktop|' \
+  /usr/share/plasma/look-and-feel/*/contents/defaults
+
+echo "look-and-feel : $trouve remplacees, $pose posees"
+# Aucun paquet touche = la structure de KDE a change sous nos pieds.
+[ $((trouve + pose)) -gt 0 ] || { echo "ECHEC : aucun defaults de look-and-feel." >&2; exit 1; }
+
+# L'ASSERTION QUI MANQUAIT : ce n'est pas « au moins un paquet » qui compte,
+# c'est que TOUS portent le fond de S. Sans elle, la panne ci-dessus serait
+# repassee inapercue une seconde fois.
+for d in /usr/share/plasma/look-and-feel/*/contents/defaults; do
+  [ -f "$d" ] || continue
+  grep -q '^Image=FoudreGelee$' "$d" \
+    || { echo "ECHEC : $d ne porte pas le fond de S." >&2; exit 1; }
+done
+echo "look-and-feel : tous les paquets portent Image=FoudreGelee"
+
+# Et le paquet que la base impose par defaut ne doit plus s'appeler Valve.
+# On ne supprime pas ses fichiers — un bureau arrache ne se remet pas d'un
+# clic —, on cesse de le designer.
+if [ -f /etc/xdg/kdeglobals ] && grep -q '^LookAndFeelPackage=com\.valve\.' /etc/xdg/kdeglobals; then
+  sed -i 's|^LookAndFeelPackage=com\.valve\..*|LookAndFeelPackage=org.kde.breezedark.desktop|' \
+    /etc/xdg/kdeglobals
+  echo "kdeglobals   : LookAndFeelPackage ne designe plus Valve"
+fi

@@ -101,4 +101,112 @@ for f in "${FICHIERS_MASQUES[@]}"; do
 done
 echo "  garde-fou     : aucune fonctionnalite connue n'a ete masquee"
 
+
+# --------------------------------------------------------------------------
+# 3. Les surfaces graphiques — la ou la marque se voyait encore
+# --------------------------------------------------------------------------
+# AJOUTE LE 2026-08-24, APRES UN RELEVE SUR LA MACHINE. L'utilisateur voyait
+# encore des images de la base « au reveil ou au demarrage ». Les deux etaient
+# vraies, et aucune des deux n'etait traitee :
+#
+#   - AU REVEIL : la base livre /etc/xdg/kscreenlockerrc, qui pointe l'ecran de
+#     verrouillage sur /usr/share/wallpapers/convergence.jxl — son image
+#     maison. Rien dans S ne le recouvrait. Chaque verrouillage la montrait.
+#   - AU DEMARRAGE : l'ecran d'amorcage graphique, traite par 43-amorcage.sh,
+#     desormais branche dans le Containerfile.
+#
+# Ce qui suit ne touche qu'a des IMAGES et a des noms. Aucune fonctionnalite
+# n'est retiree — c'est la difference entre depouiller et amputer.
+
+FOND_S=/usr/share/wallpapers/FoudreGelee/contents/images/3840x2160.png
+test -s "$FOND_S" || { echo "ECHEC : $FOND_S absent — le COPY a-t-il change ?" >&2; exit 1; }
+
+# --- 3a. L'ecran de verrouillage, c'est-a-dire le reveil -------------------
+# On REECRIT le fichier de la base plutot que d'esperer qu'un fragment le
+# recouvre : c'est le meme raisonnement que 42-greeter.sh pour plasmalogin, et
+# pour la meme raison — la cascade de fragments de KDE n'est pas fiable d'une
+# version a l'autre, le fichier du constructeur l'est.
+cat > /etc/xdg/kscreenlockerrc <<'CONF'
+# Pose par S. Sans ce fichier, celui de la base s'applique et l'ecran de
+# verrouillage affiche le fond d'ecran de l'amont a chaque reveil.
+[Greeter]
+WallpaperPlugin=org.kde.image
+
+[Greeter][Wallpaper][org.kde.image][General]
+Image=/usr/share/wallpapers/FoudreGelee/
+PreviewImage=/usr/share/wallpapers/FoudreGelee/contents/images/3840x2160.png
+CONF
+grep -q 'FoudreGelee' /etc/xdg/kscreenlockerrc \
+    || { echo "ECHEC : kscreenlockerrc ne porte pas le fond de S." >&2; exit 1; }
+echo "  verrouillage  : le reveil affiche la Foudre gelee"
+
+# --- 3b. Le fond « par defaut » du systeme ---------------------------------
+# /usr/share/backgrounds/default.jxl est un lien vers convergence.jxl. Tout ce
+# qui demande « le fond par defaut » sans plus de precision y aboutit.
+for lien in /usr/share/backgrounds/default.jxl /usr/share/backgrounds/default-dark.jxl; do
+    if [ -e "$lien" ] || [ -L "$lien" ]; then
+        rm -f "$lien"
+        ln -s "$FOND_S" "$lien"
+        echo "    $(basename "$lien") -> Foudre gelee"
+    fi
+done
+
+# --- 3c. Les fonds d'ecran qui portent le nom de l'amont -------------------
+# Ce sont des IMAGES : les retirer ne retire aucune fonctionnalite, seulement
+# des entrees du selecteur de fond d'ecran. C'est la seule chose de tout ce
+# depot qu'on supprime vraiment plutot que de masquer, et c'est parce qu'il
+# n'existe aucun « NoDisplay » pour un fond d'ecran.
+retires=0
+for f in /usr/share/wallpapers/bazzite /usr/share/wallpapers/bazzite-*.png \
+         /usr/share/wallpapers/convergence.jxl /usr/share/wallpapers/convergence.png; do
+    if [ -e "$f" ]; then
+        rm -rf "$f"
+        echo "    retire : $(basename "$f")"
+        retires=$((retires + 1))
+    fi
+done
+echo "  fonds retires : $retires"
+
+# Le fond de S, lui, doit etre reste. Le controle vaut d'exister : la boucle
+# ci-dessus efface des dossiers, et un motif trop large aurait emporte le notre.
+test -s "$FOND_S" || { echo "ECHEC : le fond de S a ete emporte." >&2; exit 1; }
+
+# --- 3d. Deux entrees de menu que le filtre par NOM ne pouvait pas voir ----
+# LE FILTRE DE LA SECTION 2 LIT « Name= », ET C'EST VOULU : lire la commande
+# supprimerait le monde Windows en entier. Mais deux entrees de la base portent
+# un nom TRADUIT qui ne dit plus la marque, alors qu'elles ne menent nulle part
+# ailleurs que chez l'amont :
+#
+#   bazzite-documentation.desktop  « Documentation »  -> la doc de la base
+#   discourse.desktop              « Discourse »      -> le forum de la base
+#
+# On les nomme donc une par une plutot que d'elargir le filtre. Une liste
+# explicite se relit ; un motif plus large finirait par mordre sur du vrai.
+#
+# CE QU'ON NE MASQUE PAS, ET POURQUOI : bazzite-steam-bpm.desktop porte la
+# marque dans son NOM DE FICHIER mais s'appelle « Mode Big Picture » et lance
+# une vraie fonction de Steam. Le nom de fichier n'est pas un critere.
+for base in bazzite-documentation discourse; do
+    f="/usr/share/applications/${base}.desktop"
+    if [ ! -f "$f" ]; then
+        echo "    ABSENT : ${base}.desktop — l'amont l'a renommee, verifier" >&2
+        continue
+    fi
+    if grep -q '^NoDisplay=' "$f"; then
+        sed -i 's/^NoDisplay=.*/NoDisplay=true/' "$f"
+    else
+        sed -i '/^\[Desktop Entry\]/a NoDisplay=true' "$f"
+    fi
+    echo "    $(basename "$f")  masquee (renvoie chez l'amont)"
+done
+
+# --- 3e. Le controle d'ensemble -------------------------------------------
+# Ce qui suit n'est pas decoratif : c'est ce qui empeche la marque de revenir
+# en silence a la prochaine mise a jour de la base.
+reste="$(ls /usr/share/wallpapers/ 2>/dev/null | grep -icE 'bazzite|convergence|vapor' || true)"
+[ "$reste" -eq 0 ] || { echo "ECHEC : $reste fond(s) de l'amont subsistent." >&2; exit 1; }
+grep -q 'convergence' /etc/xdg/kscreenlockerrc \
+    && { echo "ECHEC : le verrouillage pointe encore chez l'amont." >&2; exit 1; }
+echo "  controle      : plus un seul fond de l'amont, verrouillage aux couleurs de S"
+
 echo "=== 37-effacer-bazzite : pose ==="

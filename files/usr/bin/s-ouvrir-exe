@@ -43,6 +43,14 @@ if [ ! -d "$WINEPREFIX/drive_c" ]; then
         s_echec "L'environnement Windows n'a pas pu etre prepare" \
                 "Detail dans $S_ETAT/windows-init.log"
     fi
+
+    # LE PREFIXE VIENT DE NAITRE : c'est le seul moment ou la lettre P: peut
+    # etre posee. Avant, dosdevices/ n'existe pas ; apres, plus personne ne
+    # repasse par ici. Sans cet appel, le dossier partage serait complet cote
+    # Linux et Android, et absent cote Windows — une couture a moitie faite,
+    # c'est-a-dire pire qu'aucune.
+    /usr/bin/s-partage >>"$S_ETAT/windows-init.log" 2>&1 || true
+
 fi
 
 # --- Lancer ----------------------------------------------------------------
@@ -53,6 +61,22 @@ case "${CIBLE,,}" in
     *)     umu-run "$CIBLE" ;;
 esac
 CODE=$?
+
+# --- Les protocoles enregistres pendant cette execution ---------------------
+# UN PROGRAMME N'ENREGISTRE PAS SON PROTOCOLE A LA CREATION DU PREFIXE : il le
+# fait en S'INSTALLANT, donc pendant l'execution qu'on vient de terminer. Ce
+# recensement doit donc venir APRES, et a chaque fois — c'est le seul moment ou
+# le registre est a jour. Il est idempotent et ne coute qu'une lecture de
+# fichier.
+#
+# CE QUE CA REPARE, MESURE SUR CURSOR LE 2026-08-24. Un logiciel Windows
+# moderne se connecte en renvoyant vers « monappli://callback?token=... ». Il
+# inscrit ce protocole dans le registre DU PREFIXE, que Linux ne lit pas. Le
+# navigateur ouvrait donc la page de connexion, l'utilisateur s'identifiait, et
+# le retour tombait dans le vide. Cote programme, cela donnait exactement :
+# « Authorization omitted: no access token », toutes les trente secondes, sans
+# le moindre message a l'ecran. On clique sur « Login », il ne se passe rien.
+/usr/bin/s-lien-windows --recenser >>"$S_ETAT/windows-init.log" 2>&1 || true
 
 # --- Attendre que Wine ait FINI d'ecrire ------------------------------------
 # CE QUI ETAIT FAUX AVANT, et que seul un vrai installateur pouvait montrer :
