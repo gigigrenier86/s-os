@@ -161,9 +161,92 @@ Redémarrer, **F12**, choisir la Seagate.
 > Si le clone redémarre de lui-même en cours de route, la machine repartira sur
 > le NVMe. Ce n'est pas un échec — il faut refaire F12.
 
+**FAIT le 2026-08-24, 19 h 01.** Le clone a démarré. Ce n'est pas un rapport
+d'usage, c'est un relevé de la machine elle-même, depuis la session en cours :
+
+| Preuve | Valeur |
+|---|---|
+| `Get-Disk` | disque 1, **Seagate Game Drive, BusType USB**, `IsBoot=True` `IsSystem=True` |
+| Volume racine | `C:` = `WINDOWS-S`, NTFS 500 Go — **disque 1, partition 3** |
+| Le drapeau de `preparer-usb` | `HKLM\SYSTEM\CurrentControlSet\Control\PortableOperatingSystem = 1` |
+| L'original | `D:\Windows` présent et intact sur le NVMe, 237,5 Go |
+
+`INACCESSIBLE_BOOT_DEVICE` n'est pas venu. **L'armement des pilotes USB dans la
+ruche du clone a tenu** — c'est la seule pièce de ce déménagement qui « marche
+souvent » sans se promettre, et elle est désormais éprouvée sur cette machine.
+
+### Ce que le NVMe portait encore, et que le clone n'avait pas
+
+Le geste 8 efface `D:`. Comparer les deux disques *avant* a coûté quelques
+minutes et évité une perte définitive — **la règle 7 appliquée à un geste
+irréversible**.
+
+L'écart brut était de 60 Go, et il se décompose entièrement :
+
+| Sur le NVMe, absent du clone | Poids | Verdict |
+|---|---|---|
+| `windows-c.wim` | 52,58 Go | **abandonné** — décision de l'utilisateur, voir plus bas |
+| `Desktop\Pub Camping La Liberté` | 647,8 Mo | **rapatrié** — 8365 fichiers, 679 232 211 octets vérifiés à l'identique |
+| `Desktop\Pub_Camping_La_Liberte_V5.mp4` | 16,2 Mo | **rapatrié**, taille relue |
+| `.cache`, `.gemini`, `OneDrive` | 2,4 Go | laissés — caches et fichiers que le nuage reprendra |
+| `pagefile.sys` | 2,4 Go | laissé — se recrée |
+
+**Le projet vidéo est le seul vrai contenu qui aurait disparu**, et rien ne le
+signalait : il ne figurait dans aucune liste, dans aucun script, dans aucune
+étape de ce fichier. Il n'a été trouvé qu'en comparant les deux `Desktop`
+dossier par dossier. *Un plan complet ne remplace pas un regard sur le disque
+qu'on s'apprête à effacer.*
+
+**Le `.wim` est abandonné, et c'est un choix argumenté** : le plan lui-même le
+nommait « image intermédiaire », et disait que la vraie sauvegarde serait la
+partition Windows amorçable — laquelle démarre depuis 19 h 01. Garder une image
+redépliable d'un Windows déjà cloné avec succès coûtait 40 à 70 minutes de copie
+sur plateau USB pour un filet derrière un filet. La licence OEM étant liée à la
+carte mère, même le pire cas se réactive seul.
+
 ### 8 · S sur le NVMe
 
 Seulement maintenant. Amorcer sur la clé (F12), et installer S sur `nvme0n1`.
+
+#### Le risque a changé de disque, et c'est ce qu'il faut avoir en tête
+
+Jusqu'ici, la protection était l'ordre : tant que le clone n'avait pas démarré,
+le NVMe gardait un Windows intact. **Cette protection vient d'être consommée.**
+Le Windows du NVMe est désormais l'ancien, et le Windows *vivant* est sur la
+Seagate. Une erreur de disque dans l'installateur ne coûte plus une copie : elle
+coûte **le seul Windows de la machine**.
+
+**Donc : débrancher la Seagate avant d'amorcer la clé.**
+
+Ce n'est pas de la prudence, c'est le même principe qui a protégé le NVMe
+pendant tout le banc en machine virtuelle — *le disque qu'on ne présente pas ne
+peut pas être effacé par une faute de frappe*. S n'a besoin d'aucun accès à la
+Seagate pour s'installer : l'ISO porte l'image entière et installe sans réseau.
+On la rebranche au geste 9, quand elle redevient utile.
+
+Avec la Seagate débranchée, l'installateur ne voit plus que deux disques, et
+la confusion devient impossible : le NVMe de 238 Go, et la clé qui le fait
+tourner.
+
+Si vous préférez la laisser branchée, la vérification à faire **dans**
+l'installateur, avant de valider quoi que ce soit — un terminal s'y ouvre :
+
+```bash
+lsblk -o NAME,SIZE,TRAN,MODEL,LABEL
+# nvme0n1  238,5G  nvme  WDC PC SN730...   <- la cible
+# sda        4,5T  usb   Game Drive PS     <- WINDOWS-S : ne jamais toucher
+```
+
+Le critère qui ne trompe pas est `TRAN` : **la cible est le seul disque `nvme`**.
+Ni la taille seule, ni la lettre, ni l'ordre d'apparition.
+
+#### Après l'installation, l'ordre d'amorçage
+
+L'installateur pose une entrée pour S dans le firmware. Selon la M720q, elle
+passera devant ou derrière l'entrée USB. **C'est F12 qui tranche dans les deux
+cas** — et le double amorçage voulu est atteint dès que les deux entrées
+répondent. Photographier l'écran de choix des disques et le premier bureau de S
+sur le NVMe : la règle de `galerie/` attend toujours sa première capture.
 
 **Ce qui n'est pas encore éprouvé et qui le sera là :** l'installateur Anaconda
 de l'ISO. La voie *prouvée* du dépôt reste `bootc install to-disk` depuis un
@@ -175,6 +258,37 @@ sudo bootc install to-disk --wipe --filesystem ext4 \
   --target-imgref ghcr.io/gigigrenier86/s-os:latest \
   /dev/nvme0n1
 ```
+
+#### L'ISO est en retard d'un commit — vérifié, pas supposé
+
+**Entre l'installation et le geste 9, il faut un `bootc upgrade`.** Relevé le
+2026-08-24 :
+
+| | |
+|---|---|
+| ISO gravée sur la clé | `s-os-latest-20260823.iso`, 8,57 Go, fabriquée sur le commit **`a0b6f8f`** |
+| `s-grand-disque` et son service | arrivent au commit **`3dd6f16`**, le suivant |
+| Image `latest` sur ghcr.io | reconstruite depuis, deux fois — `3dd6f16` puis `38240a6`, les deux vertes |
+
+Le S posé par cette ISO démarrera très bien, mais `s-grand-disque` **n'existera
+pas dedans**, et le geste 9 répondrait « commande introuvable ». Ce n'est pas un
+défaut de l'ISO : une ISO fige l'image du jour où elle est fabriquée, c'est sa
+nature.
+
+Donc, une fois S installé et connecté au réseau :
+
+```bash
+sudo bootc upgrade && sudo systemctl reboot
+```
+
+**Refabriquer l'ISO ne servirait à rien** — vingt minutes de CI, 8,5 Go à
+retélécharger et une regravure, pour arriver là où une mise à jour différentielle
+arrive en quelques minutes. C'est précisément ce pour quoi `bootc upgrade`
+existe.
+
+*Et c'est le premier `bootc upgrade` du projet qui portera à conséquence :*
+jusqu'ici il n'a servi qu'à mettre à jour un S déjà complet. Ici, il apporte une
+pièce manquante dont le geste suivant dépend.
 
 ### 9 · Le grand disque, formaté depuis S
 
