@@ -16,6 +16,15 @@ on:
       - '.github/workflows/iso.yml'
       # Le banc tourne sur la machine, jamais dans l'image.
       - 'banc/**'
+      # Le Grimoire non plus : ce sont des recettes qu'on « source » a la main,
+      # aucun COPY ne les emporte. Verifie le 2026-08-25 sur le Containerfile.
+      #
+      # ATTENTION, ET C'EST POURQUOI GALERIE/ N'EST PAS ICI : la Galerie, elle,
+      # ENTRE dans l'image — « COPY galerie/foudre-gelee/foudre-gelee.png » et
+      # son pendant pour l'ecran de connexion. L'ignorer empecherait la
+      # reconstruction le jour ou le fond d'ecran change, et personne ne le
+      # verrait avant de regarder l'ecran de connexion d'une machine neuve.
+      - 'grimoire/**'
   pull_request:
   schedule:
     # Bazzite publie tous les jours. Sans reconstruction reguliere, l'image de S

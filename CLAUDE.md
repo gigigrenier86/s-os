@@ -740,10 +740,17 @@ Releve du 2026-08-25 a 16 h, sur une machine redemarree a 15 h 50 :
 
 **Deux details de methode, qui coutent une heure a qui ne les connait pas :**
 
-- **Les recettes `ghcr-*.sh` du Grimoire rendent 404 aujourd'hui.** Elles
-  demandent `Accept: application/vnd.oci.image.index.v1+json` ; le manifeste
-  publie est un `oci.image.manifest.v1`, **pas un index**. Il faut envoyer les
-  deux types. Le jeton anonyme, lui, s'obtient toujours — le paquet est public.
+- ~~**Les recettes `ghcr-*.sh` du Grimoire rendent 404 aujourd'hui.**~~
+  **Corrige le 2026-08-25 au soir, et le constat etait a moitie faux :**
+  `ghcr-peser-couches.sh` envoyait deja les quatre types et marchait
+  (147 couches, 7,29 Go, releve ce jour-la). Seule `ghcr-visibilite.sh` etait
+  cassee — et pas seulement cassee : elle repondait **« PRIVE » sur un paquet
+  public**. Elle ne demandait que des types d'INDEX, or le manifeste publie est
+  un `oci.image.manifest.v1`. Un 404 « pas de ce type-la » etait lu comme un
+  refus de permission. *La recette ecrite pour corriger un faux verdict de
+  visibilite en rendait un autre, a l'envers.* Elle envoie desormais les quatre
+  types, distingue 404 de 401/403, et gagne `ghcr_digest` — qui sert a savoir
+  si la CI a fini de publier.
 - **`gh` n'est pas installe sur cette machine.** La CI ne se verifie plus en
   ligne de commande depuis que le depot a demenage ; on interroge `ghcr.io`
   directement.
