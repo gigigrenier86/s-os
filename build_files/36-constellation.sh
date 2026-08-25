@@ -98,8 +98,13 @@ echo "  notifications : importe"
 # Le COPY doit l'avoir remplace ; si un jour il ne le fait plus, on veut
 # l'apprendre ici et non par un geste qui ne rend jamais la main.
 SERVICE_NOTIF=/usr/share/dbus-1/services/org.kde.plasma.Notifications.service
-if grep -q "plasma_waitforname" "$SERVICE_NOTIF" 2>/dev/null; then
-    echo "ECHEC : $SERVICE_NOTIF porte encore plasma_waitforname." >&2
+# ET ON REGARDE LA LIGNE Exec, PAS LE FICHIER. La premiere version de ce
+# controle cherchait « plasma_waitforname » n'importe ou — et le trouvait dans
+# le commentaire qui explique ce qu'on remplace. Un garde-fou qui lit sa propre
+# documentation comme une preuve du defaut : construction rouge, code juste.
+if grep -qE '^[[:space:]]*Exec=.*plasma_waitforname' "$SERVICE_NOTIF" 2>/dev/null
+then
+    echo "ECHEC : $SERVICE_NOTIF lance encore plasma_waitforname." >&2
     exit 1
 fi
 echo "  activation    : plasma_waitforname ecarte"

@@ -317,6 +317,29 @@ coquille, aucun fichier et code 1 sur un motif absent.
 
 La recette est au Grimoire — `kwin-capturer-la-coquille.sh`, `PREUVE:` datée.
 
+### La première construction est tombée, et c'est le garde-fou qui l'a fait tomber
+
+Le contrôle ajouté à `36-constellation.sh` vérifie que le `.service` de Plasma a
+bien été recouvert, en cherchant `plasma_waitforname` dans le fichier. Il l'a
+trouvé — **dans le commentaire que j'y avais écrit pour expliquer ce qu'on
+remplaçait** :
+
+```
+#     Exec=/usr/bin/plasma_waitforname org.freedesktop.Notifications
+```
+
+Construction rouge, code juste, garde-fou faux. **Un contrôle qui cherche une
+chaîne trouve aussi la documentation qui l'explique** — et ce dépôt commente
+beaucoup, donc le piège reviendra. Le contrôle lit désormais la ligne `Exec`,
+ancrée en début de ligne, et il est éprouvé dans les deux sens : il laisse
+passer notre fichier, et il attrape celui de Plasma.
+
+Au passage, une leçon de méthode : le journal de construction n'était pas
+lisible sans droits d'administrateur sur le dépôt, donc la cause n'a pas été
+lue mais **rejouée** — les trois contrôles neufs relancés un à un contre le
+dépôt, sur la machine. Le deuxième a échoué en deux secondes. *Rejouer coûte
+moins cher que demander l'accès.*
+
 ### Ce que cette passe ne prouve pas
 
 - **Rien de tout cela n'est dans l'image.** Le service, la bulle, la règle kwin
