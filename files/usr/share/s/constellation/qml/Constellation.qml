@@ -198,6 +198,10 @@ ApplicationWindow {
     // par une regle kwin. Voir Barre.qml.
     Barre {
         id: barreTaches
+        onActivation: function (ident) {
+            if (typeof fenetres !== "undefined" && fenetres)
+                fenetres.activer(ident);
+        }
         onMenuDemande: {
             // LE MENU EST DESSINE ICI, DANS LA FENETRE DU BUREAU, qui reste
             // derriere. On remonte donc le bureau avant d'ouvrir, sinon le
@@ -211,7 +215,7 @@ ApplicationWindow {
     Connections {
         target: typeof fenetres !== "undefined" ? fenetres : null
         function onChangees(liste) {
-            barreTaches.fenetres = JSON.parse(liste);
+            barreTaches.ouvertures = JSON.parse(liste);
         }
     }
 
@@ -492,9 +496,19 @@ ApplicationWindow {
                                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                                     TapHandler {
                                         onTapped: {
-                                            bureau.fondActuel = modelData;
+                                            // « bureau » N'EST PAS RESOLU ICI, et le
+                                            // journal le disait a chaque clic :
+                                            // « ReferenceError: bureau is not defined ».
+                                            // Ce delegue est instancie dans un contexte
+                                            // ou l'identifiant racine du fichier ne
+                                            // porte pas — changer de fond d'ecran ne
+                                            // faisait donc rien du tout. « Window.window »
+                                            // est un type attache, pas un identifiant :
+                                            // il traverse n'importe quel contexte.
+                                            var racine = Window.window;
+                                            racine.fondActuel = modelData;
                                             pont.reglerFond("fond", modelData);
-                                            bureau.dire("fond : " + Fonds.FONDS[modelData].nom);
+                                            racine.dire("fond : " + Fonds.FONDS[modelData].nom);
                                         }
                                     }
                                 }

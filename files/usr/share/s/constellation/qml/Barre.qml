@@ -27,7 +27,17 @@ Window {
     title: "S - barre"
 
     property int hauteur: 52
-    property var fenetres: []
+
+    // ELLE S'APPELAIT « fenetres », ET C'ETAIT UN PIEGE PARFAIT. La propriete
+    // de contexte qui porte le pont vers kwin s'appelle « fenetres » elle
+    // aussi : dans ce fichier, le nom nu designait donc LA LISTE, et
+    // « fenetres.activer(...) » cherchait une methode sur un tableau. Le clic
+    // arrivait, le gestionnaire explosait, et rien ne bougeait a l'ecran. Le
+    // journal le disait a chaque clic — personne ne l'avait ouvert.
+    //
+    // Une vue ne parle plus au pont : elle previent, et Constellation agit.
+    // Meme patron que menuDemande, qui lui a toujours marche.
+    property var ouvertures: []
 
     width: Screen.width
     height: hauteur
@@ -37,6 +47,7 @@ Window {
            | Qt.WindowDoesNotAcceptFocus
 
     signal menuDemande()
+    signal activation(string ident)
 
     Rectangle {
         anchors.fill: parent
@@ -146,7 +157,7 @@ Window {
             width: 1
             height: 22
             color: Theme.bord
-            visible: barre.fenetres.length > 0
+            visible: barre.ouvertures.length > 0
         }
 
         // ── Les fenetres ouvertes ─────────────────────────────────────────
@@ -165,7 +176,7 @@ Window {
             clip: true
 
             Repeater {
-                model: barre.fenetres
+                model: barre.ouvertures
                 delegate: Rectangle {
                     required property var modelData
                     readonly property var app: bureau.appParId(modelData.classe)
@@ -174,8 +185,8 @@ Window {
                     // douze fenetres ouvertes ne doivent pas rendre les titres
                     // illisibles, et deux ne doivent pas occuper l'ecran.
                     width: Math.max(46, Math.min(210,
-                        (ouvertes.width - (barre.fenetres.length - 1) * 6)
-                        / Math.max(1, barre.fenetres.length)))
+                        (ouvertes.width - (barre.ouvertures.length - 1) * 6)
+                        / Math.max(1, barre.ouvertures.length)))
                     height: 34
                     radius: 8
                     color: modelData.active ? Theme.verre2
@@ -244,7 +255,7 @@ Window {
                     ToolTip.text: modelData.titre
                     ToolTip.delay: 400
 
-                    TapHandler { onTapped: fenetres.activer(modelData.id) }
+                    TapHandler { onTapped: barre.activation(modelData.id) }
                 }
             }
         }

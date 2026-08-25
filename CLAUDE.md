@@ -173,6 +173,120 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-25, soir — le journal disait tout, et j'ai construit un banc pour rien
+
+Quatre defauts rapportes par l'usage. Trois sont corriges et mesures ; le
+quatrieme a revele une limite de Waydroid qu'il faut ecrire plutot que cacher.
+
+### Le clic ne faisait rien, et la cause etait ecrite depuis le premier clic
+
+```
+Barre.qml:247: TypeError: Property 'activer' of object [object Object],[object Object] is not a function
+```
+
+`[object Object],[object Object]`, c'est **le tableau des fenetres**. Dans
+`Barre.qml`, la propriete `property var fenetres` — la liste — **masquait** la
+propriete de contexte `fenetres`, qui porte le pont vers kwin. Le nom nu
+designait donc la liste, et `fenetres.activer(...)` cherchait une methode sur un
+tableau. **Le clic arrivait parfaitement ; c'est le gestionnaire qui explosait.**
+
+Une collision de noms que rien ne signale : QML ne previent pas qu'une propriete
+de composant masque une propriete de contexte, et le controleur de construction
+ne peut pas la voir — elle n'echoue qu'au clic, a l'execution.
+
+La liste s'appelle desormais `ouvertures`, et **la barre ne parle plus au pont
+du tout** : elle emet un signal, Constellation agit. Meme patron que
+`menuDemande`, qui lui a toujours marche — et c'est la ce qu'il fallait
+remarquer, puisque les deux voisins se comportaient differemment.
+
+**Ma methode a ete mauvaise, et c'est la lecon de la passe.** J'ai bati un banc
+a evenements synthetiques pour savoir si le clic arrivait. Il a repondu « aucun
+clic recu » — puis, mis a l'epreuve sur une fenetre temoin vide de trois lignes,
+**il a repondu la meme chose**. `sendEvent` sur une `QQuickWindow` ne livre rien
+en PySide6. Le banc accusait le code d'un defaut qui etait le sien, pour la
+troisieme fois dans ce carnet.
+
+Le journal de la coquille, lui, portait la reponse exacte, horodatee, repetee a
+chaque clic. **Ouvrir `~/.local/state/s/coquille.log` coutait cinq secondes.**
+
+### Et le journal en portait un second, que personne n'avait demande
+
+```
+Constellation.qml:497: ReferenceError: bureau is not defined
+```
+
+Sept fois — sept clics de l'utilisateur sur une vignette de fond d'ecran, sans
+effet. **Changer de fond d'ecran ne marchait pas**, et ce defaut est anterieur a
+toute la journee. Le delegue des vignettes est instancie dans un contexte ou
+l'identifiant racine du fichier ne porte pas. `Window.window` est un *type
+attache*, pas un identifiant : il traverse n'importe quel contexte.
+
+### Les fenetres s'arretent au-dessus de la barre
+
+C'etait annonce comme une limite du protocole, et c'en est une : un client
+Wayland ne reserve pas d'espace sans `zwlr_layer_shell_v1`. Mais **le script
+kwin, lui, tourne dans le compositeur** — il n'a pas besoin de demander la
+permission de deplacer une fenetre. Il rattrape donc, apres coup, toute fenetre
+dont le bas depasse la limite.
+
+Mesure sur la machine, une Konsole maximisee :
+
+| | avant | apres |
+|---|---|---|
+| Konsole | `y=0 h=1080 bas=1080` | **`y=0 h=1028 bas=1028`** |
+
+**Et la premiere version s'est bornee elle-meme** : la barre, dont le bas est a
+1080, a ete remontee de 52 pixels par la regle qu'elle venait de poser. Un
+garde-fou qui s'applique a son propre garde se mord la queue. Les fenetres de S
+en sont exclues nommement.
+
+**Le vrai plein ecran n'est pas touche** — une barre par-dessus un film serait
+pire que le defaut qu'on repare.
+
+### Android : le gel, la demesure, et une fenetre qui refuse de retrecir
+
+*« Après une seconde d'inactivité je vois le bureau à travers. »* La cause est
+dans `waydroid.cfg` : **`suspend_action = freeze`**, et la machine a deja ete
+relevee avec *Session RUNNING / Container FROZEN*. Un conteneur gele cesse de
+rendre — au bout d'une seconde, la surface ne se redessine plus et le bureau
+apparait au travers. Ce n'est pas un defaut d'affichage : c'est une economie
+d'energie pensee pour un telephone dans une poche, appliquee a une fenetre qu'on
+regarde. Corrige en `none`.
+
+*« Tout est tellement gros que je ne vois presque rien. »* `ro.sf.lcd_density`
+vaut **180**, pensee pour un ecran tenu a trente centimetres. Sur un 1920x1080
+de bureau, Android croit avoir 1707 points de large la ou il en a 1920. A
+**140**, il en compte 2194.
+
+Les trois reglages entrent dans `waydroid.cfg` par `s-android`, et **le garde
+porte sur les trois**, pas sur un seul : une machine qui a recu le premier avant
+que les deux autres n'existent doit encore les recevoir. Sinon le correctif ne
+rattrape que les installations neuves — exactement la faute que ce carnet
+reproche aux marqueurs de premier demarrage de l'amont.
+
+**Une limite mesuree, et elle reste :** une fenetre Waydroid **refuse de
+retrecir**. Releve sur YouTube Android — `normalWindow=true`,
+`fullScreen=false`, `resizeable=true`, et pourtant une hauteur imposee a 1028
+laisse la fenetre a 1080. Android decide la taille de ses surfaces et le
+compositeur ne l'en fait pas demordre. Les fenetres Android couvriront donc les
+52 derniers pixels ; la barre etant toujours au-dessus, on la voit quand meme.
+
+### Ce que cette passe ne prouve pas
+
+- **Le clic n'a toujours pas ete essaye a la souris.** La cause est certaine —
+  le journal la nomme — et le correctif la supprime, mais c'est l'utilisateur
+  qui l'exercera le premier.
+- **Le bornage n'a ete essaye que sur une Konsole**, une seule fois, sur un seul
+  ecran.
+- **Les trois reglages Waydroid n'ont pas ete appliques sur cette machine** :
+  ils demandent un mot de passe et un redemarrage de la session Android, qui
+  fermerait ce que l'utilisateur regardait.
+- **Le glitch d'affichage d'Android n'est toujours pas diagnostique** — et il se
+  peut que le gel du conteneur en ait toujours ete la cause, ce qui reste a
+  verifier plutot qu'a proclamer.
+
+---
+
 ## 2026-08-25, apres-midi — une vraie barre des taches, et Android en fenetres
 
 Deux demandes de l'utilisateur, toutes deux parties d'un usage reel : *« la

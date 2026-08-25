@@ -53,7 +53,33 @@ fi
 #
 # Elle vit dans [properties] de waydroid.cfg, ce que la recette de l'amont
 # prevoit pour cela — et pas dans un « prop set » qu'il faudrait rejouer.
-if ! grep -q 'persist.waydroid.multi_windows' /var/lib/waydroid/waydroid.cfg 2>/dev/null; then
+#
+# ET DEUX AUTRES REGLAGES QUI SE POSENT AU MEME ENDROIT, POUR LA MEME RAISON.
+#
+#   suspend_action = none — MESURE DU 2026-08-25 : la valeur livree est
+#   « freeze », et la machine a ete relevee avec « Session RUNNING / Container
+#   FROZEN ». Un conteneur gele cesse de rendre : au bout d'une seconde
+#   d'inactivite, la surface d'Android ne se redessine plus et on voit le
+#   bureau AU TRAVERS. Ce n'est pas un defaut d'affichage, c'est une economie
+#   d'energie pensee pour un telephone dans une poche, appliquee a une fenetre
+#   qu'on regarde.
+#
+#   ro.sf.lcd_density = 140 — la valeur livree est 180, pensee pour un ecran de
+#   telephone tenu a trente centimetres. Sur un 1920x1080 de bureau, tout est
+#   demesure : Android croit avoir 1707 points de large la ou il en a 1920. A
+#   140, il en compte 2194 et l'interface redevient celle d'un ecran, pas d'une
+#   loupe. C'est un reglage de confort : il se change d'une ligne, et le carnet
+#   dit laquelle.
+# LE GARDE PORTE SUR LES TROIS REGLAGES, PAS SUR UN SEUL. Une machine qui a
+# recu le premier avant que les deux autres n'existent doit encore les recevoir ;
+# sinon le correctif ne rattrape que les installations neuves, ce qui est
+# exactement la faute que ce carnet reproche aux marqueurs de premier demarrage.
+manque=0
+for reglage in 'persist.waydroid.multi_windows' 'ro.sf.lcd_density' 'suspend_action = none'; do
+    grep -q "$reglage" /var/lib/waydroid/waydroid.cfg 2>/dev/null || manque=1
+done
+if [ "$manque" = 1 ]; then
+    s_dire "Android" "Reglage de l'affichage — un mot de passe va etre demande, une seule fois." phone
     pkexec /usr/bin/python3 - <<'PY' >/dev/null 2>&1 || true
 import configparser, io
 p = "/var/lib/waydroid/waydroid.cfg"
@@ -63,6 +89,11 @@ c.read(p, encoding="utf-8")
 if not c.has_section("properties"):
     c.add_section("properties")
 c.set("properties", "persist.waydroid.multi_windows", "true")
+c.set("properties", "ro.sf.lcd_density", "140")
+# suspend_action vit dans [waydroid], pas dans [properties] : ce n'est pas une
+# propriete Android, c'est une decision de waydroid lui-meme.
+if c.has_section("waydroid"):
+    c.set("waydroid", "suspend_action", "none")
 t = io.StringIO()
 c.write(t, space_around_delimiters=True)
 io.open(p, "w", encoding="utf-8").write(t.getvalue())
