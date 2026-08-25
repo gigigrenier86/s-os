@@ -154,7 +154,9 @@ c'est la première fois qu'elle tient debout.
 
 - ~~Aucun de ces six correctifs n'est dans l'image.~~ **Ils y sont depuis
   15 h 47, et la machine a redémarré dessus à 11 h 55** — image `44.20260824`,
-  `sha256:c73f90ed…`. Vérifié dans la session, pas dans le dépôt : l'agent
+  `sha256:c73f90ed…` *(dépassé : depuis 15 h 50 la machine tourne sur
+  `sha256:39f70f4f…`, construite à 15 h 44 — voir la dernière section)*.
+  Vérifié dans la session, pas dans le dépôt : l'agent
   polkit tourne (PID relevé), `s-partage.service` a remonté le dossier partagé
   **treize secondes après le démarrage**, sans que personne le lui demande, et
   les droits ont suivi — groupe 1023, setgid, ACL par défaut. C'est la première
@@ -170,6 +172,176 @@ c'est la première fois qu'elle tient debout.
 - ~~`galerie/constellation` n'a toujours aucune capture.~~ **Elle en a une,
   prise le 2026-08-25 à 12 h 23 sur cette machine**, et c'est la première pièce
   de la Galerie rendue par une vraie carte graphique. Voir plus bas.
+
+---
+
+## 2026-08-25, fin d'apres-midi — le clavier importe de Windows, et une session qui tenait par accident
+
+Demande de l'utilisateur : *« peux-tu me trouver mon language de clavier dans
+windows et me l'importer ? francais canadien multilangue standard »*. La reponse
+etait dans le registre du Windows monte sous `~/Windows`, et le chemin pour l'y
+lire a fait tomber deux defauts qui n'avaient rien a voir avec le clavier.
+
+### Ce que Windows dit, lu dans sa ruche et non suppose
+
+Aucun lecteur de ruche n'existe dans l'image — ni `hivexsh`, ni `chntpw`, ni
+`reglookup` — et **on ne superpose pas un paquet pour repondre a une question**.
+Un lecteur `regf` minimal en Python pur suffit : l'en-tete, les cellules `nk`,
+`vk`, `lf/lh/li/ri`, et de quoi descendre un chemin.
+
+```
+HKCU\Keyboard Layout\Preload      1 = 00000c0c   2 = 00001009
+HKCU\Keyboard Layout\Substitutes  00000c0c → 00011009
+                                  00001009 → 00011009
+HKLM\...\Keyboard Layouts\00011009
+    Layout Text = "Canadian Multilingual Standard"
+    Layout File = "KBDCAN.DLL"
+```
+
+**Les deux entrees clavier de Windows pointent sur la meme disposition.** Son
+equivalent xkb est `ca(multix)`, que xkeyboard-config nomme « Canadian (CSA) » —
+meme norme CSA Z243.200, verifiee touche par touche dans
+`/usr/share/X11/xkb/symbols/ca` : `/ \ |` a gauche du 1, `é` sur la touche `?`,
+`ç ~` sur `[`, `è à`, `« »` en AltGr sur `z x`, AltGr en niveau 3 et **Ctrl
+droit** en niveau 5. C'est la signature de la CSA, et rien d'autre ne l'a.
+
+*Note de sequence :* les deux numeros de la ruche etaient egaux, donc elle est
+propre — aucun journal de transaction en attente. Lire une ruche sale rendrait
+des valeurs perimees sans le dire.
+
+### Et la session tapait en QWERTY americain
+
+Voila le defaut, et personne ne l'avait vu : `localectl` annoncait `ca` pendant
+que la session tapait `us`. Mesure en dumpant le keymap compile reellement
+recu — `grave` a gauche du 1, `slash` sur `AB10`, `bracketright` la ou la CSA
+met `ç`.
+
+**`kwin_wayland` 6.7 ne lit NI `/etc/vconsole.conf`, NI
+`/etc/X11/xorg.conf.d/00-keyboard.conf`, NI `XKB_DEFAULT_*`.** Il lit
+`~/.config/kxkbrc`, groupe `[Layout]` — et ce fichier n'est ecrit que par le
+module de reglages clavier de Plasma, qui ne tourne pas ici puisque la coquille
+est Constellation. Faute de fichier, **il retombe sur `us` sans un mot**. Le
+succes silencieux, encore, pris par le bout ou personne ne regarde.
+
+`s-session` ecrit donc `kxkbrc` depuis la seule source de verite du systeme, et
+**jamais par-dessus un fichier existant** : le jour ou l'utilisateur choisit sa
+disposition, c'est son choix qui doit tenir. Eprouve dans les deux sens sur un
+dossier personnel factice — sans fichier il produit `ca`/`multix` et le
+journalise, avec un fichier il n'y touche pas.
+
+**Ce que `kxkbrc` ne fait pas :** se relire a chaud. Ni `reconfigure`, ni le
+signal `org.kde.keyboard.reloadConfig` que kwin declare pourtant ecouter ne le
+lui font relire — les deux essayes, sans effet. Il faut rouvrir la session.
+
+### Quatre bancs, dont trois mentaient — et c'est la lecon de la passe
+
+Pour savoir quelle source kwin honore, il a fallu quatre bancs :
+
+| Banc | Ce qu'il rendait | Ce qu'il valait |
+|---|---|---|
+| kwin imbriqué (backend Wayland) | toujours `us` | **faux** — un kwin imbrique **herite du clavier de son hote** |
+| kwin `--virtual` | toujours `us` | **faux** — aucun peripherique clavier, donc aucun keymap emis |
+| `strings` sur `libkwin` | pas de `kxkbrc` | **faux** — les litteraux Qt sont en **UTF-16**, invisibles a `strings` en ASCII. `strings -e l` rend `kxkbrc`, `kwinrc`, `org.kde.keyboard`, `reloadConfig` |
+| kwin neuf sur **son propre bus** (`dbus-run-session`) | `"ca" … "Canadien (CSA)"` | **le seul concluant** |
+
+Le banc concluant a aussi servi de temoin : en declarant deux dispositions,
+kwin en annonce deux — donc il lit bien le fichier.
+
+### La cible de session ne tenait que par accident, et le journal le disait
+
+Trouve en regardant le journal du demarrage de 15 h 50, pas en relisant du code :
+
+```
+15:50:31  Reached target s-session.target
+15:50:31  Stopped target s-session.target
+15:50:31  graphical-session.target: Failed to enqueue stop job, ignoring:
+            Transaction ... is destructive (kunifiedpush-distributor.service
+            has 'start' job queued, but 'stop' is included in transaction)
+```
+
+`s-session.target` portait **`StopWhenUnneeded=yes`**. Une cible demarree par
+`systemctl --user start` n'est reclamee par personne : aucune autre unite ne la
+porte en `Wants=` ni en `Requires=`. Elle etait donc jugee superflue **a
+l'instant meme ou elle venait d'etre atteinte**, et s'arretait — emportant
+`graphical-session.target`, qui porte elle aussi `StopWhenUnneeded=yes`.
+
+**Si le portail XDG, gvfs et l'accessibilite ont survecu ce jour-la, c'est parce
+que l'arret a echoue sur une course.** Un demarrage sans cette course aurait
+fait retomber la cible graphique — donc exactement la panne que ce fichier a ete
+ecrit pour reparer le 2026-08-24, un jour plus tot.
+
+**Eprouve, et le premier banc ne l'etait pas assez :** deux cibles factices,
+identiques a cette ligne pres. Le premier essai laissait la cible graphique
+debout dans les deux cas — parce que ma copie de `graphical-session.target`
+n'avait pas le `StopWhenUnneeded=yes` que la vraie porte. Rendu fidele :
+
+| | cible de session | **cible graphique** |
+|---|---|---|
+| avec `StopWhenUnneeded` | inactive | **inactive** |
+| sans | active | **active** |
+
+Au passage, un doublon retire : `s-session.target` existait **dans l'image ET
+dans `~/.config/systemd/user/`**, pose a la main le 2026-08-24. Identiques ce
+jour-la, et c'est celui du dossier personnel qui gagnait — il n'aurait jamais
+recu ce correctif. *Deux fichiers qui doivent rester d'accord finissent toujours
+par diverger*, et ce carnet le repete depuis `s-partage`.
+
+### Fonds.js : un garde pose, une cause NON trouvee, et c'est ecrit ainsi
+
+Le journal porte trois `createRadialGradient(): Incorrect arguments`, aux lignes
+41, 66 et 80 de `Fonds.js`. Qt ne leve ce message que sur une valeur **non
+finie**.
+
+L'hypothese evidente — *le canevas peint avant d'avoir une taille* — **a ete
+essayee et refutee au banc** : un Canvas de dimension nulle ou `NaN` n'appelle
+jamais `onPaint`. Il ne peut donc pas produire cette erreur. Et le banc lui-meme
+a menti une fois de plus avant de le dire : **en `QT_QPA_PLATFORM=offscreen`,
+`onPaint` n'est jamais appele du tout** — sonde posee, zero appel. Un banc qui
+ne peint rien ne prouve rien.
+
+Ce qui est pose est donc un **garde doublé d'un temoin**, sur les deux appelants
+de `Fonds.js` — le fond du bureau et les vignettes du menu : on refuse de
+peindre une surface impossible, **et on ecrit les dimensions recues**. La
+prochaine occurrence nommera sa cause au lieu de la cacher. *La cause n'est pas
+corrigee ; elle est rendue lisible.*
+
+### Ce que la machine a appris sur elle-meme
+
+Releve du 2026-08-25 a 16 h, sur une machine redemarree a 15 h 50 :
+
+| | |
+|---|---|
+| Image | `sha256:39f70f4f…`, **et c'est exactement le digest publie sur ghcr** |
+| Code | `Barre.qml`, `Constellation.qml`, `Session.qml`, `fenetres.py`, `fenetres.js`, `s-android`, `s-constellation` — **identiques entre le depot et l'image en cours** |
+| Unites en echec | **aucune**, systeme et session |
+| Android | 32 lanceurs, Play Store lance 2 fois, YouTube 4 |
+| Waydroid | les trois reglages **appliques** |
+| Sauvegarde | `S-sauvegarde-2026-08-25-15h37`, 182 Mo, sur le grand disque |
+
+**Deux details de methode, qui coutent une heure a qui ne les connait pas :**
+
+- **Les recettes `ghcr-*.sh` du Grimoire rendent 404 aujourd'hui.** Elles
+  demandent `Accept: application/vnd.oci.image.index.v1+json` ; le manifeste
+  publie est un `oci.image.manifest.v1`, **pas un index**. Il faut envoyer les
+  deux types. Le jeton anonyme, lui, s'obtient toujours — le paquet est public.
+- **`gh` n'est pas installe sur cette machine.** La CI ne se verifie plus en
+  ligne de commande depuis que le depot a demenage ; on interroge `ghcr.io`
+  directement.
+
+### Ce que cette passe ne prouve pas
+
+- **Le clavier CSA n'a pas encore ete tape.** `kxkbrc` est pose et `localectl`
+  regle, mais kwin ne relit ce fichier qu'a son demarrage : il faut une
+  reconnexion, et c'est l'utilisateur qui l'exercera le premier.
+- **Le correctif de `s-session.target` n'est pas dans l'image.** Il est prouve au
+  banc, pas sur la vraie cible — qui refuse le demarrage manuel, et qu'on ne
+  fait pas tomber pour voir sur une session qu'on est en train d'utiliser.
+- **La cause des erreurs de `Fonds.js` reste inconnue.** Seul un temoin a ete
+  pose.
+- **Le presse-papiers Linux↔Android n'existe toujours pas**, et c'est desormais
+  le manque le plus visible du jalon 4, puisque les trois mondes servent le meme
+  jour.
+- **`bootc rollback` n'a toujours jamais ete exerce.**
 
 ---
 
@@ -294,9 +466,12 @@ confirmation n'arrivait jamais. Meme cause, meme correctif.
   l'interieur d'un `Popup` invisible ne fabriquent rien. La resolution de
   `Session` dans ces delegues est donc **deduite** de celle de `Theme`, qui y est
   lue sans erreur sur la machine — pas mesuree directement.
-- **Aucun des deux correctifs n'a ete clique a la souris.** Le premier a ete
-  appele directement et les deux sens sont prouves ; le second ne peut l'etre
-  qu'a l'ecran.
+- ~~Aucun des deux correctifs n'a ete clique a la souris.~~ **Les deux l'ont
+  ete**, et ce sont les fichiers d'etat qui le disent, pas une impression :
+  `reglages.json` porte `{"fond": "trois"}` a 15 h 28 — donc une vignette a ete
+  cliquee et le fond a change — et `epingles.json` porte quatorze epinglees a
+  15 h 29. Le premier correctif avait deja ses deux sens prouves par appel
+  direct ; celui-la ne pouvait l'etre qu'a l'ecran, et il l'a ete.
 
 ---
 
@@ -405,9 +580,11 @@ compositeur ne l'en fait pas demordre. Les fenetres Android couvriront donc les
   qui l'exercera le premier.
 - **Le bornage n'a ete essaye que sur une Konsole**, une seule fois, sur un seul
   ecran.
-- **Les trois reglages Waydroid n'ont pas ete appliques sur cette machine** :
-  ils demandent un mot de passe et un redemarrage de la session Android, qui
-  fermerait ce que l'utilisateur regardait.
+- ~~Les trois reglages Waydroid n'ont pas ete appliques sur cette machine.~~
+  **Ils le sont** — releve dans `/var/lib/waydroid/waydroid.cfg` le 2026-08-25
+  a 16 h : `suspend_action = none`, `persist.waydroid.multi_windows = true`,
+  `ro.sf.lcd_density = 140`. Le gel du conteneur et la demesure de l'affichage
+  sont donc regles sur cette machine, pas seulement dans le depot.
 - **Le glitch d'affichage d'Android n'est toujours pas diagnostique** — et il se
   peut que le gel du conteneur en ait toujours ete la cause, ce qui reste a
   verifier plutot qu'a proclamer.
@@ -1039,7 +1216,7 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
 | 1 · Le dépôt et la chaîne | **fait** — CI vert, image publiée, reconstruction quotidienne |
 | 2 · L'image démarre | **fait et prouvé de l'intérieur** — 35 s, zéro service en échec |
 | 3 · Le vrai matériel | **fait — le 2026-08-21 au soir**, sur la **M720q** en double amorçage (correction du 2026-08-23 : ce n'est pas un portable ASUS, voir « La machine retrouvée »). Bureau affiché, compte créé, RetroArch et Zoom en marche. GPU réel confirmé le 2026-08-23 : rendu Mesa `i915`, pas `llvmpipe` |
-| 4 · Les trois mondes côte à côte | pas commencé — exige le jalon 3 |
+| 4 · Les trois mondes côte à côte | **franchi dans les faits le 2026-08-25** — 32 applications Android installées et lancées, dont la plupart viennent du **Play Store** et non de F-Droid : l'enregistrement de l'appareil auprès de Google a donc abouti. Linux, Windows et Android tournent et servent le même jour, dans la même session |
 | 5 · Les coutures | **commencé** — l'installation des trois mondes est cousue et éprouvée ; le partage entre eux ne l'est pas |
 | 6 · L'identité | **S a sa propre session depuis le 2026-08-22** — le greeter ne propose plus que « S » et « S — bureau de secours » ; ce que S lance n'est plus la coquille de l'amont mais la sienne, Constellation, servie par son pont `s-etoiles`. Plus l'os-release réécrit (la machine s'annonce « S », `ID` restant `bazzite` pour ne pas casser les recettes de l'amont), le logo, et **Foudre gelée**, fond d'écran 4K procédural. **Constellation a démarré pour de vrai le 2026-08-23 sur la M720q** — la session s'ouvre, le ciel s'affiche, trois défauts y ont été trouvés et corrigés. **Le greeter porte le logo de S depuis le 2026-08-23 au soir** : Plasma Login Manager n'ayant aucun système de thèmes, la plaque du S est gravée dans le fond d'écran de connexion, seul pixel de cet écran que S décide — jamais vue sur la machine. Reste l'écran d'amorçage, qui porte encore un nom qui n'est pas le nôtre, et **aucune capture n'a été prise** — donc rien n'entre encore dans `galerie/` |
 | 7 · L'usage quotidien | pas commencé |

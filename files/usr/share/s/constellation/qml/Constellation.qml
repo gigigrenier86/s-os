@@ -101,6 +101,13 @@ ApplicationWindow {
         anchors.fill: parent
         renderStrategy: Canvas.Cooperative
         onPaint: {
+            // Meme garde et meme temoin que les vignettes : c'est l'autre
+            // appelant de Fonds.js, et rien ne dit lequel des deux a produit
+            // les erreurs du 2026-08-25.
+            if (!isFinite(width) || !isFinite(height) || width <= 0 || height <= 0) {
+                console.warn("fond : dimensions refusees " + width + "x" + height);
+                return;
+            }
             var g = getContext("2d");
             var p = Fonds.FONDS[bureau.fondActuel] || Fonds.FONDS.nebuleuse;
             p.peindre(g, width, height);
@@ -469,15 +476,48 @@ ApplicationWindow {
                                 model: Fonds.ORDRE
                                 delegate: Item {
                                     required property string modelData
-                                    width: (parent.width - 9 * (parent.columns - 1)) / parent.columns
+                                    // « parent » est null a l'instant ou le
+                                    // Repeater cree ce delegue — il ne
+                                    // reparente qu'apres — et parent.width vaut
+                                    // alors undefined, donc width vaut NaN.
+                                    // Une taille NaN ne fait rien peindre du
+                                    // tout, ce qui est pire qu'une erreur :
+                                    // c'est une vignette vide sans un mot.
+                                    width: parent
+                                           ? (parent.width - 9 * (parent.columns - 1)) / parent.columns
+                                           : 0
                                     height: width * 10 / 16
                                     Canvas {
                                         id: vignette
                                         anchors.fill: parent
                                         onPaint: {
+                                            // GARDE ET TEMOIN. Le journal porte
+                                            // depuis le 2026-08-25 trois
+                                            // « createRadialGradient():
+                                            // Incorrect arguments » venus de
+                                            // Fonds.js, que Qt ne leve que sur
+                                            // une valeur non finie. La cause
+                                            // n'a PAS ete reproduite au banc :
+                                            // une taille nulle n'appelle jamais
+                                            // onPaint, donc l'hypothese « le
+                                            // canevas peint avant d'avoir une
+                                            // taille » est refutee. On refuse
+                                            // donc de peindre l'impossible, ET
+                                            // on ecrit ce qu'on a recu — la
+                                            // prochaine occurrence nommera sa
+                                            // cause au lieu de la cacher.
+                                            if (!isFinite(width) || !isFinite(height)
+                                                || width <= 0 || height <= 0) {
+                                                console.warn("vignette " + modelData
+                                                    + " : dimensions refusees "
+                                                    + width + "x" + height);
+                                                return;
+                                            }
                                             var g = getContext("2d");
                                             Fonds.FONDS[modelData].peindre(g, width, height);
                                         }
+                                        onWidthChanged: requestPaint()
+                                        onHeightChanged: requestPaint()
                                     }
                                     Rectangle {
                                         anchors.fill: parent

@@ -47,6 +47,48 @@ if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]] && command -v dbus-run-session >/dev
     exec dbus-run-session -- "$0" "$@"
 fi
 
+# LE CLAVIER — sans ce bloc, S tape en QWERTY americain quoi qu'on ait choisi.
+#
+# Releve sur la machine le 2026-08-25, sur un kwin_wayland 6.7.4 neuf : le
+# compositeur ne lit NI /etc/vconsole.conf, NI /etc/X11/xorg.conf.d/00-keyboard.conf,
+# NI les variables XKB_DEFAULT_*. Il lit kxkbrc, groupe [Layout] — et ce fichier
+# n'est ecrit que par le module de reglages clavier de Plasma, qui ne tourne pas
+# ici puisque la coquille est Constellation. Faute de fichier, il retombe sur
+# « us » et contredit en silence le clavier choisi a l'installation : localectl
+# annoncait « ca » pendant que la session tapait en anglais. Encore un succes
+# silencieux, pris par le bout ou personne ne regarde.
+#
+# On ecrit donc kxkbrc depuis la seule source de verite du systeme — celle que
+# localectl tient a jour — et JAMAIS par-dessus un fichier existant : le jour ou
+# l'utilisateur choisit sa disposition, c'est son choix qui doit tenir.
+KXKB="${XDG_CONFIG_HOME:-$HOME/.config}/kxkbrc"
+if [[ ! -s "$KXKB" && -r /etc/vconsole.conf ]]; then
+    disposition="" variante="" modele=""
+    while IFS='=' read -r clef valeur; do
+        valeur="${valeur%\"}"; valeur="${valeur#\"}"
+        case "$clef" in
+            XKBLAYOUT)  disposition="$valeur" ;;
+            XKBVARIANT) variante="$valeur" ;;
+            XKBMODEL)   modele="$valeur" ;;
+        esac
+    done < /etc/vconsole.conf
+
+    if [[ -n "$disposition" ]]; then
+        mkdir -p "${KXKB%/*}"
+        cat > "$KXKB" <<FIN
+[Layout]
+LayoutList=${disposition}
+VariantList=${variante}
+Model=${modele:-pc105}
+Options=
+ResetOldOptions=true
+Use=true
+FIN
+        echo "s-session : clavier repris du systeme — ${disposition}${variante:+ (${variante})}" \
+            >> "$JOURNAL/session.log"
+    fi
+fi
+
 case "$COMPOSITEUR" in
     kwin_wayland)
         # --exit-with-session=, PAS un argument positionnel nu. Un positionnel

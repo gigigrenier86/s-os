@@ -36,4 +36,31 @@ BindsTo=graphical-session.target
 Before=graphical-session.target
 Wants=graphical-session-pre.target
 After=graphical-session-pre.target
-StopWhenUnneeded=yes
+
+# PAS DE « StopWhenUnneeded=yes » ICI, ET C'EST UN CORRECTIF, PAS UN OUBLI.
+#
+# Il y etait, et il rendait cette cible inutile en moins d'une seconde. Une
+# cible demarree par « systemctl --user start » n'est reclamee par personne :
+# aucune autre unite ne la porte en Wants= ni en Requires=. StopWhenUnneeded la
+# jugeait donc superflue a l'instant meme ou elle venait d'etre atteinte, et
+# l'arretait — emportant graphical-session.target avec elle par le BindsTo.
+#
+# RELEVE SUR LA MACHINE LE 2026-08-25, au demarrage de 15 h 50 :
+#     15:50:31  Reached target s-session.target
+#     15:50:31  Stopped target s-session.target
+#
+# Et si le portail, gvfs et l'accessibilite ont survecu ce jour-la, c'est par
+# ACCIDENT : l'arret en cascade a echoue sur une course avec un service qui
+# demarrait au meme instant —
+#     graphical-session.target: Failed to enqueue stop job, ignoring:
+#       Transaction ... is destructive (kunifiedpush-distributor.service
+#       has 'start' job queued, but 'stop' is included in transaction)
+#
+# Un demarrage ou cette course ne se produit pas aurait fait retomber la cible
+# graphique, donc exactement la panne que ce fichier a ete ecrit pour reparer le
+# 2026-08-24. La session tenait sur un coup de chance, et le journal le disait.
+#
+# C'est s-coquille qui redescend la cible, a la sortie, par un trap EXIT — un
+# arret decide plutot qu'un arret devine. Le patron des sessions Wayland qui ne
+# sont pas des bureaux complets (sway, Hyprland) ne porte pas davantage
+# StopWhenUnneeded, pour cette raison.
