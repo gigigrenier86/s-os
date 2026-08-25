@@ -71,13 +71,21 @@ class Fenetres(QObject):
     def liste(self):
         return self._liste
 
-    @Slot(str)
-    def activer(self, ident):
-        """Met la fenetre au premier plan, ou la reduit si elle y est deja.
+    @Slot(str, bool)
+    def activer(self, ident, deja_active=False):
+        """Met la fenetre au premier plan, ou la reduit si elle y etait deja.
 
         C'est le comportement d'une barre des taches, et il n'est pas
         decoratif : sans le repli, cliquer sur la fenetre courante ne ferait
         rien du tout et l'utilisateur croirait le clic perdu.
+
+        L'INTENTION VIENT DE LA BARRE, ELLE N'EST PLUS DEVINEE ICI. La premiere
+        version lisait « workspace.activeWindow » au moment ou le script kwin
+        tournait — c'est-a-dire APRES le clic, qui a pu deplacer le focus. Le
+        premier clic reactivait alors la fenetre sans rien changer a l'oeil, et
+        il en fallait deux pour la reduire. Mesure de l'utilisateur, pas
+        supposition : « je dois cliquer plusieurs fois avant qu'elle descende ».
+        La barre, elle, sait ce qu'elle vient d'afficher.
         """
         if not ident or self._bus is None:
             return
@@ -89,12 +97,14 @@ class Fenetres(QObject):
         # bornee la ou elle entre, pas la ou on espere qu'elle est sure.
         propre = "".join(c for c in str(ident) if c in
                          "0123456789abcdefABCDEF-{}")
+        reduire = "true" if deja_active else "false"
         with open(script, "w", encoding="utf-8") as sortie:
             sortie.write(
+                'var reduire = %s;\n'
                 'var l = workspace.windowList();\n'
                 'for (var i = 0; i < l.length; i++) {\n'
                 '    if (String(l[i].internalId) === "%s") {\n'
-                '        if (workspace.activeWindow === l[i] && !l[i].minimized) {\n'
+                '        if (reduire && !l[i].minimized) {\n'
                 '            l[i].minimized = true;\n'
                 '        } else {\n'
                 '            l[i].minimized = false;\n'
@@ -102,7 +112,7 @@ class Fenetres(QObject):
                 '        }\n'
                 '        break;\n'
                 '    }\n'
-                '}\n' % propre)
+                '}\n' % (reduire, propre))
         self._compteur += 1
         nom = "s-activer-%d" % self._compteur
         try:

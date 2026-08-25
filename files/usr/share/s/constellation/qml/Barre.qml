@@ -47,7 +47,13 @@ Window {
            | Qt.WindowDoesNotAcceptFocus
 
     signal menuDemande()
-    signal activation(string ident)
+    // ELLE TRANSMET L'ETAT QU'ELLE AFFICHE, ET C'EST TOUT L'OBJET DU SECOND
+    // ARGUMENT. Laisser kwin relire « quelle fenetre est active » au moment ou
+    // le script tourne rend une reponse qui a pu changer depuis le clic : le
+    // premier clic reactivait alors sans rien faire de visible, et il en
+    // fallait deux pour reduire. La barre, elle, sait ce qu'elle vient de
+    // montrer a l'utilisateur — c'est cette verite-la qu'il a cliquee.
+    signal activation(string ident, bool estActive)
 
     Rectangle {
         anchors.fill: parent
@@ -255,7 +261,10 @@ Window {
                     ToolTip.text: modelData.titre
                     ToolTip.delay: 400
 
-                    TapHandler { onTapped: barre.activation(modelData.id) }
+                    TapHandler {
+                        onTapped: barre.activation(modelData.id,
+                                                   modelData.active === true)
+                    }
                 }
             }
         }

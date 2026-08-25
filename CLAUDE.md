@@ -173,6 +173,69 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-25, soir — deux defauts que le journal a nommes en trois lignes
+
+La barre marche. Restaient deux choses, et **les deux etaient ecrites dans
+`~/.local/state/s/coquille.log`** avant que je regarde quoi que ce soit. C'est la
+deuxieme fois de la journee ; le reflexe est acquis.
+
+### Reduire une fenetre demandait plusieurs clics
+
+Le script d'activation lisait `workspace.activeWindow` **au moment ou il
+tournait** — c'est-a-dire apres le clic, qui a pu deplacer le focus entre-temps.
+Il concluait « elle n'est pas active » et la reactivait : rien ne bougeait a
+l'oeil. Il fallait un second clic pour que la lecture tombe juste.
+
+**La barre, elle, sait ce qu'elle vient d'afficher** : chaque tuile porte l'etat
+`active` que le rapporteur lui a donne, et c'est cette verite-la que
+l'utilisateur a cliquee. L'intention part donc avec le clic, au lieu d'etre
+redevinee a l'autre bout.
+
+Eprouve sur la machine, du premier coup :
+
+| Demande | Resultat |
+|---|---|
+| `activer(id, deja_active=True)` | `reduite=true` |
+| `activer(id, deja_active=False)` | `reduite=false, active=true` |
+
+### Le fond d'ecran, et deux correctifs faux avant le bon
+
+Les vignettes s'affichaient, le clic arrivait, et le gestionnaire mourait a sa
+premiere ligne. Trois etats successifs, tous lus dans le journal :
+
+| Essai | Ce que la machine a repondu |
+|---|---|
+| `bureau.fondActuel = …` | `ReferenceError: bureau is not defined` |
+| `Window.window.fondActuel = …` | `QML TapHandler: Window.window does only support types deriving from Item`, puis `TypeError: Value is null` |
+| `Session.bureau.fondActuel = …` | — |
+
+**`Window.window` etait une bonne idee mal placee** : c'est bien un type attache,
+donc insensible aux identifiants, mais il ne s'attache qu'a un `Item` — et un
+`TapHandler` n'en est pas un.
+
+**Ce qui resout a coup sur dans ces delegues etait sous les yeux depuis le
+debut** : cinq lignes au-dessus du gestionnaire qui echouait, `Theme.texte2` est
+lu sans erreur. Un singleton n'est pas cherche dans la chaine des contextes,
+c'est un type resolu a la compilation. D'ou `Session.qml`, un singleton d'une
+seule propriete, que le bureau remplit lui-meme au demarrage.
+
+**Et le meme defaut frappait ailleurs, sans que personne l'ait signale** :
+`Constellation.qml:403`, l'epinglage depuis le menu Demarrer — la phrase de
+confirmation n'arrivait jamais. Meme cause, meme correctif.
+
+### Ce que cette passe ne prouve pas
+
+- **Les delegues du menu ne s'instancient pas dans le banc hors ecran.** Trois
+  sondes y ont ete posees et aucune n'a parle : `GridView` et `Repeater` a
+  l'interieur d'un `Popup` invisible ne fabriquent rien. La resolution de
+  `Session` dans ces delegues est donc **deduite** de celle de `Theme`, qui y est
+  lue sans erreur sur la machine — pas mesuree directement.
+- **Aucun des deux correctifs n'a ete clique a la souris.** Le premier a ete
+  appele directement et les deux sens sont prouves ; le second ne peut l'etre
+  qu'a l'ecran.
+
+---
+
 ## 2026-08-25, soir — le journal disait tout, et j'ai construit un banc pour rien
 
 Quatre defauts rapportes par l'usage. Trois sont corriges et mesures ; le

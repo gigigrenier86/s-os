@@ -73,6 +73,9 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        // LE BUREAU SE DECLARE AVANT DE FAIRE QUOI QUE CE SOIT. Les delegues du
+        // menu ne peuvent pas l'atteindre par son identifiant — voir Session.qml.
+        Session.bureau = bureau;
         relire();
         listeDossiers = pont.dossiers();
         // Les reglages AVANT tout le reste : sans cela le fond par defaut se
@@ -198,9 +201,9 @@ ApplicationWindow {
     // par une regle kwin. Voir Barre.qml.
     Barre {
         id: barreTaches
-        onActivation: function (ident) {
+        onActivation: function (ident, estActive) {
             if (typeof fenetres !== "undefined" && fenetres)
-                fenetres.activer(ident);
+                fenetres.activer(ident, estActive);
         }
         onMenuDemande: {
             // LE MENU EST DESSINE ICI, DANS LA FENETRE DU BUREAU, qui reste
@@ -393,15 +396,15 @@ ApplicationWindow {
                         width: grilleApps.cellWidth - 6
                         height: grilleApps.cellHeight - 6
                         onOuvrir: {
-                            bureau.dire(pont.lancer(app.id));
-                            bureau.relire();
+                            Session.bureau.dire(pont.lancer(app.id));
+                            Session.bureau.relire();
                             menuDemarrer.close();
                         }
                         onEpingler: function (oui) {
                             pont.epingler(app.id, oui);
-                            bureau.relire();
-                            bureau.dire(oui ? (app.nom + " epinglee")
-                                            : (app.nom + " retiree de la barre"));
+                            Session.bureau.relire();
+                            Session.bureau.dire(oui ? (app.nom + " epinglee")
+                                                    : (app.nom + " retiree de la barre"));
                         }
                         onMenuDemande: function (ex, ey) { menuContextuel.ouvrirPour(app, ex, ey); }
                     }
@@ -496,19 +499,14 @@ ApplicationWindow {
                                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                                     TapHandler {
                                         onTapped: {
-                                            // « bureau » N'EST PAS RESOLU ICI, et le
-                                            // journal le disait a chaque clic :
-                                            // « ReferenceError: bureau is not defined ».
-                                            // Ce delegue est instancie dans un contexte
-                                            // ou l'identifiant racine du fichier ne
-                                            // porte pas — changer de fond d'ecran ne
-                                            // faisait donc rien du tout. « Window.window »
-                                            // est un type attache, pas un identifiant :
-                                            // il traverse n'importe quel contexte.
-                                            var racine = Window.window;
-                                            racine.fondActuel = modelData;
+                                            // NI « bureau » NI « Window.window »
+                                            // ne portent ici — les deux ont ete
+                                            // essayes et le journal les a
+                                            // refutes. Voir Session.qml.
+                                            Session.bureau.fondActuel = modelData;
                                             pont.reglerFond("fond", modelData);
-                                            racine.dire("fond : " + Fonds.FONDS[modelData].nom);
+                                            Session.bureau.dire(
+                                                "fond : " + Fonds.FONDS[modelData].nom);
                                         }
                                     }
                                 }
