@@ -93,9 +93,26 @@ class Serveur(QObject):
         self._suivant = 0
         self._vivantes = set()
         self._service = None
+        self._synchrones = {}
 
     def poser(self, application, remplace, titre, corps, indices, delai):
+        # L'INDICE « SYNCHRONE » N'EST PAS UN DETAIL ICI : c'est celui que
+        # s_dire passe a chaque phrase de S, avec la clef « s-couture ». Il
+        # veut dire « remplace la precedente, ne l'empile pas ». Sans lui, une
+        # couture bavarde poserait six bulles a la file et l'utilisateur les
+        # verrait defiler une par une pendant une demi-minute.
+        clef = None
+        if hasattr(indices, "get"):
+            clef = (indices.get("x-canonical-private-synchronous")
+                    or indices.get("x-dunst-stack-tag"))
+        if clef is not None:
+            clef = str(clef)
+            if not remplace:
+                remplace = self._synchrones.get(clef, 0)
+
         ident = self._prochain_id(remplace)
+        if clef is not None:
+            self._synchrones[clef] = ident
 
         urgence = 1
         valeur = indices.get("urgency") if hasattr(indices, "get") else None
@@ -125,6 +142,9 @@ class Serveur(QObject):
         if ident not in self._vivantes:
             return False
         self._vivantes.discard(ident)
+        for clef, vu in list(self._synchrones.items()):
+            if vu == ident:
+                del self._synchrones[clef]
         self.retirer.emit(ident)
         if self._service is not None:
             self._service.NotificationClosed(ident, int(raison))

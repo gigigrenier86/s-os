@@ -340,6 +340,54 @@ lue mais **rejouée** — les trois contrôles neufs relancés un à un contre l
 dépôt, sur la machine. Le deuxième a échoué en deux secondes. *Rejouer coûte
 moins cher que demander l'accès.*
 
+### Le geste disait le contraire du service, sur la même machine
+
+Premier essai après le redémarrage, `s-partage` tapé à la main :
+
+```
+s-partage : Android  : Waydroid pas encore initialise — rien a lier pour l'instant
+```
+
+**C'était faux.** Le journal du même démarrage dit que `s-partage.service` avait
+posé le montage treize secondes après l'allumage, et `findmnt` le confirmait.
+Le service et le geste, dans le même fichier, se contredisaient.
+
+**Deux défauts superposés, et le premier est une leçon sur la correction du
+matin.** Le raisonnement « les données vivent à côté de la configuration » a été
+corrigé le 2026-08-25 dans le mode root de `s-partage` — **et pas dans
+`s-monde`**, où vivait la même recherche pour le mode utilisateur. Or
+`s-partage` porte en tête, écrit noir sur blanc : *« deux fichiers qui doivent
+rester d'accord finissent toujours par diverger »*. Il en était un. La recherche
+vit désormais dans `/usr/lib/s/partage-android.sh`, sourcé des deux côtés.
+
+**Le second défaut aurait survécu à la correction du premier.** Le dossier de
+données d'Android est en `drwxrwx---` sous un UID qui n'existe pas sur l'hôte —
+relevé sur la machine. Un `test -d .../data/media/0` lancé par l'utilisateur
+répond donc **faux**, non parce que le dossier manque, mais parce qu'on n'a pas
+le droit de regarder. `mountpoint` échoue pour la même raison.
+
+C'est **le succès silencieux pris par l'autre bout** : au lieu d'annoncer une
+réussite qui n'a pas eu lieu, le script annonçait un échec qui n'existait pas —
+avec la même assurance, et une cause inventée. *« Je ne peux pas voir » n'est
+pas « il n'y a rien ».*
+
+La réponse se lit dans `/proc/self/mountinfo`, **qui se lit sans aucun droit sur
+ce qu'il décrit**. Le geste dit maintenant, sur la même machine, à la même
+seconde : `Android : /sdcard/Partage (deja lie)`. Et quand il ne peut vraiment
+pas savoir, il distingue les deux cas plutôt que d'en inventer un.
+
+### L'indice que S se passait à lui-même n'était pas honoré
+
+`s_dire` envoie `x-canonical-private-synchronous:s-couture` à chaque phrase.
+Cela veut dire *remplace la précédente, ne l'empile pas* — et le serveur du
+matin l'ignorait, ce qui aurait fait défiler six bulles à la file pour une seule
+couture bavarde. Il est honoré, et éprouvé : trois phrases d'une même couture
+reçoivent le même identifiant, une phrase sans indice en reçoit un autre.
+
+**Vu à l'écran, depuis l'image, pas depuis le dépôt :** la bulle « Partage — Le
+dossier partagé est lié dans les trois mondes », en haut à droite, envoyée par
+la commande exacte que `s_dire` compose.
+
 ### Ce que cette passe ne prouve pas
 
 - **Rien de tout cela n'est dans l'image.** Le service, la bulle, la règle kwin

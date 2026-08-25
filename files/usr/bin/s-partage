@@ -50,36 +50,26 @@ if [ "${1:-}" = "--lier" ]; then
     [ -n "$maison" ] || { echo "s-partage : aucun compte d'UID 1000" >&2; exit 0; }
     source_dir="$maison/Partage"
 
-    # TROUVER LE /sdcard — ET NE PAS LE DEDUIRE D'OU DORT LA CONFIGURATION.
+    # TROUVER LE /sdcard — ET UNE SEULE FOIS, POUR LES DEUX MODES.
     #
-    # MESURE DU 2026-08-25, LE JOUR OU WAYDROID S'EST ENFIN INITIALISE SUR
-    # CETTE MACHINE : ce bloc a repondu « Waydroid pas encore initialise — rien
-    # a lier » alors qu'Android tournait, que /sdcard existait, et que ses
-    # quinze dossiers standards etaient deja la. La faute n'etait pas dans le
-    # code mais dans son raisonnement : il cherchait le fichier de
-    # configuration, puis supposait que les donnees vivaient a cote.
-    #
-    # Elles ne vivent pas a cote. waydroid 1.6 garde sa configuration dans
-    # /var/lib/waydroid/waydroid.cfg — SANS clef data_path, verifie — et pose
-    # les donnees de la session dans ~/.local/share/waydroid/data. Le seul
-    # candidat que la boucle savait former, /var/lib/waydroid/data, n'existe
-    # pas ; le bon dossier n'etait jamais examine, faute d'un waydroid.cfg a
-    # cote de lui.
-    #
-    # On cherche donc le dossier de donnees LUI-MEME, la ou il peut etre. Une
-    # clef data_path ecrite garde le dernier mot : c'est une decision explicite,
-    # et elle prime sur ce qu'on devine.
-    media=""
-    candidats=()
-    for cfg in /var/lib/waydroid/waydroid.cfg "$maison/.local/share/waydroid/waydroid.cfg"; do
-        [ -f "$cfg" ] || continue
-        declaree="$(sed -n 's/^[[:space:]]*data_path[[:space:]]*=[[:space:]]*//p' "$cfg" | head -1)"
-        [ -n "$declaree" ] && candidats+=("$declaree")
+    # Cette recherche etait ecrite ici en toutes lettres, et une seconde fois
+    # dans s-monde pour le mode utilisateur. Le 2026-08-25 elle a ete corrigee
+    # ici seulement : le service posait le montage au demarrage, et « s-partage »
+    # tape a la main repondait « Waydroid pas encore initialise » sur la meme
+    # machine, cinq minutes plus tard. Elle vit desormais dans un seul fichier.
+    # LA BIBLIOTHEQUE VIT DANS /usr/lib/s. On accepte aussi une copie de travail a
+    # cote de ce fichier — meme convention que s-constellation, et pour la meme
+    # raison : c'est la seule facon d'essayer un geste sans reconstruire une image
+    # de plusieurs gigaoctets.
+    _s_ici="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+    for _s_lib in "${S_LIB:-}" /usr/lib/s "$_s_ici/../lib/s"; do
+        if [ -n "$_s_lib" ] && [ -f "$_s_lib/partage-android.sh" ]; then
+            source "$_s_lib/partage-android.sh"
+            break
+        fi
     done
-    candidats+=("$maison/.local/share/waydroid/data" "/var/lib/waydroid/data")
-    for base in "${candidats[@]}"; do
-        [ -d "$base/media/0" ] && { media="$base/media/0"; break; }
-    done
+    unset _s_ici _s_lib
+    media="$(s_android_media "$maison" || true)"
     if [ -z "$media" ]; then
         echo "s-partage : Waydroid pas encore initialise — rien a lier" >&2
         exit 0
@@ -138,7 +128,16 @@ fi
 # --------------------------------------------------------------------------
 # MODE UTILISATEUR
 # --------------------------------------------------------------------------
-source /usr/bin/s-monde
+# MEME CONVENTION QUE POUR LA BIBLIOTHEQUE : on accepte une copie de travail a
+# cote de ce fichier, sinon un geste ne s'essaie qu'apres une image entiere.
+_s_ici="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+for _s_bin in "${S_BIN:-}" /usr/bin "$_s_ici"; do
+    if [ -n "$_s_bin" ] && [ -f "$_s_bin/s-monde" ]; then
+        source "$_s_bin/s-monde"
+        break
+    fi
+done
+unset _s_ici _s_bin
 
 PARTAGE="${S_PARTAGE:-$HOME/Partage}"
 LETTRE=p
@@ -187,11 +186,21 @@ fi
 # On ne monte pas ici : ce script tourne sous l'utilisateur. On demande au
 # service, qui tourne en root. S'il n'est pas la, on le dit plutot que de faire
 # croire que le partage est complet.
-media="$(s_partage_media_android)"
-if [ -z "$media" ]; then
-    dire "Android  : Waydroid pas encore initialise — rien a lier pour l'instant"
-elif mountpoint -q "$media/Partage" 2>/dev/null; then
+# ET ON NE DEMANDE PAS AU SYSTEME DE FICHIERS CE QU'IL NE PEUT PAS DIRE.
+# Le dossier de donnees d'Android est en 0770 sous un UID qui n'existe pas sur
+# l'hote : « mountpoint » et « test -d » repondent tous deux FAUX a
+# l'utilisateur, faute du droit de regarder. La table de montage, elle, se lit
+# sans droit sur ce qu'elle decrit — voir /usr/lib/s/partage-android.sh.
+if s_android_lie; then
     dire "Android  : /sdcard/Partage (deja lie)"
+elif ! media="$(s_android_media)" || [ -z "$media" ]; then
+    if s_android_illisible; then
+        # « JE NE PEUX PAS VOIR » N'EST PAS « IL N'Y A RIEN ». C'est la meme
+        # faute que le chown d'autofs du matin, prise par l'autre bout.
+        dire "Android  : initialise, mais le lien demande les droits — 'sudo systemctl start s-partage'"
+    else
+        dire "Android  : Waydroid pas encore initialise — rien a lier pour l'instant"
+    fi
 else
     if systemctl start s-partage.service >/dev/null 2>&1 || \
        pkexec systemctl start s-partage.service >/dev/null 2>&1; then

@@ -117,13 +117,23 @@ PY
 # differe entre une installation systeme et une installation par utilisateur.
 # On le demande donc a waydroid.cfg plutot que de le deviner — deviner un
 # chemin est la faute que le carnet nomme le plus souvent dans ce depot.
-s_partage_media_android() {
-    local cfg base
-    for cfg in /var/lib/waydroid/waydroid.cfg "$HOME/.local/share/waydroid/waydroid.cfg"; do
-        [ -f "$cfg" ] || continue
-        base="$(sed -n 's/^[[:space:]]*data_path[[:space:]]*=[[:space:]]*//p' "$cfg" | head -1)"
-        [ -n "$base" ] || base="$(dirname "$cfg")/data"
-        [ -d "$base/media/0" ] && { printf '%s\n' "$base/media/0"; return 0; }
-    done
-    return 1
-}
+# LA DECOUVERTE DU /sdcard VIT DANS SON PROPRE FICHIER, ET C'EST UNE LECON.
+# Elle etait ici ET dans le mode root de s-partage. Corrigee d'un cote le
+# 2026-08-25 et pas de l'autre, elle a fait repondre au geste « Waydroid pas
+# encore initialise » a la seconde ou le service venait de poser le montage.
+# LA BIBLIOTHEQUE VIT DANS /usr/lib/s. On accepte aussi une copie de travail a
+# cote de ce fichier — meme convention que s-constellation, et pour la meme
+# raison : c'est la seule facon d'essayer un geste sans reconstruire une image
+# de plusieurs gigaoctets.
+_s_ici="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+for _s_lib in "${S_LIB:-}" /usr/lib/s "$_s_ici/../lib/s"; do
+    if [ -n "$_s_lib" ] && [ -f "$_s_lib/partage-android.sh" ]; then
+        source "$_s_lib/partage-android.sh"
+        break
+    fi
+done
+unset _s_ici _s_lib
+
+# L'ancien nom continue de repondre : une couture hors de ce depot pourrait
+# l'appeler, et la casser en silence serait exactement ce qu'on essaie d'eviter.
+s_partage_media_android() { s_android_media "$@"; }
