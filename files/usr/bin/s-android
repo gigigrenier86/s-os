@@ -19,7 +19,22 @@ if [ ! -f /var/lib/waydroid/waydroid.cfg ]; then
     # GAPPS plutot que VANILLA : c'est la variante qui porte le Play Store.
     # Elle exige un enregistrement de l'appareil chez Google, une seule fois ;
     # la suite du script s'en occupe.
-    if ! pkexec waydroid init -s GAPPS >"$S_ETAT/android-init.log" 2>&1; then
+    # LES DEUX URL NE SONT PAS FACULTATIVES, ET LEUR ABSENCE NE SE VOIT PAS.
+    #
+    # waydroid lit ses canaux dans /usr/share/waydroid-extra/channels.cfg —
+    # fourni par le paquet « waydroid-extra », ABSENT de cette image (verifie
+    # le 2026-08-25 : rpm -q waydroid-extra le dit non installe). Sans lui,
+    # system_channel et vendor_channel valent la chaine vide, et l'initialiseur
+    # s'arrete sur « You must provide 'System OTA' and 'Vendor OTA' URLs ».
+    #
+    # C'est exactement ce que la recette de l'amont passe en clair, dans
+    # /usr/share/ublue-os/just/82-bazzite-waydroid.just : S avait reecrit
+    # l'appel en laissant tomber ses deux arguments. La regle du carnet — on ne
+    # reimplemente pas ce que l'amont maintient — vaut aussi pour une ligne de
+    # commande.
+    if ! pkexec waydroid init -s GAPPS \
+            -c 'https://ota.waydro.id/system' \
+            -v 'https://ota.waydro.id/vendor' >"$S_ETAT/android-init.log" 2>&1; then
         s_echec "Android n'a pas pu etre prepare" "Detail dans $S_ETAT/android-init.log"
     fi
 fi

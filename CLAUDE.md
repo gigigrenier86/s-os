@@ -46,7 +46,131 @@ lancement).
 
 ---
 
-## Où on en est — 2026-08-24
+## Où on en est — 2026-08-25
+
+**Android tourne, les deux disques sont entiers à S, et le dossier partagé fait
+enfin l'aller-retour.** Trois choses aussi : le dépôt vit désormais **sur la
+machine** (`/var/home/RyuRex/S`), ce qui supprime d'un coup les deux pièges du
+dépôt édité sous Windows — CRLF et bit d'exécution — et permet de mesurer au
+lieu de supposer. La journée l'a fait cinq fois.
+
+### L'espace, alloué
+
+| | Avant | Après |
+|---|---|---|
+| Racine de S (NVMe) | 70 Go, 166 Gio inutilisés en bout de disque | **236,5 Go**, une seule partition, 188 Go libres |
+| Grande partition Seagate | 4,1 To vierges | **ext4 `S-DISQUE`**, montée en `/var/mnt/disque`, `~/Disque` |
+| `WINDOWS-S` (sda3) | 500 Go NTFS | **identique au secteur près** — relevé par `sfdisk -d` avant et après |
+
+La racine a été étendue à chaud : `sfdisk -N 3`, `partx -u`, puis `resize2fs`
+sur un système de fichiers monté. Aucune commande de la manœuvre n'écrit sur la
+table de partition de la Seagate — `s-grand-disque` ne fait que formater une
+partition qui existait déjà et qui était vierge.
+
+### Ce qui bloquait Android depuis cinq jours tenait en deux arguments
+
+`s-android` appelait `waydroid init -s GAPPS`. Le paquet Fedora ne fournit
+**pas** `/usr/share/waydroid-extra/channels.cfg` — `waydroid-extra` n'est pas
+installé — donc `system_channel` et `vendor_channel` valent la chaîne vide, et
+l'initialiseur s'arrête sur *« You must provide 'System OTA' and 'Vendor OTA'
+URLs »*. Le journal de S le disait depuis le 2026-08-24 à 21 h 56 ; personne ne
+l'avait lu.
+
+La recette de l'amont, elle, les passe en clair
+(`/usr/share/ublue-os/just/82-bazzite-waydroid.just:33`). **La règle « on ne
+réimplémente pas ce que l'amont maintient » vaut aussi pour une ligne de
+commande** : S l'avait réécrite en laissant tomber deux arguments.
+
+Corrigé, l'init a tiré 3,0 Go — `system.img` 2,5 Go en GAPPS, `vendor.img`
+536 Mo, LineageOS 20 — et **la session Android atteint `RUNNING` en dix
+secondes**. Le Play Store est là, F-Droid posé.
+
+### La panne la plus large de la journée, et elle ne visait pas Android
+
+`s-android` est resté bloqué sur sa **toute première phrase**, indéfiniment,
+sans un mot. Ce n'était pas Android : c'était `notify-send`.
+
+`org.freedesktop.Notifications` est déclaré activable par
+`org.kde.plasma.Notifications.service`, dont l'`Exec` est
+`plasma_waitforname org.freedesktop.Notifications` — il **attend** que quelqu'un
+publie ce nom. Le seul qui le publie est `plasmashell`, qui ne tourne plus ici
+puisque la coquille est Constellation. `notify-send` attend donc pour toujours.
+
+**`s_dire` est dans `s-monde`, que chaque couture charge par `source`.** La
+panne ne gelait pas un geste : elle gelait **tout geste, à sa première
+notification** — et le filet de `s-coquille` avec, qui appelait `notify-send`
+de la même façon. La bulle part désormais détachée et bornée à cinq secondes.
+
+*Ce qui reste à faire, et qui est le vrai correctif :* Constellation devrait
+publier ce service elle-même. Une coquille qui ne sait pas afficher une
+notification n'est pas finie ; en attendant, les phrases de S ne bloquent plus
+mais ne s'affichent nulle part.
+
+### Trois autres défauts, tous trouvés en faisant, aucun en relisant
+
+- **Aucun agent d'authentification dans la session S.** `pkexec` n'ouvre pas de
+  fenêtre lui-même : il demande à l'agent de la session de poser la question.
+  Sans agent et sans terminal, il ne peut ni demander ni aboutir — `s-android`,
+  `s-monter-windows`, `s-grand-disque` et `s-nettoyer` échouaient tous de la
+  même façon. Plasma l'attachait à `plasmashell` ; c'est à `s-coquille` de le
+  porter, comme elle porte déjà `graphical-session.target`.
+- **`s-grand-disque` ne retrouvait pas l'étiquette qu'il venait d'écrire.**
+  Juste après son `mkfs`, la phase de montage du même passage répondait
+  « aucune partition ext4 étiquetée S-DISQUE — rien à monter » : `lsblk` lit le
+  cache d'udev. Un `udevadm settle` règle la chose.
+- **Et son `chown` tombait à côté.** Il annonçait « appartient désormais à
+  RyuRex » et le disque restait à `root` : sur un point de montage
+  **automatique** non encore déclenché, `findmnt` rend `systemd-1 autofs` —
+  donc vrai — et le `chown` visait le répertoire de service d'autofs, jamais la
+  racine ext4. Le message était juste, la cible ne l'était pas. **Le succès
+  silencieux dans sa forme la plus exacte.**
+
+### Le dossier partagé fait l'aller-retour — et il était à sens unique
+
+`s-partage` répondait « Waydroid pas encore initialisé — rien à lier » alors
+qu'Android tournait et que `/sdcard` existait. La faute n'était pas dans le
+code mais dans son raisonnement : **il cherchait le fichier de configuration,
+puis supposait que les données vivaient à côté.** Elles ne vivent pas à côté —
+waydroid 1.6 garde sa configuration dans `/var/lib/waydroid/waydroid.cfg`, sans
+clef `data_path`, et pose les données de session dans
+`~/.local/share/waydroid/data`. On cherche désormais le dossier de données
+lui-même.
+
+Le montage lié posé, **Android lisait et n'écrivait pas**. Le commentaire du
+script affirmait que « la couche media d'Android réécrit les droits qu'elle
+présente à ses applications » : **c'est faux, il n'y a pas de couche qui
+réécrive quoi que ce soit.** Waydroid présente les droits POSIX de l'hôte tels
+quels. Relevé sur `/sdcard/Download` du même conteneur, ce que les dossiers
+d'Android portent et qu'il fallait copier : groupe **1023** (`media_rw`), bit
+**setgid**, et une ACL `group:1023:rwx` **doublée en ACL par défaut** pour que
+tout ce qui naît dedans en hérite.
+
+**Éprouvé dans les deux sens, sur la machine :** un fichier écrit sous Linux se
+lit depuis Android ; un fichier écrit par Android (`u0_a141 media_rw`) se relit
+sous Linux ; et Linux écrit toujours. C'est la seconde moitié du jalon 5, et
+c'est la première fois qu'elle tient debout.
+
+### Ce qui n'est toujours pas éprouvé
+
+- **Aucun de ces six correctifs n'est dans l'image.** Ils sont dans le dépôt et
+  ont tourné depuis le dépôt ; il faut une construction et un `bootc upgrade`.
+  Tant que ce n'est pas fait, la session courante doit son agent polkit et son
+  montage Android à des gestes posés à la main, qui ne survivront pas à une
+  déconnexion.
+- **Le glitch d'affichage de Waydroid n'est pas diagnostiqué**, et rien n'a été
+  changé pour lui. La marche à suivre écrite le 2026-08-23 tient toujours :
+  `waydroid bugreport` **pendant** que le glitch se produit, puis une variable
+  à la fois.
+- **Le presse-papiers Linux↔Android n'existe pas.** Il est maintenant
+  mesurable — Android tourne — et il ne l'était pas hier.
+- **`bootc rollback` n'a toujours jamais été exercé**, alors que deux
+  déploiements coexistent sur cette machine.
+- **`galerie/constellation` n'a toujours aucune capture**, et Constellation
+  tourne en ce moment même.
+
+---
+
+## Où on en est — 2026-08-24 *(dépassé, voir plus haut)*
 
 **S tourne sur le NVMe, Windows est passé sur la Seagate, et les deux coutures
 que ce carnet réclamait depuis le 20 août existent.** Trois chantiers menés le

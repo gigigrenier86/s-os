@@ -50,12 +50,34 @@ if [ "${1:-}" = "--lier" ]; then
     [ -n "$maison" ] || { echo "s-partage : aucun compte d'UID 1000" >&2; exit 0; }
     source_dir="$maison/Partage"
 
-    # Trouver le /sdcard, sans le deviner.
+    # TROUVER LE /sdcard — ET NE PAS LE DEDUIRE D'OU DORT LA CONFIGURATION.
+    #
+    # MESURE DU 2026-08-25, LE JOUR OU WAYDROID S'EST ENFIN INITIALISE SUR
+    # CETTE MACHINE : ce bloc a repondu « Waydroid pas encore initialise — rien
+    # a lier » alors qu'Android tournait, que /sdcard existait, et que ses
+    # quinze dossiers standards etaient deja la. La faute n'etait pas dans le
+    # code mais dans son raisonnement : il cherchait le fichier de
+    # configuration, puis supposait que les donnees vivaient a cote.
+    #
+    # Elles ne vivent pas a cote. waydroid 1.6 garde sa configuration dans
+    # /var/lib/waydroid/waydroid.cfg — SANS clef data_path, verifie — et pose
+    # les donnees de la session dans ~/.local/share/waydroid/data. Le seul
+    # candidat que la boucle savait former, /var/lib/waydroid/data, n'existe
+    # pas ; le bon dossier n'etait jamais examine, faute d'un waydroid.cfg a
+    # cote de lui.
+    #
+    # On cherche donc le dossier de donnees LUI-MEME, la ou il peut etre. Une
+    # clef data_path ecrite garde le dernier mot : c'est une decision explicite,
+    # et elle prime sur ce qu'on devine.
     media=""
+    candidats=()
     for cfg in /var/lib/waydroid/waydroid.cfg "$maison/.local/share/waydroid/waydroid.cfg"; do
         [ -f "$cfg" ] || continue
-        base="$(sed -n 's/^[[:space:]]*data_path[[:space:]]*=[[:space:]]*//p' "$cfg" | head -1)"
-        [ -n "$base" ] || base="$(dirname "$cfg")/data"
+        declaree="$(sed -n 's/^[[:space:]]*data_path[[:space:]]*=[[:space:]]*//p' "$cfg" | head -1)"
+        [ -n "$declaree" ] && candidats+=("$declaree")
+    done
+    candidats+=("$maison/.local/share/waydroid/data" "/var/lib/waydroid/data")
+    for base in "${candidats[@]}"; do
         [ -d "$base/media/0" ] && { media="$base/media/0"; break; }
     done
     if [ -z "$media" ]; then
@@ -74,17 +96,43 @@ if [ "${1:-}" = "--lier" ]; then
     # ne peut pas ecrire — un partage en lecture seule que rien n'expliquerait.
     install -d -o "$compte" -g "$compte" -m 0755 "$source_dir"
 
-    # Android voit les fichiers par un UID a lui : le dossier doit lui
-    # appartenir cote conteneur. On monte, puis on laisse Android faire — la
-    # couche media d'Android reecrit les droits qu'elle presente a ses
-    # applications, et forcer un chown ici casserait justement cela.
     mkdir -p "$cible"
-    if mount --bind "$source_dir" "$cible"; then
-        echo "s-partage : $source_dir -> $cible"
-        exit 0
+    if ! mount --bind "$source_dir" "$cible"; then
+        echo "s-partage : le montage lie a echoue" >&2
+        exit 1
     fi
-    echo "s-partage : le montage lie a echoue" >&2
-    exit 1
+    echo "s-partage : $source_dir -> $cible"
+
+    # ANDROID DOIT POUVOIR ECRIRE, ET LE MONTAGE LIE NE LE LUI DONNE PAS.
+    #
+    # CE QUI ETAIT ECRIT ICI, ET QUI EST FAUX : « la couche media d'Android
+    # reecrit les droits qu'elle presente a ses applications, et forcer un chown
+    # ici casserait justement cela ». Il n'y a pas de couche qui reecrive quoi
+    # que ce soit — waydroid presente les droits POSIX de l'hote tels quels.
+    #
+    # MESURE DU 2026-08-25, LE PREMIER JOUR OU CE CODE A PU TOURNER POUR DE
+    # VRAI : un fichier ecrit sous Linux se lit parfaitement depuis Android,
+    # et l'inverse rend « Permission denied ». Le partage etait donc a sens
+    # unique, ce qui est exactement le genre de demi-succes que ce carnet
+    # refuse — ca marche assez pour qu'on croie que ca marche.
+    #
+    # CE QUE LES DOSSIERS D'ANDROID PORTENT, ET QU'IL FALLAIT COPIER. Relevé
+    # sur /sdcard/Download du meme conteneur : groupe 1023 (media_rw), bit
+    # setgid, et une ACL « group:1023:rwx » DOUBLEE en ACL par defaut pour que
+    # tout ce qui nait dedans en herite. Sans les ACL par defaut, le dossier
+    # serait inscriptible et pas les fichiers qu'on y depose.
+    #
+    # Le proprietaire, lui, ne bouge pas : le dossier reste celui de
+    # l'utilisateur Linux, qui doit y ecrire sans rien demander a personne.
+    chgrp 1023 "$source_dir" 2>/dev/null || true
+    chmod 2770 "$source_dir" 2>/dev/null || true
+    if command -v setfacl >/dev/null 2>&1; then
+        setfacl    -m "g:1023:rwx" -m "u:${compte}:rwx" "$source_dir" 2>/dev/null || true
+        setfacl -d -m "g:1023:rwx" -m "u:${compte}:rwx" "$source_dir" 2>/dev/null || true
+    else
+        echo "s-partage : setfacl absent — Android lira le partage sans pouvoir y ecrire" >&2
+    fi
+    exit 0
 fi
 
 # --------------------------------------------------------------------------

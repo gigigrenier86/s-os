@@ -97,6 +97,14 @@ if [[ "${1:-}" == "--preparer" ]]; then
     # disque de donnees de 4 To, elle immobiliserait 200 Go pour rien.
     mkfs.ext4 -m 0 -L "$ETIQUETTE" "$candidat" || { dire "ECHEC : mkfs.ext4"; exit 1; }
     dire "formate en ext4, etiquette $ETIQUETTE"
+
+    # UNE ETIQUETTE FRAICHE N'EST PAS UNE ETIQUETTE VISIBLE.
+    # Mesure du 2026-08-25, sur la machine : juste apres ce mkfs, la phase de
+    # montage du MEME passage a repondu « aucune partition ext4 etiquetee
+    # S-DISQUE — rien a monter ». lsblk lit le cache d'udev, qui n'avait pas
+    # encore relu la partition. Le disque etait bon, le script disait le
+    # contraire, et il fallait le relancer a la main pour que ca marche.
+    udevadm settle --timeout=30 2>/dev/null || true
 fi
 
 # --------------------------------------------------------------------------
@@ -154,7 +162,24 @@ for ligne in "${COMPTES[@]}"; do
     # Le disque appartient a celui qui s'en sert. Sans ca, il est a root et
     # l'utilisateur ne peut rien y ecrire — un disque de 4 To en lecture seule
     # ressemble a une panne.
-    if [[ "$(stat -c %U "$CIBLE" 2>/dev/null)" == "root" ]] && findmnt -no SOURCE "$CIBLE" >/dev/null 2>&1; then
-        chown "$compte:" "$CIBLE" 2>/dev/null && dire "$CIBLE appartient desormais a $compte"
+    #
+    # ET C'EST EXACTEMENT CE QUI EST ARRIVE LE 2026-08-25. Ce bloc annoncait
+    # « appartient desormais a RyuRex » et le disque restait a root : sur un
+    # point de montage AUTOMATIQUE non encore declenche, findmnt rend « systemd-1
+    # autofs » — donc vrai — et le chown tombait sur le repertoire de service
+    # d'autofs, jamais sur la racine ext4 qui n'etait pas encore montee. Le
+    # message etait juste, la cible ne l'etait pas : le succes silencieux, dans
+    # sa forme la plus exacte.
+    #
+    # On declenche donc le montage, puis on exige de voir « ext4 » et non
+    # « autofs » avant de toucher au proprietaire.
+    ls "$CIBLE" >/dev/null 2>&1
+    if [[ "$(findmnt -no FSTYPE "$CIBLE" 2>/dev/null | tail -1)" == "ext4" ]] &&
+       [[ "$(stat -c %U "$CIBLE" 2>/dev/null)" == "root" ]]; then
+        if chown "$compte:" "$CIBLE" 2>/dev/null; then
+            chmod 0755 "$CIBLE" 2>/dev/null || true
+            command -v restorecon >/dev/null 2>&1 && restorecon -F "$CIBLE" 2>/dev/null || true
+            dire "$CIBLE appartient desormais a $compte"
+        fi
     fi
 done

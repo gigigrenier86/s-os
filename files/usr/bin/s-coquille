@@ -76,6 +76,25 @@ fermer_session_systemd() {
 }
 trap fermer_session_systemd EXIT
 
+# --------------------------------------------------------------------------
+# L'AGENT D'AUTHENTIFICATION — sans lui, tout geste systeme meurt sans un mot
+# --------------------------------------------------------------------------
+# MESURE DU 2026-08-25, DANS CETTE SESSION : aucun agent polkit ne tournait.
+# Or « pkexec » n'ouvre pas de fenetre lui-meme : il demande a l'agent de la
+# session de poser la question. Sans agent et sans terminal, il ne peut ni
+# demander ni aboutir — s-android, s-monter-windows, s-grand-disque et
+# s-nettoyer echouent alors tous de la meme facon, en silence.
+#
+# Plasma l'attachait a plasmashell, qui ne tourne plus ici. C'est donc a la
+# coquille de S de le porter, comme elle porte deja graphical-session.target.
+AGENT_POLKIT=/usr/libexec/kf6/polkit-kde-authentication-agent-1
+if [[ -x "$AGENT_POLKIT" ]]; then
+    "$AGENT_POLKIT" >>"$JOURNAL/polkit.log" 2>&1 &
+    dire "agent d'authentification demarre"
+else
+    dire "aucun agent d'authentification — les gestes systeme ne pourront rien demander"
+fi
+
 lancer_coquille() {
     "$COQUILLE" >>"$JOURNAL/coquille.log" 2>&1
 }
@@ -85,9 +104,14 @@ lancer_coquille() {
 # panne. On arrete de rejouer et on repose un bureau utilisable.
 secours() {
     dire "Constellation ne tient pas — bureau de secours"
+    # Detache et borne dans le temps, pour la meme raison qu'ailleurs : sans
+    # demon de notifications, notify-send attend pour toujours — et c'est le
+    # FILET qui resterait bloque, c'est-a-dire le seul morceau qui n'a pas le
+    # droit de l'etre.
     if command -v notify-send >/dev/null 2>&1; then
-        notify-send -u critical "S" \
-            "Constellation n'a pas demarre. Bureau de secours ouvert. Le journal est dans ~/.local/state/s/." || true
+        ( timeout 5 notify-send -u critical "S" \
+            "Constellation n'a pas demarre. Bureau de secours ouvert. Le journal est dans ~/.local/state/s/." \
+            >/dev/null 2>&1 & ) 2>/dev/null || true
     fi
     if command -v plasmashell >/dev/null 2>&1; then
         exec plasmashell

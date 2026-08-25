@@ -81,7 +81,23 @@ done
 P="${S_PARTAGE:-$HOME/Partage}"
 if [ -d "$P" ]; then
     w=$([ -L "$PFX/dosdevices/p:" ] && echo "P:\\" || echo "—")
-    a=$(mountpoint -q "$(ls -d /var/lib/waydroid/data/media/0/Partage 2>/dev/null)" 2>/dev/null && echo "/sdcard/Partage" || echo "—")
+    # Le /sdcard ne vit pas toujours au meme endroit : waydroid 1.6 pose les
+    # donnees de session dans ~/.local/share/waydroid/data, la configuration
+    # restant dans /var/lib/waydroid. Ce releve visait le second et rendait
+    # « — » alors que le montage lie etait bel et bien pose (2026-08-25).
+    # Deux corrections d'un coup, mesurees le 2026-08-25 :
+    #   1. le /sdcard ne vit pas toujours au meme endroit — waydroid 1.6 pose
+    #      les donnees de session dans ~/.local/share/waydroid/data, la
+    #      configuration restant dans /var/lib/waydroid ;
+    #   2. « mountpoint » ne peut pas repondre ici : media/0 appartient au
+    #      groupe 1023 d'Android et l'utilisateur ne peut pas le traverser.
+    #      Il rendait « — » sur un montage parfaitement pose.
+    # On lit donc la table des montages, qui n'exige aucun droit de passage.
+    a="—"
+    for base in "$HOME/.local/share/waydroid/data" /var/lib/waydroid/data; do
+        grep -q " ${base}/media/0/Partage " /proc/self/mountinfo 2>/dev/null &&
+            { a="/sdcard/Partage"; break; }
+    done
     dire "dossier partage" "$(oui "$P")  |  windows: $w  |  android: $a"
 else
     dire "dossier partage" "$(tiede 'pas encore cree — lance s-partage')"

@@ -25,9 +25,28 @@ mkdir -p "$S_DATA" "$S_LANCEURS" "$S_ETAT"
 # le precedent au lieu d'empiler les bulles.
 s_dire() {
     local titre="$1" texte="${2:-}" icone="${3:-dialog-information}"
-    command -v notify-send >/dev/null 2>&1 &&
-        notify-send -a "S" -i "$icone" -h "string:x-canonical-private-synchronous:s-couture" \
-            "$titre" "$texte" 2>/dev/null || true
+    # UNE PHRASE NE DOIT JAMAIS RETENIR LE GESTE QUI LA DIT.
+    #
+    # MESURE DU 2026-08-25, DANS LA SESSION S, SUR LA MACHINE : s-android est
+    # reste bloque sur sa toute premiere phrase, indefiniment, sans un mot.
+    # « org.freedesktop.Notifications » est declare activable par
+    # /usr/share/dbus-1/services/org.kde.plasma.Notifications.service, dont
+    # l'Exec est « plasma_waitforname org.freedesktop.Notifications » : il
+    # ATTEND que quelqu'un publie ce nom, et le seul qui le publie est
+    # plasmashell — qui ne tourne pas ici, puisque la coquille est Constellation.
+    # notify-send attend donc pour toujours une reponse qui ne viendra jamais.
+    #
+    # C'est la panne la plus large que ce carnet ait rencontree : elle ne visait
+    # pas Android, elle gelait TOUTE couture des sa premiere notification.
+    #
+    # Deux protections, parce qu'une seule ne suffit pas : la bulle part en
+    # arriere-plan detachee — le geste continue quoi qu'il arrive — et « timeout »
+    # l'empeche de vivre plus de cinq secondes si personne ne repond.
+    if command -v notify-send >/dev/null 2>&1; then
+        ( timeout 5 notify-send -a "S" -i "$icone" \
+            -h "string:x-canonical-private-synchronous:s-couture" \
+            "$titre" "$texte" >/dev/null 2>&1 & ) 2>/dev/null || true
+    fi
     printf '%s — %s\n' "$titre" "$texte" >&2
 }
 
