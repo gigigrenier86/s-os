@@ -48,6 +48,7 @@ preuve.** Pas la construction verte, pas le code écrit : la mesure.
 | [qemu-observer-sans-casser.sh](qemu-observer-sans-casser.sh) | Diagnostiquer un QEMU « figé » sans aggraver son cas | 2026-08-21 |
 | [desktop-echapper-exec.sh](desktop-echapper-exec.sh) | Écrire un chemin dans un `Exec=` sans que GLib rejette la ligne | 2026-08-23 |
 | [windows-lire-cible-lnk.sh](windows-lire-cible-lnk.sh) | Lire la cible d'un raccourci `.lnk` sans bibliothèque | 2026-08-23 |
+| [kwin-capturer-la-coquille.sh](kwin-capturer-la-coquille.sh) | Photographier une fenêtre précise sous kwin, sans interface et sans déranger la session | 2026-08-25 |
 
 ---
 

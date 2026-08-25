@@ -152,11 +152,13 @@ c'est la première fois qu'elle tient debout.
 
 ### Ce qui n'est toujours pas éprouvé
 
-- **Aucun de ces six correctifs n'est dans l'image.** Ils sont dans le dépôt et
-  ont tourné depuis le dépôt ; il faut une construction et un `bootc upgrade`.
-  Tant que ce n'est pas fait, la session courante doit son agent polkit et son
-  montage Android à des gestes posés à la main, qui ne survivront pas à une
-  déconnexion.
+- ~~Aucun de ces six correctifs n'est dans l'image.~~ **Ils y sont depuis
+  15 h 47, et la machine a redémarré dessus à 11 h 55** — image `44.20260824`,
+  `sha256:c73f90ed…`. Vérifié dans la session, pas dans le dépôt : l'agent
+  polkit tourne (PID relevé), `s-partage.service` a remonté le dossier partagé
+  **treize secondes après le démarrage**, sans que personne le lui demande, et
+  les droits ont suivi — groupe 1023, setgid, ACL par défaut. C'est la première
+  fois que cette couture survit à un redémarrage.
 - **Le glitch d'affichage de Waydroid n'est pas diagnostiqué**, et rien n'a été
   changé pour lui. La marche à suivre écrite le 2026-08-23 tient toujours :
   `waydroid bugreport` **pendant** que le glitch se produit, puis une variable
@@ -165,8 +167,168 @@ c'est la première fois qu'elle tient debout.
   mesurable — Android tourne — et il ne l'était pas hier.
 - **`bootc rollback` n'a toujours jamais été exercé**, alors que deux
   déploiements coexistent sur cette machine.
-- **`galerie/constellation` n'a toujours aucune capture**, et Constellation
-  tourne en ce moment même.
+- ~~`galerie/constellation` n'a toujours aucune capture.~~ **Elle en a une,
+  prise le 2026-08-25 à 12 h 23 sur cette machine**, et c'est la première pièce
+  de la Galerie rendue par une vraie carte graphique. Voir plus bas.
+
+---
+
+## 2026-08-25, midi — la coquille sait enfin parler, et la Galerie a son premier tableau
+
+Deux chantiers que le carnet réclamait depuis le matin. Les deux sont finis, et
+les deux ont coûté un détour qu'aucune relecture n'aurait trouvé.
+
+### Constellation publie `org.freedesktop.Notifications`
+
+Le correctif du matin avait détaché `notify-send` et l'avait borné à cinq
+secondes : plus rien ne gelait, et les phrases de S partaient dans le vide.
+Mesuré au bus juste après le redémarrage, la situation exacte :
+
+```
+org.freedesktop.Notifications    -  -  -  (activatable)  -
+```
+
+**Personne ne possédait le nom.** La coquille le prend désormais elle-même —
+`files/usr/lib/s/notifications.py`, publié par `s-constellation` au démarrage.
+
+**Trois formes ont été écrites, essayées sur la machine, et deux rejetées par la
+mesure.** C'est la seule raison pour laquelle ce fichier n'est pas en QtDBus
+comme le reste de la coquille :
+
+| Forme | Ce qu'elle donnait |
+|---|---|
+| `QDBusVirtualObject`, XML d'introspection écrit à la main | `GetServerInformation` exact, mais **la réponse de `Notify` sortait avec le mauvais type** — un objet virtuel ne déclare rien à Qt, qui devine d'après la valeur Python, et un entier ne devient jamais un `u` |
+| Slots exportés (`ExportAllSlots`) | `Notify`, `CloseNotification`, `GetCapabilities` **exacts**. Mais Qt déduit la signature du type déclaré dans le slot, et un slot Python ne peut pas rendre **quatre chaînes séparées** : `GetServerInformation` sortait en `as` au lieu de `ssss` |
+| `QDBusContext` et réponse différée pour ce seul appel | **erreur de segmentation**, reproduite deux fois |
+
+**Et la deuxième forme est le piège de la journée, parce qu'elle a l'air de
+marcher.** Un appel direct de `Notify` répondait `u 1` ; l'introspection était
+juste ; tout semblait bon. Mais **libnotify interroge `GetServerInformation`
+avant d'afficher quoi que ce soit**, et `notify-send` répondait alors
+*« Unexpected reply type »* sans jamais rien montrer. Le seul client que S
+utilise partout était le seul que cette forme cassait — et le message ne
+nommait pas la méthode fautive. **Le succès silencieux, une fois de plus, mais
+déplacé d'un appel.**
+
+La forme retenue est `dbus-python`, où la signature s'écrit au lieu de se
+deviner : `out_signature="ssss"`, `out_signature="u"`.
+
+**Et il n'y a pas deux boucles pour autant** — mesuré à l'exécution, pas
+supposé : Qt utilise `QEventDispatcherGlib` sous Linux, donc il fait déjà
+tourner le contexte principal de GLib, celui-là même auquel `DBusGMainLoop`
+s'attache. Le service est servi **par la boucle de Qt**, sans fil supplémentaire.
+Un repli en fil séparé est armé si jamais Qt était bâti sans GLib, parce que
+sinon le service répondrait à personne et ne le dirait pas.
+
+**Ce que S déclare savoir faire : `body`, et rien d'autre.** Annoncer `actions`
+sans dessiner de boutons ferait afficher aux applications des choix qui
+n'apparaissent nulle part.
+
+### La bulle, et pourquoi elle ne peut pas se placer elle-même
+
+Elle vit dans une **fenêtre à part**, pas dans la scène du bureau. Constellation
+est une fenêtre plein écran que le compositeur garde **derrière** les autres —
+c'est ce qu'on attend d'un bureau, et c'est ce qui rendrait une bulle invisible
+pile au moment où elle sert.
+
+Mesuré sur la machine : `Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint |
+Qt.Tool` suffit à passer devant les autres fenêtres sous `kwin_wayland`.
+**Mais les coordonnées `x` et `y` sont ignorées** — une fenêtre demandant
+`x=1516 y=24` s'est affichée **au centre de l'écran**. Ce n'est pas un défaut de
+Qt : un client Wayland ne se place pas lui-même, le compositeur décide.
+
+Une règle kwin la pose donc en haut à droite. **Et elle ne peut pas vivre dans
+l'image, ce qui contredit en apparence la règle « ce qui doit tenir va dans
+l'image ».** KConfig cascade : le fichier de l'utilisateur l'emporte, et
+`~/.config/kwinrulesrc` portait déjà une ligne `rules=` **vide** — or kwin ne lit
+que les groupes nommés dans cette liste. Une règle livrée par `/etc/xdg` serait
+masquée par une ligne vide du dossier personnel.
+
+**Le contournement est donc dans l'autre sens : le code qui pose la règle, lui,
+est dans l'image.** `s-coquille` l'exécute à chaque ouverture de session ; il se
+répare tout seul si le fichier disparaît, et il n'écrase jamais les règles que
+l'utilisateur aurait ajoutées.
+
+Le titre de la fenêtre — `S - notification` — n'est pas décoratif : **c'est la
+clef de la règle**. La bulle et le bureau appartiennent à la même application et
+portent donc la même classe ; le titre est le seul moyen de les distinguer.
+
+### Éprouvé sur la machine, le 2026-08-25 vers 12 h 45
+
+| | |
+|---|---|
+| Signatures au bus | `Notify susssasa{sv}i → u`, `CloseNotification u`, `GetCapabilities → as`, `GetServerInformation → ssss` — **les quatre exactes** |
+| `notify-send` | rendu en **0,031 s**, **sans erreur** |
+| La bulle | **vue en haut à droite, par-dessus une konsole au premier plan**, capture à l'appui |
+| Urgence critique | liseré et bordure rouges, **et elle ne part pas toute seule** |
+| Expiration | posée à 3 000 ms, **absente 5 s plus tard** — mesuré en comparant la zone de la bulle sur deux captures |
+| `CloseNotification` | ferme et rend la main sans erreur |
+
+**Et `org.kde.plasma.Notifications.service` est remplacé dans l'image.** En
+session normale il ne sert à rien, Constellation prenant le nom au démarrage. Il
+ne compte que dans le cas contraire — coquille tombée, bureau de secours — et
+là, son `Exec` pointe désormais sur `/usr/bin/false` : **échouer en quelques
+millisecondes vaut mieux qu'attendre sans fin.**
+
+### La Galerie a sa première pièce, et c'est la première rendue par un vrai GPU
+
+`galerie/constellation/constellation-2026-08-25.png` — 1920 × 1080, prise à
+12 h 23 sur `s`, rendue par **Mesa Intel UHD Graphics 630, pilote `i915`**.
+Ce n'est pas `llvmpipe` : la réserve *JAMAIS JUGÉE SUR GPU* que la Galerie
+impose aux transparences et aux dégradés **tombe pour cette pièce**.
+
+L'index de la Galerie décrivait encore Constellation comme « une page servie par
+son pont `s-etoiles` ». C'était faux depuis le 2026-08-24 ; c'est corrigé.
+
+### Photographier la coquille était une recette à part entière
+
+Trois pièges, et le troisième a été **commis par moi dans la recette censée
+l'éviter** :
+
+1. **L'API de capture de kwin est réservée.** `org.kde.KWin.ScreenShot2` est
+   publiée, complète et alléchante — et elle répond
+   `NoAuthorized: The process is not authorized to take a screenshot` à un
+   script. kwin vérifie l'exécutable de l'appelant. Ce n'est pas contournable
+   proprement, et c'est bien. On appelle donc `spectacle`, déjà dans l'image et
+   déjà autorisé : *on ne réimplémente pas ce que l'amont maintient.*
+2. **« Montrer le bureau » ne survit pas à la capture.** `showDesktop b true`
+   marche une seconde ; dès que spectacle démarre, kwin voit une activation et
+   sort du mode. Mesuré : juste après, `showingDesktop` valait déjà `false`, et
+   l'image montrait la konsole par-dessus le bureau.
+3. **`spectacle -a` réussit toujours, même quand on a visé le vide.** La
+   première version de la recette, essayée avec un motif de classe inexistant,
+   a rendu une image et le code 0 — celle de la fenêtre qui se trouvait active.
+   Un fichier, un succès, et le sentiment d'avoir photographié ce qu'on
+   demandait.
+
+**Ce qui marche** : un script kwin chargé sur le bus pose l'activation sur la
+fenêtre visée, puis `spectacle -b -n -a` la photographie. Rien n'est réduit,
+donc rien n'est à restaurer — *une capture ne doit pas réorganiser la session
+pour se réussir.*
+
+**Et pour savoir si l'activation a trouvé sa cible**, alors qu'un script kwin ne
+rend rien à l'appelant et que son `print` ne ressort ni dans le journal
+utilisateur ni dans le journal système — vérifié : le script appelle, **quand il
+a trouvé**, une méthode sur un nom de bus que personne ne possède. L'appel
+échoue sans conséquence, mais un `dbus-monitor` lancé à côté le voit passer,
+avec la classe trouvée en argument. **On se sert du bus comme d'un témoin, pas
+comme d'un transport.** Les deux chemins sont éprouvés : image et code 0 sur la
+coquille, aucun fichier et code 1 sur un motif absent.
+
+La recette est au Grimoire — `kwin-capturer-la-coquille.sh`, `PREUVE:` datée.
+
+### Ce que cette passe ne prouve pas
+
+- **Rien de tout cela n'est dans l'image.** Le service, la bulle, la règle kwin
+  et le remplacement du `.service` sont dans le dépôt et ont tourné **depuis le
+  dépôt**, sur un banc qui charge `Bulle.qml` sans ouvrir un second bureau. Il
+  faut une construction et un `bootc upgrade`.
+- **La bulle n'a jamais été affichée par Constellation elle-même**, seulement
+  par ce banc. Le branchement dans `Constellation.qml` est écrit, pas exercé.
+- **Le repli en fil GLib n'a jamais servi** — la boucle de Qt a toujours suffi
+  ici.
+- **Aucune application réelle n'a encore notifié S.** Les essais viennent tous
+  de `notify-send` et de `busctl`.
 
 ---
 

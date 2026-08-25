@@ -780,6 +780,26 @@ ApplicationWindow {
     }
     Timer { id: chrono; interval: 2600; onTriggered: mot.vu = false }
 
+    // ══ 6 bis. LA BULLE DE NOTIFICATION ═══════════════════════════════════
+    // Elle vit dans une FENETRE A ELLE, pas dans cette scene, parce que ce
+    // bureau reste derriere les autres fenetres — c'est ce qu'on attend d'un
+    // bureau, et c'est ce qui rendrait une bulle invisible pile quand elle
+    // sert. Voir Bulle.qml pour ce qui a ete mesure.
+    Bulle { id: bulle }
+
+    // « notifications » est nul quand le nom du bus etait deja pris. Un
+    // Connections sans cible ne fait rien, et le bureau s'ouvre quand meme :
+    // un bureau sans bulles reste un bureau.
+    Connections {
+        target: typeof notifications !== "undefined" ? notifications : null
+        function onMontrer(id, app, titre, corps, duree, urgence) {
+            bulle.poser(id, app, titre, corps, duree, urgence);
+        }
+        function onRetirer(id) {
+            bulle.retirer(id);
+        }
+    }
+
     // ══ 7. LES RACCOURCIS CLAVIER ═════════════════════════════════════════
     Shortcut {
         sequences: [StandardKey.Open, "Meta"]

@@ -81,9 +81,32 @@ python3 -c "import sys; sys.path.insert(0, '/usr/lib/s'); import noyau; noyau.in
     || { echo "ECHEC : /usr/lib/s/noyau.py ne s'importe pas." >&2; exit 1; }
 echo "  noyau         : importe, inventaire parcouru"
 
+# LE SERVICE DE NOTIFICATIONS DOIT S'IMPORTER, ET SES DEUX BIBLIOTHEQUES ETRE LA.
+# Il tient a PySide6 ET a dbus-python : si l'une des deux disparaissait d'une
+# reconstruction de la base, la coquille demarrerait sans bulles et personne ne
+# le saurait avant qu'un geste reste muet.
+python3 -c "
+import sys; sys.path.insert(0, '/usr/lib/s')
+import notifications
+assert notifications.NOM == 'org.freedesktop.Notifications'
+" || { echo "ECHEC : /usr/lib/s/notifications.py ne s'importe pas." >&2; exit 1; }
+echo "  notifications : importe"
+
+# LE FOURNISSEUR DE PLASMA DOIT ETRE RECOUVERT. L'original lance
+# « plasma_waitforname », qui attend pour toujours dans une session sans
+# plasmashell — c'est la panne qui a gele toutes les coutures le 2026-08-25.
+# Le COPY doit l'avoir remplace ; si un jour il ne le fait plus, on veut
+# l'apprendre ici et non par un geste qui ne rend jamais la main.
+SERVICE_NOTIF=/usr/share/dbus-1/services/org.kde.plasma.Notifications.service
+if grep -q "plasma_waitforname" "$SERVICE_NOTIF" 2>/dev/null; then
+    echo "ECHEC : $SERVICE_NOTIF porte encore plasma_waitforname." >&2
+    exit 1
+fi
+echo "  activation    : plasma_waitforname ecarte"
+
 # --- La scene QML ---------------------------------------------------------
 for f in Constellation.qml Theme.qml Astre.qml Tuile.qml Glyphe.qml Anneau.qml \
-         Verre.qml Rangee.qml ArticleMenu.qml SeparateurMenu.qml \
+         Verre.qml Rangee.qml ArticleMenu.qml SeparateurMenu.qml Bulle.qml \
          Fonds.js Glyphes.js qmldir; do
     [[ -s "$QML/$f" ]] || { echo "ECHEC : $QML/$f absent." >&2; exit 1; }
 done

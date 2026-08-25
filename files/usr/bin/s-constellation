@@ -35,6 +35,7 @@ for _essai in (os.environ.get("S_NOYAU"),
         break
 
 import noyau  # noqa: E402
+import notifications  # noqa: E402
 
 from PySide6.QtCore import QObject, QUrl, Slot  # noqa: E402
 from PySide6.QtGui import QGuiApplication  # noqa: E402
@@ -154,9 +155,23 @@ def main():
 
     moteur = QQmlApplicationEngine()
     pont = Pont()
+
+    # LA COQUILLE PUBLIE ELLE-MEME LE SERVICE DE NOTIFICATIONS. Personne ne
+    # possedait « org.freedesktop.Notifications » dans une session de S : le
+    # seul fournisseur declare par l'image attend que plasmashell le publie, et
+    # plasmashell ne tourne pas ici. Voir /usr/lib/s/notifications.py.
+    #
+    # UN ECHEC ICI N'EMPECHE PAS LE BUREAU DE S'OUVRIR. Le nom peut etre deja
+    # pris par un autre demon ; on le dit sur la sortie d'erreur, qui part dans
+    # ~/.local/state/s/coquille.log, et on continue sans bulles.
+    serveur, ennui = notifications.publier(app)
+    if ennui:
+        print("s-constellation : pas de bulles — " + ennui, file=sys.stderr)
+
     # Le pont est pose AVANT le chargement : une propriete de contexte ajoutee
     # apres coup n'est pas vue par les liaisons deja evaluees.
     moteur.rootContext().setContextProperty("pont", pont)
+    moteur.rootContext().setContextProperty("notifications", serveur)
     moteur.load(QUrl.fromLocalFile(os.path.join(QML, "Constellation.qml")))
 
     if not moteur.rootObjects():

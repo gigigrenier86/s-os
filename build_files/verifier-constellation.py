@@ -93,6 +93,10 @@ def main():
         lambda ws: plaintes.extend(w.toString() for w in ws))
     pont = PontLeurre()
     moteur.rootContext().setContextProperty("pont", pont)
+    # LE SERVICE DE NOTIFICATIONS EST NUL ICI, ET C'EST UN CAS REEL : la
+    # coquille pose la meme valeur quand le nom du bus est deja pris. La scene
+    # doit charger sans bulles comme elle charge avec.
+    moteur.rootContext().setContextProperty("notifications", None)
     moteur.load(QUrl.fromLocalFile(os.path.join(QML, "Constellation.qml")))
 
     if not moteur.rootObjects():

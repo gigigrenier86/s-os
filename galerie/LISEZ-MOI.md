@@ -93,25 +93,45 @@ des tâches.
 
 | Pièce | Ce que ça peint | Capture | Machine |
 |---|---|---|---|
+| **[constellation/](constellation/)** | Le bureau de S : un ciel, et les applications en étoiles | [constellation-2026-08-25.png](constellation/constellation-2026-08-25.png) | `s` — Intel UHD 630, pilote `i915` |
 
-### En attente de capture
+### Constellation — la première pièce rendue par une vraie carte graphique
 
-**[constellation/](constellation/constellation.html)** — le bureau *Constellation*.
+**Depuis le 2026-08-24, ce n'est plus une page web.** Constellation est un
+client Wayland natif : un processus, une fenêtre, une scène QtQuick, qui appelle
+le noyau de S dans son propre processus. Plus de serveur HTTP sur 127.0.0.1,
+plus de port ouvert, plus de moteur de rendu web au démarrage de la session — et
+plus de menu contextuel proposant « Recharger » et « Inspecter » là où
+l'utilisateur cherchait « Épingler ».
 
-**Depuis le 2026-08-22, ce n'est plus une maquette : c'est la session de S.**
-Le greeter propose « S », et ce que S lance est cette page, servie par son pont
-`s-etoiles` qui y injecte l'inventaire réel de la machine. Le fichier de ce
-dossier reste **le même** — ouvert seul, il garde ses données de vitrine et sa
-vie de prototype ; servi par le pont, il devient un bureau. Une seule source.
+Le dossier attendait sa capture depuis le 2026-08-22. **Elle a été prise le
+2026-08-25 à 12 h 23, sur `s`, en 1920 × 1080, rendue par une Intel UHD 630 avec
+le pilote `i915`.** Ce n'est pas `llvmpipe` : la réserve *JAMAIS JUGÉE SUR GPU*
+tombe pour cette pièce, et ce qu'on voit est ce que la machine affiche.
 
-Le pont a été **exécuté** au banc du 2026-08-22 sur la machine de développement :
-sept étoiles tirées d'un vrai menu d'applications, les trois mondes classés
-juste, un lancement compté qui fait grossir son étoile et survit au
-rechargement. **Cela ne vaut pas capture** : la règle de cette Galerie demande
-une image prise sur la machine qui fait tourner l'œuvre, et **S n'a encore
-jamais ouvert cette session**. Elle montera dans le tableau ce jour-là, pas avant.
+Le détail de ce qu'elle montre — l'échelle logarithmique des étoiles, la couleur
+des trois mondes, l'anneau, le fond peint une seule fois — est dans
+[constellation/LISEZ-MOI.md](constellation/LISEZ-MOI.md).
+
+La maquette d'origine reste rangée dans
+[constellation/archive-page-web/](constellation/archive-page-web/) avec le pont
+qui la servait : c'est d'elle que sort tout le vocabulaire visuel, et
+`Theme.qml` en reprend la palette couleur pour couleur.
 
 Publiée aussi ici : <https://claude.ai/code/artifact/92657e1b-fac5-449d-a5a4-492f09e252a8>
+
+---
+
+## La capture, elle-même, est une recette
+
+Photographier la coquille demandait de résoudre trois pièges — l'API de capture
+de kwin est réservée, « montrer le bureau » ne survit pas au démarrage de
+l'outil de capture, et `spectacle -a` réussit même quand on a visé une fenêtre
+qui n'existe pas. La marche à suivre est au Grimoire :
+[kwin-capturer-la-coquille.sh](../grimoire/kwin-capturer-la-coquille.sh).
+
+Elle ne réduit ni ne déplace aucune fenêtre : **une capture ne doit pas
+réorganiser la session pour se réussir.**
 
 ---
 

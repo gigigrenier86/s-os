@@ -95,6 +95,21 @@ else
     dire "aucun agent d'authentification — les gestes systeme ne pourront rien demander"
 fi
 
+# --------------------------------------------------------------------------
+# LA PLACE DE LA BULLE — une fenetre Wayland ne se place pas elle-meme
+# --------------------------------------------------------------------------
+# Constellation publie desormais org.freedesktop.Notifications et dessine ses
+# bulles dans une fenetre a part. Cette fenetre ne peut pas demander sa propre
+# position : le protocole ne le permet pas, et kwin l'a centree a l'essai du
+# 2026-08-25. Une regle kwin la pose en haut a droite ; elle vit dans le
+# dossier personnel parce qu'une « [General] rules= » vide y masquerait
+# n'importe quelle regle livree par l'image. Le code qui la pose, lui, est
+# dans l'image — donc il se repare a chaque ouverture de session.
+if [[ -f /usr/lib/s/regle-bulle.py ]]; then
+    python3 /usr/lib/s/regle-bulle.py >>"$JOURNAL/coquille.log" 2>&1 || \
+        dire "la bulle n'a pas pu etre placee — elle s'affichera au centre"
+fi
+
 lancer_coquille() {
     "$COQUILLE" >>"$JOURNAL/coquille.log" 2>&1
 }

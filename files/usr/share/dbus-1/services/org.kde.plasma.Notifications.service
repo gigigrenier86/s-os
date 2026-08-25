@@ -1,0 +1,18 @@
+# CE FICHIER REMPLACE CELUI DE PLASMA, ET C'EST TOUT SON OBJET.
+#
+# L'original, livre par plasma-workspace, porte :
+#     Exec=/usr/bin/plasma_waitforname org.freedesktop.Notifications
+# c'est-a-dire un programme qui ATTEND que quelqu'un publie ce nom. Le seul
+# qui le publie est plasmashell, qui ne tourne pas dans une session de S
+# puisque la coquille est Constellation. Un « notify-send » attendait donc
+# pour toujours — et gelait le geste qui l'avait appele.
+#
+# En session normale, ce fichier ne sert a rien : Constellation prend le nom
+# elle-meme au demarrage, donc dbus n'active jamais rien. Il ne compte que
+# dans le cas contraire — coquille tombee, bureau de secours, session
+# reduite — et la, ECHOUER TOUT DE SUITE VAUT MIEUX QU'ATTENDRE SANS FIN.
+# L'appelant recoit une erreur d'activation en quelques millisecondes et
+# poursuit son travail.
+[D-BUS Service]
+Name=org.freedesktop.Notifications
+Exec=/usr/bin/false
