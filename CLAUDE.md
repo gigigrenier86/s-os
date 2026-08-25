@@ -173,6 +173,45 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-25, soir — la sauvegarde suit le depot sur la machine
+
+`banc/sauvegarder-le-projet.ps1` tournait sur la machine de developpement
+Windows. Le depot vit maintenant sur S ; la sauvegarde devait suivre.
+`banc/sauvegarder-le-projet.sh` en est le pendant, et il garde les deux regles
+qui font la valeur de l'original :
+
+- **Le bundle est clone pour de vrai avant d'etre declare bon.** Un bundle qu'on
+  n'a pas ouvert n'est pas une sauvegarde, c'est un espoir. Releve de la premiere
+  passe : 95 commits, `HEAD 4c5e07f`.
+- **Une empreinte par fichier.** « La copie est arrivee » doit etre une
+  verification, pas une impression. 942 fichiers, 182 Mo, manifeste verifie
+  apres coup — et re-verifie apres deplacement.
+
+Il emporte aussi ce que le depot ne garde pas : le banc `S-vm/` sans ses images
+disque, et surtout **la memoire, les skills et les transcriptions de Claude
+Code**, qui sont le seul endroit ou vit le raisonnement ayant produit le code.
+Le depot n'en garde que le resultat.
+
+### Et une destination qui a du changer avant meme la premiere sauvegarde
+
+Elle allait dans `~/Partage`, le dossier des trois mondes — l'endroit evident
+pour « travailler ailleurs ». **C'etait une faute**, et le relevé la nomme :
+
+```
+group:1023:rwx          # media_rw d'Android
+default:group:1023:rwx
+```
+
+`~/Partage` est lisible par **toute application Android autorisee au stockage**.
+Or cette sauvegarde contient la cle privee du banc. Elle va donc sur le grand
+disque, que seul Linux voit.
+
+C'est la meme famille de faute que le mot de passe du banc pousse en clair le
+2026-08-20 : un secret depose dans un endroit pratique, sans se demander qui
+d'autre le lit.
+
+---
+
 ## 2026-08-25, soir — l'etiquette qui empechait d'atteindre ce qu'elle nommait
 
 Petit irritant rapporte par l'usage, et c'est un vrai defaut d'interface :
