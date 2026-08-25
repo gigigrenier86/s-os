@@ -39,6 +39,15 @@ Window {
     // Meme patron que menuDemande, qui lui a toujours marche.
     property var ouvertures: []
 
+    // LE NOM D'UNE EPINGLEE S'AFFICHE AU-DESSUS D'ELLE, JAMAIS DESSUS.
+    // L'infobulle de Qt se posait PAR-DESSUS la pastille — il n'y a pas la
+    // place de la mettre en dessous, la barre touche le bas de l'ecran — et
+    // elle arrivait assez vite pour intercepter le clic qu'on etait en train
+    // de faire. Une etiquette qui empeche d'atteindre ce qu'elle nomme est
+    // pire que pas d'etiquette du tout.
+    property string nomSurvole: ""
+    property real centreSurvole: 0
+
     width: Screen.width
     height: hauteur
     visible: true
@@ -102,6 +111,10 @@ Window {
             anchors.left: noyau.right
             anchors.leftMargin: 12
             anchors.verticalCenter: parent.verticalCenter
+            // ELLES DESCENDENT DE SEPT PIXELS, et c'est tout le correctif :
+            // ces sept pixels, plus les onze deja libres au-dessus, font la
+            // place ou le nom peut s'ecrire sans couvrir la pastille.
+            anchors.verticalCenterOffset: 7
             spacing: 8
 
             Repeater {
@@ -143,9 +156,19 @@ Window {
                     y: survolEp.hovered ? -2 : 0
                     Behavior on y { NumberAnimation { duration: 150 } }
 
-                    ToolTip.visible: survolEp.hovered
-                    ToolTip.text: app ? app.nom : ""
-                    ToolTip.delay: 400
+                    Connections {
+                        target: survolEp
+                        function onHoveredChanged() {
+                            if (survolEp.hovered) {
+                                barre.nomSurvole = parent.app ? parent.app.nom : "";
+                                barre.centreSurvole = parent.mapToItem(
+                                    null, parent.width / 2, 0).x;
+                            } else if (barre.nomSurvole ===
+                                       (parent.app ? parent.app.nom : "")) {
+                                barre.nomSurvole = "";
+                            }
+                        }
+                    }
 
                     TapHandler {
                         onTapped: { bureau.dire(pont.lancer(parent.app.id)); bureau.relire(); }
@@ -266,6 +289,29 @@ Window {
                                                    modelData.active === true)
                     }
                 }
+            }
+        }
+
+        // ── Le nom de l'epinglee survolee ─────────────────────────────────
+        Rectangle {
+            id: etiquette
+            visible: barre.nomSurvole !== ""
+            // Bornee aux deux extremites : une epinglee tout a gauche ne doit
+            // pas faire deborder son nom hors de l'ecran.
+            x: Math.max(4, Math.min(parent.width - width - 4,
+                                    barre.centreSurvole - width / 2))
+            y: 2
+            width: nomTexte.implicitWidth + 14
+            height: 15
+            radius: 4
+            color: Qt.rgba(1, 1, 1, 0.10)
+            Text {
+                id: nomTexte
+                anchors.centerIn: parent
+                text: barre.nomSurvole
+                color: Theme.texte
+                font.family: Theme.police
+                font.pixelSize: 10
             }
         }
 

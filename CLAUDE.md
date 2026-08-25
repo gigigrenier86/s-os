@@ -173,6 +173,31 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-25, soir — l'etiquette qui empechait d'atteindre ce qu'elle nommait
+
+Petit irritant rapporte par l'usage, et c'est un vrai defaut d'interface :
+survoler une epinglee de la barre faisait apparaitre son nom **par-dessus la
+pastille**, presque aussitot, et le clic tombait donc sur l'etiquette.
+
+Il n'y a pas la place de poser l'infobulle en dessous — la barre touche le bas
+de l'ecran. Qt la met donc par-dessus, et son delai de 400 ms est plus court que
+le temps qu'on met a viser. **Une etiquette qui empeche d'atteindre ce qu'elle
+nomme est pire que pas d'etiquette du tout.**
+
+Les epinglees descendent de sept pixels ; avec les onze deja libres au-dessus,
+cela fait dix-huit pixels ou le nom s'ecrit sans rien couvrir. L'infobulle de Qt
+disparait au profit d'une etiquette unique, portee par la barre elle-meme et
+bornee aux deux extremites — une epinglee tout a gauche ne doit pas envoyer son
+nom hors de l'ecran.
+
+**Jugee sur l'image, pas sur l'intention** : rendue avec l'etiquette forcee
+visible, dans une seconde barre lancee a cote de la vraie et titree autrement
+pour que la regle kwin ne la place pas au meme endroit. Sans cette precaution la
+capture montrait la barre de l'image en cours, et j'aurais valide un correctif
+que je n'avais pas regarde.
+
+---
+
 ## 2026-08-25, soir — deux defauts que le journal a nommes en trois lignes
 
 La barre marche. Restaient deux choses, et **les deux etaient ecrites dans
