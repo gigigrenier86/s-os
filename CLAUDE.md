@@ -175,6 +175,167 @@ c'est la première fois qu'elle tient debout.
 - ~~`galerie/constellation` n'a toujours aucune capture.~~ **Elle en a une,
   prise le 2026-08-25 à 12 h 23 sur cette machine**, et c'est la première pièce
   de la Galerie rendue par une vraie carte graphique. Voir plus bas.
+- **L'image de S n'est ni signée ni vérifiée** — `ostree-unverified-registry`,
+  aucune étape `cosign` dans le flux d'Actions, et `policy.json` fait retomber
+  `ghcr.io/gigigrenier86` sur `insecureAcceptAnything` alors qu'il vérifie
+  `ghcr.io/ublue-os` par sigstore. Mesuré le 2026-08-25 au soir ; **rien n'a été
+  changé pour ça**. Garantie absente, pas incident. Voir la section de la nuit.
+
+---
+
+## 2026-08-25, nuit — les quatre rôles étaient injoignables, et le Wizard prend sa forme
+
+Trois heures plus tôt, les rôles entraient dans le dépôt et le commit se
+terminait ainsi : *« Le chargement des skills depuis `.claude/skills/` n'a pas
+été exercé : il se vérifiera à la prochaine ouverture de session. »*
+
+**Il s'est vérifié. Il a échoué.**
+
+### Le lien qui manquait, et la règle 0 qui promettait le contraire
+
+Une session ouverte dans `/var/home/RyuRex` — c'est-à-dire depuis le lanceur du
+bureau, la seule façon dont S ouvre Claude Code — **ne voyait aucun des quatre
+rôles**. Ni `wizard`, ni `alchimiste`, ni `contremaitre`, ni `peintre`.
+
+La cause tient en une phrase : **Claude Code ne charge les skills d'un dépôt que
+s'il démarre dans ce dépôt.** Les rôles étaient donc versionnés, sauvegardés,
+emportés par le clone — et hors de portée. La règle 0 affirmait « chargée
+d'office sur toute machine qui clone le dépôt » ; c'était une déduction, pas une
+mesure, et elle était fausse.
+
+Le déplacement du soir avait corrigé un vrai défaut — deux copies divergentes
+dont la juste n'était pas versionnée — **en en créant un autre, invisible et
+plus grave** : avant, les rôles se chargeaient et n'étaient pas suivis ; après,
+ils étaient suivis et ne se chargeaient plus. On n'avait pas déplacé un
+problème, on l'avait échangé contre un problème silencieux.
+
+```bash
+~/.claude/skills -> /var/home/RyuRex/S/.claude/skills
+```
+
+Un lien symbolique règle les deux moitiés d'un coup : une seule source, suivie
+par git, atteignable depuis n'importe quel dossier de travail. Un rôle ajouté
+dans `S/.claude/skills/` apparaît seul, sans rien recopier.
+
+**Ce que ça n'efface pas :** Claude Code lit les skills **au démarrage**. Le
+lien ne peuple pas la session qui le pose ; il faut en ouvrir une nouvelle. La
+vérification a été faite sur les fichiers lus à travers le lien — les quatre
+en-têtes se lisent — pas sur un chargement observé. *Le vrai témoin est la
+prochaine session, et cette fois c'est écrit.*
+
+### Le Wizard, rangé pour de vrai
+
+Le quatrième rôle passe d'un fichier à une petite bibliothèque, parce qu'il est
+celui qu'on invoque **avant** de comprendre ce qu'on cherche, et qu'un persona
+seul ne dit pas où regarder sur cette machine-ci.
+
+```
+.claude/skills/wizard/
+├── SKILL.md                                 la conduite, 89 lignes
+└── references/
+    ├── ou-chercher.md                       l'ordre des sources
+    ├── code-noir.md                         la grille de risque
+    └── de-la-trouvaille-a-la-preuve.md      où chaque chose se range
+```
+
+Les trois références ne sont pas chargées avec le rôle : il les ouvre quand il
+en a besoin. Ce qui compte est ce qu'elles contiennent — **des commandes
+relevées sur cette machine, pas des conseils généraux** :
+
+- **`ou-chercher.md`** descend quatre étages, et le web est le dernier. Le
+  dépôt d'abord (`git log -S` retrouve le commit qui a introduit une chaîne,
+  donc le message qui l'explique), puis la machine (`/usr/share/ublue-os/just/`,
+  28 fichiers de recettes amont en clair ; `rpm -qf`, `rpm -ql` ; et
+  `~/.local/state/s/coquille.log`, qui a eu raison de trois enquêtes le même
+  jour), puis l'amont du conteneur, puis seulement le dehors.
+- **`code-noir.md`** porte la grille, l'état mesuré des dépôts, et les deux
+  constats ci-dessous.
+- **`de-la-trouvaille-a-la-preuve.md`** porte l'échelle à quatre barreaux —
+  trouvaille, hypothèse nommée, mesure, mécanisme — et la règle qui empêche le
+  Wizard de polluer le Grimoire : **ce qu'il trouve n'a pas de `PREUVE:`, donc
+  ça va dans ce carnet, avec la mesure qui le tuerait.**
+
+`grimoire/wizard.md` — le texte brut du rôle, déposé au Grimoire faute de
+meilleur endroit — en sort. Zéro ligne `PREUVE:`, et ce n'est pas un mécanisme
+qu'on `source`. Son contenu est entier dans le skill.
+
+### Ce que le rangement a trouvé en passant, et c'est le vrai butin
+
+Écrire une grille de risque oblige à la remplir. Deux constats en sont sortis.
+
+**Le premier est mort en dix minutes, et c'est un bon résultat.** Un relevé :
+`2792 paquets, 2691 sans signature PGP`. 96 % du système non signé — net,
+chiffré, alarmant. Le contrôle :
+
+```bash
+podman run --rm registry.fedoraproject.org/fedora:44 rpm -qi bash | grep Signature
+→ Signature   :        (vide, exactement comme ici)
+```
+
+Un Fedora 44 **pur** rend le même vide. Le relevé ne mesurait donc rien sur S :
+l'en-tête n'est pas retenu dans la base RPM de ces images, chez l'amont comme
+ici. Les **101** paquets qui portent une signature sont ceux des COPR et de
+Terra, ajoutés par-dessus. *Un chiffre spectaculaire sans groupe témoin n'est
+pas une mesure* — et sans ces dix minutes, cette entrée serait ici sous forme de
+faille, et quelqu'un aurait passé une journée à « réparer » Fedora.
+
+**Le second tient, et il reste ouvert.**
+
+> **S ne signe pas son image, et cette machine ne la vérifie pas.**
+
+Trois relevés concordants :
+
+| Relevé | Ce qu'il dit |
+|---|---|
+| `rpm-ostree status` | `ostree-unverified-registry:ghcr.io/gigigrenier86/s-os` — le transport le dit lui-même |
+| `/etc/containers/policy.json` | `ghcr.io/ublue-os` est en `sigstoreSigned` avec clés épinglées ; `ghcr.io/gigigrenier86` ne correspond à rien et retombe sur `"": insecureAcceptAnything` |
+| `grep -rniE 'cosign\|sigstore\|signing' .github/workflows/ Containerfile` | **aucune ligne** |
+
+Et `/etc/pki/containers/` ne contient que les clés d'ublue-os et de toolbx.
+
+Cette machine amorce donc ce que `ghcr.io/gigigrenier86/s-os:latest` désigne au
+moment du `bootc upgrade`, sans qu'aucune signature ne soit exigée. La confiance
+repose entièrement sur le compte GitHub et le jeton d'Actions. **S vérifie
+l'image de son amont plus sévèrement que la sienne.**
+
+Ce n'est **pas** un incident : c'est une garantie absente. Et le correctif est
+amont — la paire cosign et l'étape de signature font partie du gabarit
+`ublue-os/image-template`, et `policy.json` accepterait une entrée
+`ghcr.io/gigigrenier86` sur le patron exact de celle d'ublue-os. *On ne
+réimplémente pas ce que l'amont maintient* : c'est son gabarit qu'il faudra
+lire, pas une signature à inventer.
+
+**La mesure qui dirait que c'est réglé :**
+
+```bash
+rpm-ostree status | grep -c 'ostree-unverified'      # doit tomber à 0
+cosign verify --key cosign.pub ghcr.io/gigigrenier86/s-os:latest
+```
+
+**Rien n'a été changé pour ça ce soir.** C'est une hypothèse tranchée par la
+mesure, pas un chantier ouvert — et elle est écrite ici précisément pour ne pas
+être redécouverte dans trois semaines.
+
+### Un relevé positif, tant qu'à mesurer
+
+Sur les **19** fichiers de `/etc/yum.repos.d/`, **4 sections sont actives, et
+les quatre ont `gpgcheck=1`** : `fedora`, `updates`, `updates-archive`,
+`terra-mesa`. Les COPR — `ublue-os`, `bieszczaders`, `negativo17` — sont
+**désactivés sur la machine** : ils ont servi à la construction, pas à
+l'exécution, et leurs clés restent posées, ce qui est cohérent.
+
+### Ce que cette passe ne prouve pas
+
+- **Le chargement des quatre rôles n'est toujours pas observé.** Les fichiers se
+  lisent à travers le lien ; aucune session ne les a encore montés. C'est le
+  même « pas exercé » que le commit de 21 h — sauf qu'on sait maintenant ce qui
+  le ferait échouer.
+- **Aucune des commandes des trois références n'a été rejouée en bloc.** Elles
+  ont toutes été relevées sur cette machine ce soir, une à une, mais rien ne les
+  garde d'aujourd'hui : un chemin qui disparaît chez l'amont ne se signalera
+  pas.
+- **Rien de tout ceci n'entre dans l'image.** `.claude/` ne change pas une ligne
+  de ce que la machine exécute.
 
 ---
 
@@ -1887,9 +2048,18 @@ déjà divergé, et la juste était celle que git ne gardait pas** — l'ancien
 n'a jamais existé. *Deux fichiers qui doivent rester d'accord finissent toujours
 par diverger*, et ce carnet le répète depuis `s-partage`.
 
-Une seule copie désormais, versionnée, et **chargée d'office par Claude Code sur
-toute machine qui clone le dépôt** — ce qui est exactement ce qu'on attend d'une
-règle numéro 0.
+Une seule copie désormais, versionnée, et ~~**chargée d'office par Claude Code
+sur toute machine qui clone le dépôt**~~ — ce qui est exactement ce qu'on attend
+d'une règle numéro 0.
+
+> **Faux, mesuré le 2026-08-25 à 21 h 44, et c'est la vérification que ce
+> commit annonçait remettre à la prochaine session.** Claude Code ne charge les
+> skills d'un dépôt que s'il **démarre dans ce dépôt**. Une session ouverte
+> depuis `~` — c'est-à-dire la façon dont le lanceur du bureau ouvre S — n'en
+> voyait aucun des quatre. Les rôles étaient versionnés et **injoignables**.
+> Corrigé par un lien symbolique, `~/.claude/skills` → `S/.claude/skills` :
+> une seule source, suivie par git, atteignable de partout. Voir la section du
+> 2026-08-25, nuit.
 
 *Et « utilise les skills » désigne ces quatre-là — jamais ceux livrés avec
 Claude Code.*

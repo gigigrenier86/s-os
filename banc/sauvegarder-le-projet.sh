@@ -100,6 +100,9 @@ mkdir -p "$CIBLE/claude"
 # Les quatre roles ne sont plus ici : ils ont rejoint « .claude/skills/ » du
 # depot le 2026-08-25, donc la copie du depot les emporte deja. Chercher
 # encore « skills » dans $HOME ferait croire a une sauvegarde qui n'a plus lieu.
+# Depuis le meme soir, ~/.claude/skills existe de nouveau -- mais comme LIEN
+# SYMBOLIQUE vers le depot, pose pour que les roles se chargent aussi depuis une
+# session ouverte ailleurs. Le copier ici dupliquerait ce que le depot emporte.
 for morceau in settings.json; do
     [ -e "$HOME/.claude/$morceau" ] && cp -a "$HOME/.claude/$morceau" "$CIBLE/claude/"
 done
