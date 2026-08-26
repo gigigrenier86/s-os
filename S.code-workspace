@@ -16,8 +16,7 @@
 		"explorer.fileNesting.enabled": true,
 		"explorer.fileNesting.expand": false,
 		"explorer.fileNesting.patterns": {
-			"Containerfile": "image.toml, .gitattributes, .gitignore",
-			"CLAUDE.md": "ALCHEMIST.md, Contremaitre.md, LePeintre.md"
+			"Containerfile": "image.toml, .gitattributes, .gitignore"
 		},
 		// Le .git n'a rien a faire dans l'arbre ; les caches Python non plus.
 		"files.exclude": {

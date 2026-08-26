@@ -17,7 +17,8 @@
 #   S-vm/            Le banc : journaux, captures, scripts, cles. SANS les
 #                    images disque, qui pesent des dizaines de gigaoctets et se
 #                    refabriquent depuis l'image publiee.
-#   claude/          La memoire, les skills et les transcriptions de Claude Code
+#   claude/          La memoire, les reglages et les transcriptions de Claude
+#                    Code. Les quatre roles, eux, sont dans le depot.
 #                    pour ce dossier. C'est le seul endroit ou vit le raisonnement
 #                    qui a produit le code — le depot n'en garde que le resultat.
 #   machine/         L'etat de la machine au moment de la sauvegarde : image
@@ -96,7 +97,10 @@ fi
 # --- 4. Le raisonnement, pas seulement le resultat --------------------------
 dire "la memoire et les transcriptions…"
 mkdir -p "$CIBLE/claude"
-for morceau in skills settings.json; do
+# Les quatre roles ne sont plus ici : ils ont rejoint « .claude/skills/ » du
+# depot le 2026-08-25, donc la copie du depot les emporte deja. Chercher
+# encore « skills » dans $HOME ferait croire a une sauvegarde qui n'a plus lieu.
+for morceau in settings.json; do
     [ -e "$HOME/.claude/$morceau" ] && cp -a "$HOME/.claude/$morceau" "$CIBLE/claude/"
 done
 # Le dossier de projet encode le chemin : on le prend en entier, memoire comprise.
@@ -154,7 +158,7 @@ bundle pose probleme, ou pour lire sans cloner.
 | `depot/` | le depot, arbre de travail et `.git` |
 | `depot.bundle` | toute l'histoire en un fichier, **clone pour de vrai** avant d'etre declare bon |
 | `S-vm/` | le banc QEMU, sans les images disque |
-| `claude/` | memoire, skills et transcriptions de Claude Code |
+| `claude/` | memoire, reglages et transcriptions de Claude Code (les roles sont dans le depot) |
 | `machine/` | l'etat de la machine au moment de la sauvegarde |
 | `MANIFESTE.sha256` | une empreinte par fichier |
 

@@ -1869,6 +1869,31 @@ Windows et le monde Android aient tourné une fois sur cette machine.
 
 ### Les règles apprises, et qui tiennent tout
 
+**0. Les quatre rôles se chargent à l'ouverture de la session, et pour toute sa
+durée.** `wizard`, `alchimiste`, `contremaitre`, `peintre` — dans cet ordre, qui
+est celui du travail : on **cherche** avant de forger, on **forge** avant de
+contourner, on **contourne** ce que le système refuse, on **peint** ce qui
+tient. Ils ne s'invoquent pas au coup par coup, quand le besoin devient
+évident : à ce moment-là, la faute qu'ils évitent est déjà commise — le Wizard
+existe précisément pour la passe où l'on n'a pas encore compris qu'on
+réimplémentait l'amont.
+
+Ils vivent dans **`.claude/skills/` du dépôt**, et c'est un déplacement du
+2026-08-25 : ils étaient dans `~/.claude/skills/`, hors du dépôt, pendant que
+trois `.md` périmés du 21 août traînaient à la racine sous les noms
+`ALCHEMIST.md`, `Contremaitre.md` et `LePeintre.md`. **Les deux copies avaient
+déjà divergé, et la juste était celle que git ne gardait pas** — l'ancien
+`ALCHEMIST.md` demandait encore d'archiver dans `archives_alchimiques.md`, qui
+n'a jamais existé. *Deux fichiers qui doivent rester d'accord finissent toujours
+par diverger*, et ce carnet le répète depuis `s-partage`.
+
+Une seule copie désormais, versionnée, et **chargée d'office par Claude Code sur
+toute machine qui clone le dépôt** — ce qui est exactement ce qu'on attend d'une
+règle numéro 0.
+
+*Et « utilise les skills » désigne ces quatre-là — jamais ceux livrés avec
+Claude Code.*
+
 **1. Sur ostree, tout ce qui est modifiable est un lien vers `/var` — et `/var`
 n'entre pas dans l'image.** `/opt`, `/usr/local`, `/home`, `/root`, `/srv`,
 `/mnt`. C'est le principe unique derrière l'échec de Vivaldi, celui de npm, et
