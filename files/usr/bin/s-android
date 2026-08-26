@@ -216,7 +216,22 @@ if ! waydroid status 2>/dev/null | grep -qi 'RUNNING'; then
     s_dire "Android" "Demarrage…" phone
     systemctl start waydroid-container 2>/dev/null || \
         s_root systemctl start waydroid-container >/dev/null 2>&1 || true
-    waydroid session start >"$S_ETAT/android-session.log" 2>&1 &
+    # « 9>&- » N'EST PAS DECORATIF : IL FERME LE VERROU DU MONDE.
+    #
+    # MESURE DU 2026-08-26, SUR LA MACHINE. « waydroid session start » est lance
+    # en arriere-plan et vit aussi longtemps qu'Android tourne. Un enfant herite
+    # des descripteurs ouverts de son parent — dont le 9, celui que « flock »
+    # tient. Releve pendant qu'Android tournait :
+    #
+    #   PID 9143  /usr/bin/python3 /usr/bin/waydroid session start   <- tient le 9
+    #
+    # Consequence : TANT QU'ANDROID EST ALLUME, tout geste qui prend le verrou du
+    # monde attend « flock -w 600 » puis echoue. Un second « s-android » restait
+    # dix minutes sur sa premiere phrase, sans un mot.
+    #
+    # C'est le defaut deja corrige pour s-ouvrir-exe le 2026-08-26 — « le verrou
+    # tenait pendant toute la vie du programme » — reste entier de ce cote-ci.
+    waydroid session start >"$S_ETAT/android-session.log" 2>&1 9>&- &
     for _ in $(seq 1 60); do
         waydroid status 2>/dev/null | grep -qi 'RUNNING' && break
         sleep 2

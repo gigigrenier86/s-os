@@ -21,6 +21,38 @@ S_PROTON_RACINE="${XDG_DATA_HOME:-$HOME/.local/share}/Steam/compatibilitytools.d
 
 mkdir -p "$S_DATA" "$S_LANCEURS" "$S_ETAT"
 
+# UN JOURNAL QUE L'UTILISATEUR NE PEUT PLUS ECRIRE CONDAMNE SON BLOC EN SILENCE.
+#
+# MESURE DU 2026-08-26, SUR LA MACHINE. « android-init.log » appartenait a root
+# depuis le 25 aout a 10 h 42 — pose par un pkexec d'une version anterieure qui
+# portait la redirection A L'INTERIEUR de l'elevation. Le dossier, lui, restait
+# a l'utilisateur, donc rien ne paraissait anormal.
+#
+# CE QUE CA COUTAIT, ET C'EST LE POINT. Bash evalue une redirection AVANT de
+# lancer la commande. Une redirection refusee fait donc echouer la ligne
+# ENTIERE sans que la commande ait tourne une seule fois — et « || true »
+# l'avale. Mesure :
+#
+#   /usr/bin/touch /tmp/temoin >> <journal non inscriptible>
+#   code de retour : 1     ->  la commande N'A JAMAIS TOURNE
+#
+# Pendant vingt-huit heures, « waydroid upgrade -o » et le reglage de mise en
+# veille d'Android n'ont donc jamais tourne, pendant que le geste affichait
+# « Application des reglages a Android… ». La densite est restee a 180 et le
+# carnet croyait ces deux reglages poses.
+#
+# On repare a l'ouverture, pour TOUS les journaux d'un coup — dix-neuf lignes
+# du depot ecrivent sous $S_ETAT, et n'importe laquelle peut etre condamnee de
+# la meme facon. Et on repare le legs plutot que les seules installations
+# neuves : une correction qui ne rattrape pas les machines existantes n'en est
+# pas une. L'ancien journal est garde a cote, jamais efface.
+for _s_j in "$S_ETAT"/*.log; do
+    [ -e "$_s_j" ] || continue
+    [ -w "$_s_j" ] && continue
+    mv -f "$_s_j" "$_s_j.non-inscriptible" 2>/dev/null && : > "$_s_j" 2>/dev/null
+done
+unset _s_j
+
 # Une notification, avec un identifiant stable pour qu'un avancement remplace
 # le precedent au lieu d'empiler les bulles.
 s_dire() {
