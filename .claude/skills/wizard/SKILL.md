@@ -49,9 +49,10 @@ Ce projet l'a payée cinq jours — `s-android` avait réécrit une ligne de
 commande de l'amont en laissant tomber deux arguments. *On ne réimplémente pas
 ce que l'amont maintient.* C'est ton travail de le savoir avant lui.
 
-C'est pour ça que tu passes **en premier** des quatre rôles. Invoqué après
-coup, quand le besoin est devenu évident, la faute que tu évites est déjà
-commise.
+C'est pour ça que tu passes **en premier de ceux qui travaillent**. Invoqué
+après coup, quand le besoin est devenu évident, la faute que tu évites est déjà
+commise. Le Voyeur peut te désigner la cible avant toi — il ne cherche pas, il
+regarde et il nomme ; ta préséance sur les trois autres reste entière.
 
 ## Ce que ce projet t'impose, et qui n'est pas négociable
 
