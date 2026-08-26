@@ -53,6 +53,28 @@ for _s_j in "$S_ETAT"/*.log; do
 done
 unset _s_j
 
+# UN PROCESSUS PRIVILEGIE NE DOIT JAMAIS RECEVOIR LE DESCRIPTEUR DU JOURNAL.
+#
+# TROUVE LE 2026-08-26, EN CHERCHANT POURQUOI UN JOURNAL REPARE REDEVENAIT ROOT
+# QUATRE MINUTES PLUS TARD. Le coupable n'est pas S : c'est « lxc-attach », que
+# « waydroid shell » appelle. Il chowne SON PROPRE stdout pour le donner au
+# processus qui tourne dans le conteneur — et quand ce stdout est un fichier
+# redirige, c'est le FICHIER qui change de proprietaire.
+#
+# waydroid le sait a moitie : tools/helpers/lxc.py releve le mode avant et le
+# repose apres (« os.chmod(sys.stdout.fileno(), perms) »). Il repose le MODE,
+# jamais le PROPRIETAIRE. Le journal reste donc a root.
+#
+# Consequence, mesuree : dans un meme lancement, le bloc de mise en veille
+# faisait passer android-init.log a root, et l'appel « appops » vingt lignes
+# plus bas mourait sur sa redirection sans avoir tourne.
+#
+# On donne donc un TUYAU au processus privilegie, jamais le fichier. « tee »
+# est lance par le shell de l'utilisateur : c'est lui qui tient le journal, et
+# rien de ce qui se passe en root ne peut l'atteindre. « pipefail » etant arme
+# dans chaque geste, le code de retour de la commande est preserve.
+s_tee() { tee -a "$1" >/dev/null; }
+
 # Une notification, avec un identifiant stable pour qu'un avancement remplace
 # le precedent au lieu d'empiler les bulles.
 s_dire() {
@@ -204,6 +226,11 @@ _s_ici="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 for _s_lib in "${S_LIB:-}" /usr/lib/s "$_s_ici/../lib/s"; do
     if [ -n "$_s_lib" ] && [ -f "$_s_lib/partage-android.sh" ]; then
         source "$_s_lib/partage-android.sh"
+        # Le dossier trouve est GARDE : d'autres gestes que celui-ci en ont
+        # besoin — s-android y lit « regles-kwin.py » pour dimensionner la
+        # fenetre Android avec la meme formule que la coquille emploie pour la
+        # centrer. Refaire la recherche ailleurs serait une seconde source.
+        S_LIB="$_s_lib"
         break
     fi
 done

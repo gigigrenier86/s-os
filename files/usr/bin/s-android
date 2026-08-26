@@ -37,7 +37,7 @@ if [ ! -f /var/lib/waydroid/waydroid.cfg ]; then
     # couperait un travail legitime au milieu.
     if ! s_root --limite 3600 waydroid init -s GAPPS \
             -c 'https://ota.waydro.id/system' \
-            -v 'https://ota.waydro.id/vendor' >"$S_ETAT/android-init.log" 2>&1; then
+            -v 'https://ota.waydro.id/vendor' 2>&1 | s_tee "$S_ETAT/android-init.log"; then
         s_echec "Android n'a pas pu etre prepare" "Detail dans $S_ETAT/android-init.log"
     fi
 fi
@@ -163,6 +163,68 @@ fi
 #
 # C'est le succes silencieux dans sa forme la plus exacte : le fichier disait
 # vrai, la machine disait autre chose, et personne n'avait demande a la machine.
+# --- LA TAILLE DE LA FENETRE ANDROID, ET POURQUOI ELLE NE PEUT PAS ETRE PLEINE
+#
+# TROUVE LE 2026-08-26, A L'ECRAN, EN REGARDANT YOUTUBE. Son ecran d'accueil
+# servait UNE colonne : une vignette large de 1920 px par ligne. L'utilisateur :
+# « dans le menu de base, tout est trop gros ».
+#
+# DEUX HYPOTHESES SONT MORTES AVANT LA BONNE, et les ecrire ferme les pistes :
+#
+#   la densite            REFUTEE. Une vignette a 100 % de large fait 1920 px
+#                         que la densite soit 140 ou 240 : la densite ne change
+#                         que le texte et les icones, jamais la mise en page.
+#   characteristics=tablet  REFUTEE. Posee, verifiee (« getprop » rend bien
+#                         « tablet »), et YouTube n'en a tenu aucun compte.
+#
+# CE QUI DECIDE EST LE QUALIFICATEUR « long » D'ANDROID. AOSP classe un ecran
+# dont le rapport long/court atteint 1,75 comme LONG — c'est-a-dire un telephone
+# en paysage — et YouTube lui sert sa mise en page telephone. Mesure, en isolant
+# la variable : a 1943 dp de large (donc presque aussi large qu'avant) mais
+# « notlong », l'accueil passe a TROIS colonnes.
+#
+#   1920 x 1028  ->  rapport 1,868  ->  xlarge-long-     ->  une colonne
+#   1700 x 1028  ->  rapport 1,654  ->  xlarge-notlong-  ->  trois colonnes
+#
+# On calcule donc la largeur au lieu de la coder en dur — 1700 ne vaut que pour
+# un ecran 1920x1080, et S doit demarrer ailleurs. La hauteur retire la barre de
+# S, ce qui a un second effet mesure : la fenetre Android cesse de couvrir les
+# 52 derniers pixels, defaut que ce carnet portait depuis le 2026-08-25.
+#
+# Le rapport vise est 1,70 et non 1,74 : le seuil d'AOSP est un flottant, et on
+# ne se pose pas a un centieme d'une bascule qu'on ne controle pas.
+S_ECRAN_MODE=""
+for _m in /sys/class/drm/card*-*/modes; do
+    [ -s "$_m" ] || continue
+    S_ECRAN_MODE="$(head -1 "$_m" 2>/dev/null)"
+    [ -n "$S_ECRAN_MODE" ] && break
+done
+S_FEN_L=""; S_FEN_H=""
+case "$S_ECRAN_MODE" in
+    [0-9]*x[0-9]*)
+        # LA FORMULE N'EST PAS ICI, ET C'EST VOULU. Elle vit dans
+        # regles-kwin.py, ou la coquille la lit pour CENTRER cette meme
+        # fenetre. Deux formules qui doivent rester d'accord finissent par
+        # diverger — ce depot l'a paye sur s-partage, sur les roles, et sur
+        # s-session.target.
+        read -r S_FEN_L S_FEN_H < <(
+            /usr/bin/python3 - "${S_LIB:-/usr/lib/s}" \
+                "${S_ECRAN_MODE%%x*}" "${S_ECRAN_MODE##*x}" <<'PY' 2>/dev/null || true
+import importlib.util, os, sys
+lib, larg, haut = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+spec = importlib.util.spec_from_file_location(
+    "regles_kwin", os.path.join(lib, "regles-kwin.py"))
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print("%d %d" % mod.taille_android(larg, haut))
+PY
+        )
+        ;;
+esac
+# Si on ne sait pas lire l'ecran, on ne devine pas : Waydroid garde son defaut,
+# qui est la taille de l'ecran. Une fenetre mal dimensionnee vaut mieux qu'une
+# fenetre calculee sur une supposition.
+
 manque=0
 if waydroid status 2>/dev/null | grep -qi 'RUNNING'; then
     # Session en marche : on demande a Android lui-meme. C'est la seule reponse
@@ -180,9 +242,16 @@ fi
 # S'il ne porte pas la densite, elle n'a jamais ete versee, quoi que dise
 # waydroid.cfg — et c'est exactement l'etat trouve sur cette machine.
 grep -q '^ro.sf.lcd_density=140' /var/lib/waydroid/waydroid_base.prop 2>/dev/null || manque=1
+if [ -n "$S_FEN_L" ]; then
+    grep -q "^persist.waydroid.width=${S_FEN_L}\$" /var/lib/waydroid/waydroid_base.prop 2>/dev/null || manque=1
+    grep -q "^persist.waydroid.height=${S_FEN_H}\$" /var/lib/waydroid/waydroid_base.prop 2>/dev/null || manque=1
+fi
 if [ "$manque" = 1 ]; then
     s_dire "Android" "Reglage de l'affichage — un mot de passe va etre demande, une seule fois." phone
-    s_root /usr/bin/python3 - <<'PY' >/dev/null 2>&1 || true
+    # Heredoc NON protege : pkexec nettoie l'environnement, les deux entiers
+    # ne peuvent donc pas passer par une variable. Ils sont calcules ici et
+    # valent des nombres — rien qui vienne du dehors n'entre dans ce texte.
+    s_root /usr/bin/python3 - <<PY >/dev/null 2>&1 || true
 import configparser, io
 p = "/var/lib/waydroid/waydroid.cfg"
 c = configparser.ConfigParser(interpolation=None, strict=False)
@@ -192,6 +261,10 @@ if not c.has_section("properties"):
     c.add_section("properties")
 c.set("properties", "persist.waydroid.multi_windows", "false")
 c.set("properties", "ro.sf.lcd_density", "140")
+L, H = "${S_FEN_L}", "${S_FEN_H}"
+if L and H:
+    c.set("properties", "persist.waydroid.width", L)
+    c.set("properties", "persist.waydroid.height", H)
 # suspend_action vit dans [waydroid], pas dans [properties] : ce n'est pas une
 # propriete Android, c'est une decision de waydroid lui-meme.
 if c.has_section("waydroid"):
@@ -208,7 +281,7 @@ PY
     # waydroid_base.prop, puis le conteneur repart s'il tournait. On ne
     # reimplemente donc rien : on appelle ce que l'amont maintient.
     s_dire "Android" "Application des reglages a Android…" phone
-    s_root --limite 900 /usr/bin/waydroid upgrade -o >>"$S_ETAT/android-init.log" 2>&1 || true
+    s_root --limite 900 /usr/bin/waydroid upgrade -o 2>&1 | s_tee "$S_ETAT/android-init.log" || true
 fi
 
 # --- Demarrer la session, si elle ne tourne pas -----------------------------
@@ -246,6 +319,25 @@ waydroid status 2>/dev/null | grep -qi 'RUNNING' || \
 # pose quand meme plutot que de laisser la machine dans deux etats differents.
 if [ "$(waydroid prop get persist.waydroid.multi_windows 2>/dev/null)" != "false" ]; then
     waydroid prop set persist.waydroid.multi_windows false >/dev/null 2>&1 || true
+fi
+
+# LA TAILLE AUSSI DOIT ETRE REPOSEE ICI, ET C'EST LE MEME PIEGE.
+#
+# MESURE DU 2026-08-26 : waydroid_base.prop portait « 1747 », et Android
+# repondait « 1700 » a la meme seconde. Une propriete « persist. » est gardee
+# par Android dans SON magasin, et elle l'emporte sur le fichier lu au
+# demarrage. L'ecrire dans waydroid.cfg ne suffit donc jamais a la CHANGER —
+# seulement a la poser sur une machine qui ne l'a pas encore.
+#
+# Et « waydroid prop » n'a PAS besoin de root : mesure le meme jour, la session
+# appartient a l'utilisateur, et un « prop set » lance par pkexec repond
+# « WayDroid session is stopped » alors qu'elle tourne. Une elevation inutile
+# est un mot de passe demande pour rien.
+if [ -n "$S_FEN_L" ]; then
+    [ "$(waydroid prop get persist.waydroid.width 2>/dev/null)" = "$S_FEN_L" ] || \
+        waydroid prop set persist.waydroid.width "$S_FEN_L" >/dev/null 2>&1 || true
+    [ "$(waydroid prop get persist.waydroid.height 2>/dev/null)" = "$S_FEN_H" ] || \
+        waydroid prop set persist.waydroid.height "$S_FEN_H" >/dev/null 2>&1 || true
 fi
 
 # --- EMPECHER ANDROID DE S'ENDORMIR ----------------------------------------
@@ -303,7 +395,7 @@ if [ "$VEILLE_VUE" != "$VEILLE_VOULUE" ]; then
     if s_root /usr/bin/sh -c "
         waydroid shell -- settings put system screen_off_timeout ${VEILLE_VOULUE} &&
         waydroid shell -- settings put global stay_on_while_plugged_in 7
-    " >>"$S_ETAT/android-init.log" 2>&1; then
+    " 2>&1 | s_tee "$S_ETAT/android-init.log"; then
         printf '%s\n' "$VEILLE_VOULUE" > "$S_ETAT/android-veille"
     fi
     # Rien n'est ecrit si pkexec echoue ou si l'utilisateur annule : le prochain
@@ -352,7 +444,7 @@ if [ ! -f "$MARQUE" ]; then
     if [ -f "$APK_MAISON/fdroid.apk" ] && \
        ! waydroid app list 2>/dev/null | grep -q 'org.fdroid.fdroid'; then
         s_dire "Android" "Installation du magasin F-Droid…" phone
-        waydroid app install "$APK_MAISON/fdroid.apk" >>"$S_ETAT/android-init.log" 2>&1 || true
+        waydroid app install "$APK_MAISON/fdroid.apk" 2>&1 | s_tee "$S_ETAT/android-init.log" || true
     fi
 
     # AUTORISER F-DROID A INSTALLER, PAR AVANCE.
@@ -375,7 +467,7 @@ if [ ! -f "$MARQUE" ]; then
     # n'ouvre aucune boite du tout est « Magasin Android » (s-magasin-android),
     # qui installe depuis l'hote.
     s_root waydroid shell -- cmd appops set org.fdroid.fdroid \
-        REQUEST_INSTALL_PACKAGES allow >>"$S_ETAT/android-init.log" 2>&1 || \
+        REQUEST_INSTALL_PACKAGES allow 2>&1 | s_tee "$S_ETAT/android-init.log" || \
         s_dire "Android" \
 "F-Droid n'a pas pu recevoir l'autorisation d'installer. Utiliser plutot \
 « Magasin Android », qui installe sans passer par Android." dialog-warning

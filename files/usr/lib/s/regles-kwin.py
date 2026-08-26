@@ -43,6 +43,31 @@ LARGEUR_BULLE = 380
 MARGE_BULLE = 24
 HAUTEUR_BARRE = 52
 
+# LE RAPPORT QUI DECIDE DE LA MISE EN PAGE D'ANDROID, ET IL N'EST PAS COSMETIQUE.
+#
+# AOSP classe un ecran dont le rapport long/court atteint 1,75 comme « long » —
+# c'est-a-dire un telephone en paysage. Une application Android sert alors sa
+# mise en page telephone : UNE colonne, large de tout l'ecran. Mesure a l'ecran
+# le 2026-08-26 sur l'accueil de YouTube :
+#
+#   1920 x 1028  ->  1,868  ->  xlarge-long-     ->  une colonne
+#   1700 x 1028  ->  1,654  ->  xlarge-notlong-  ->  trois colonnes
+#
+# On vise 1,70 et non 1,74 : le seuil d'AOSP est un flottant, et on ne se pose
+# pas a un centieme d'une bascule qu'on ne controle pas.
+#
+# CETTE FONCTION EST LA SOURCE UNIQUE. s-android l'appelle pour dimensionner la
+# fenetre (persist.waydroid.width/height) et « regles » l'appelle pour la
+# centrer. Deux formules qui doivent rester d'accord finiraient par diverger —
+# ce depot l'a paye assez souvent pour ne pas recommencer.
+RAPPORT_ANDROID = 170  # en centiemes
+
+
+def taille_android(largeur, hauteur):
+    """La taille de la fenetre Android pour cet ecran. Rend (largeur, hauteur)."""
+    utile = max(1, hauteur - HAUTEUR_BARRE)
+    return min(largeur, utile * RAPPORT_ANDROID // 100), utile
+
 COMMUN = {
     "skiptaskbar": "true",
     "skiptaskbarrule": "2",
@@ -88,7 +113,41 @@ def regles(largeur, hauteur):
         "size": "%d,%d" % (largeur, HAUTEUR_BARRE),
         "sizerule": "2",
     })
-    return {"s-bulle": bulle, "s-barre": barre}
+    # LES FENETRES ANDROID, COLLEES EN HAUT.
+    #
+    # MESURE DU 2026-08-26 : kwin posait la fenetre de YouTube en 110,26 —
+    # 1700x1028 a partir de y=26, donc un bas a 1054 alors que la barre de S
+    # commence a 1028. L'utilisateur perdait vingt-six pixels du bas, c'est-a-
+    # dire exactement la rangee de commandes de l'application.
+    #
+    # On force la POSITION seulement, jamais la taille : celle-ci est decidee
+    # par le compositeur de Waydroid, a qui s-android l'a donnee. Forcer les
+    # deux ferait dependre l'affichage de deux autorites au lieu d'une.
+    #
+    # « waydroid. » en sous-chaine attrape toutes les applications d'un coup :
+    # leur classe est « waydroid.<paquet> ». Et cette regle n'herite PAS de
+    # COMMUN — une application Android est une fenetre ordinaire, qui doit
+    # rester dans la barre des taches et sous les fenetres de service de S.
+    larg_android, _ = taille_android(largeur, hauteur)
+    android = {
+        "Description": "S - les fenetres Android, collees en haut",
+        "wmclass": "waydroid.",
+        "wmclasscomplete": "false",
+        # « 2 » ET PAS « 1 » — ET LA DIFFERENCE M'A COUTE DEUX ESSAIS.
+        # kwin numerote ses modes de comparaison ainsi :
+        #     0 = sans importance   1 = EXACT   2 = SOUS-CHAINE   3 = regexp
+        # COMMUN emploie « 1 » et a raison : « s-constellation » est une classe
+        # entiere. Le copier ici cherchait une fenetre dont la classe vaut
+        # EXACTEMENT « waydroid. », ce qui n'existe pas — la regle etait donc
+        # posee, lue par kwin, et ne matchait rien. Mesure : la fenetre restait
+        # a y=26 apres reconfigure, ouverture neuve comprise.
+        "wmclassmatch": "2",
+        "position": "%d,0" % max(0, (largeur - larg_android) // 2),
+        "positionrule": "2",
+        "types": "1",
+    }
+
+    return {"s-bulle": bulle, "s-barre": barre, "s-android": android}
 
 
 def poser(largeur, hauteur):
