@@ -46,13 +46,27 @@ lancement).
 
 ---
 
-## Où on en est — 2026-08-25
+## Où on en est — 2026-08-26, soir
 
 **Android tourne, les deux disques sont entiers à S, et le dossier partagé fait
 enfin l'aller-retour.** Trois choses aussi : le dépôt vit désormais **sur la
 machine** (`/var/home/RyuRex/S`), ce qui supprime d'un coup les deux pièges du
 dépôt édité sous Windows — CRLF et bit d'exécution — et permet de mesurer au
 lieu de supposer. La journée l'a fait cinq fois.
+
+**Au 2026-08-26 au soir, trois choses ont changé de nature.** La machine
+**n'accepte plus que sa propre signature** — `rpm-ostree` dit
+`ostree-image-signed` depuis le redémarrage de 16 h 44, et c'était la dernière
+décision qui attendait l'utilisateur. **Android est reparti** après cinq jours
+d'arrêt, et il ne sert plus sa mise en page de téléphone. **Constellation** a
+gagné un ciel qui porte des fichiers, un clic droit, et une barre latérale de
+neuf réglages — mais **rien de ce pan n'est encore dans l'image**.
+
+**Et le mode de travail a changé sans que personne l'ait exercé.** Depuis le
+2026-08-25, S se pilote de n'importe où par le tailnet — `tailscaled` est actif,
+le Pixel est en ligne, `sshd.socket` écoute, `mosh` et `tmux` sont posés, et
+`claude` vit dans `/usr/bin` de l'image. **Aucune session distante n'a jamais
+servi**, et le relevé du 2026-08-26 au soir dit pourquoi : voir plus bas.
 
 ### L'espace, alloué
 
@@ -183,6 +197,57 @@ c'est la première fois qu'elle tient debout.
   `ostree-unverified-registry`, aucune étape `cosign` dans le flux d'Actions, et
   `policy.json` faisait retomber `ghcr.io/gigigrenier86` sur
   `insecureAcceptAnything` alors qu'il vérifiait `ghcr.io/ublue-os` par sigstore.
+- ~~**PURPLE ne s'ouvre plus dans aucun des deux rendus.**~~ **Il s'ouvre** —
+  fenêtre `352x561`, **3198 couleurs**, logo et version lisibles, vivant à 70 s.
+  Ce qui reste vrai est plus étroit : il **stagne sur son écran de démarrage**,
+  sans erreur. Non expliqué. Voir la section de l'après-midi.
+- **Tout le pan Constellation du soir est hors de l'image.** Le ciel qui porte
+  des fichiers, le clic droit et la barre latérale ont tourné depuis le dépôt,
+  par `S_QML` et `S_NOYAU`, dans une seconde Constellation lancée à côté de la
+  vraie. La construction `#80` tournait encore à 19 h 06 ; il faudra un
+  `bootc upgrade` puis un redémarrage.
+- **`uupd` n'a pas encore tourné sous la politique qui exige.** Le rejet d'une
+  image mal signée est prouvé à froid par `skopeo` avec le fichier de politique
+  du système — le passage réel de 4 h n'a pas eu lieu.
+- **L'accès distant n'a jamais servi, et le relevé du 2026-08-26 à 19 h dit où
+  il coince.** Le tailnet est monté (`s` = `100.103.169.98`, le Pixel en ligne),
+  `sshd` **répond bien sur l'adresse du tailnet** — mais il refuse :
+
+  ```
+  ssh RyuRex@100.103.169.98
+      Permission denied (publickey,gssapi-keyex,gssapi-with-mic,password)
+  ```
+
+  **Et j'ai d'abord mal dit pourquoi.** Ma première phrase était *« RyuRex n'a
+  aucune clé »*. C'est faux, et l'utilisateur l'a relevé :
+
+  ```
+  ~/.ssh/id_ed25519      privee, creee le 2026-08-24 a 22 h 16
+  ~/.ssh/id_ed25519.pub  SHA256:0R2G/lofJ9YhF0VUWP569THia2vewUp0bFHAIvZdsA8
+                         RyuRex@S-M720q
+  ```
+
+  **Une clé pour SORTIR n'est pas une autorisation d'ENTRER, et ce sont deux
+  fichiers différents.** `id_ed25519` prouve qui l'on est chez les autres —
+  `known_hosts` porte `github.com`, c'est presque sûrement elle qui pousse ce
+  dépôt. `authorized_keys` décide qui entre ici, **et lui n'existe pas**. Avoir
+  la première ne donne rien pour la seconde.
+
+  `100.103.169.98` **est déjà dans `known_hosts`**, ajouté le 2026-08-25 à
+  21 h 56 : une entrée par le tailnet a donc déjà été tentée ce soir-là.
+
+  Le mot de passe reste offert — mesuré, pas supposé — donc la voie n'est pas
+  fermée, elle est seulement pénible au doigt. Les deux sorties sans mot de
+  passe **demandent toutes deux l'utilisateur** : poser la clé publique du
+  téléphone dans `authorized_keys`, ou ouvrir Tailscale SSH dans les ACL du
+  tailnet. `RunSSH` vaut déjà `true` sur cette machine ; il manque le bloc côté
+  console.
+
+  Ce qui est en place et mesuré ce soir : `mosh` et `mosh-server` posés (un
+  téléphone change de réseau et **chaque changement d'IP tue une session SSH** ;
+  mosh y survit), `tmux` posé, `claude` **dans l'image** à `/usr/bin/claude`
+  (2.1.231), et la zone `FedoraWorkstation` ouvre déjà l'UDP 1025-65535 dont
+  mosh a besoin. **Rien de tout cela n'a été exercé depuis le téléphone.**
 
 ---
 
