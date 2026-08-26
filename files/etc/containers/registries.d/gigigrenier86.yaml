@@ -1,0 +1,17 @@
+# SANS CE FICHIER, LA VERIFICATION NE TROUVE MEME PAS LA SIGNATURE.
+#
+# Une signature cosign n'est pas dans le manifeste de l'image : c'est un objet
+# SEPARE, publie a cote sous une etiquette derivee du condensat. containers/image
+# ne va la chercher que si le depot est declare ici — sa page de manuel le dit :
+# « the use-sigstore-attachments option needs to be enabled for the relevant
+# registry or repository ».
+#
+# L'amont fait exactement pareil pour lui-meme : /etc/containers/registries.d/
+# porte deja « ublue-os.yaml » et « quay.io-toolbx-images.yaml », tous deux avec
+# cette seule ligne. On suit le patron plutot que d'en inventer un.
+#
+# CE FICHIER N'EXIGE RIEN. Il rend la signature LISIBLE ; c'est policy.json qui
+# decide si elle est REQUISE. Les deux decisions sont separees a dessein.
+docker:
+  ghcr.io/gigigrenier86:
+    use-sigstore-attachments: true

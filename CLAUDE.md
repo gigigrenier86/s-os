@@ -183,6 +183,199 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-26, apres-midi — signer ne suffit pas a exiger, et Android mourait sur une redirection
+
+Trois chantiers menes avec l'utilisateur devant la machine. Le premier a fait
+tomber une phrase que ce carnet repetait depuis la veille ; les deux autres ont
+sorti quatre defauts que seule l'execution pouvait montrer.
+
+### 1. La signature sans cle ne peut PAS etre exigee, et le carnet promettait le contraire
+
+Le carnet ecrivait : *« l'entree `ghcr.io/gigigrenier86` se pose dans
+`policy.json` sur le patron exact de celle d'ublue-os »*. **Ce patron ne peut
+pas marcher pour S**, et il a suffi de lire `policy.json` pour le voir :
+ublue-os epingle des **cles publiques** (`keyPaths`). S est signe **sans cle**.
+Il n'y a aucune cle a epingler.
+
+La forme qui existe pour le sans-cle est `fulcio`, et la page de manuel de cette
+machine tranche : *« Both `oidcIssuer` and **`subjectEmail`** are mandatory »*.
+Or le certificat d'une identite GitHub Actions ne porte pas de courriel. Releve
+par **deux sources independantes** — le JSON de `cosign` et `openssl` :
+
+```
+Subject         : (vide)
+EmailAddresses  : None
+URI             : https://github.com/gigigrenier86/s-os/.github/workflows/build.yml@refs/heads/main
+```
+
+**Et la machine l'a confirme, a froid, sans rien engager** — une policy de test
+dans le bloc-notes, `skopeo copy --policy` :
+
+```
+Source image rejected: Required email "https://github.com/.../build.yml@refs/heads/main"
+                       not found (got [])
+```
+
+`got []` : la liste est vide. Ce n'est plus une hypothese.
+
+**C'EST POURQUOI L'AMONT SIGNE AVEC UNE CLE.** `/etc/pki/containers/ublue-os.pub`
+n'est pas un archaisme : c'est la seule forme que `policy.json` sache verifier.
+*On ne reimplemente pas ce que l'amont maintient* — et ici, on ne l'invente pas
+non plus.
+
+**Ce qui est fait :** la construction signe desormais **deux fois** — sans cle
+pour l'audit humain (elle prouve le depot, le fichier de workflow, la branche et
+le commit), et **avec une paire de cles** pour la machine. L'etape se saute
+proprement tant que le secret n'est pas pose, pour ne pas faire rougir une
+construction sur une clef absente. Et elle **compare la cle publique du depot a
+celle que le secret produit** : sans ce controle, on signerait avec une cle
+pendant que l'image en livre une autre, et la machine refuserait ses propres
+mises a jour — une panne qui ne se verrait qu'au premier `bootc upgrade`.
+
+`files/etc/containers/registries.d/gigigrenier86.yaml` entre aussi, sur le patron
+exact d'ublue-os (verifie par `diff`, identique au nom pres) : **sans lui, la
+verification ne trouve meme pas la signature**, qui est un objet publie a cote de
+l'image et non dans son manifeste.
+
+**`policy.json` n'a toujours pas ete touche, et c'est delibere.** Rendre la
+signature LISIBLE et la rendre REQUISE sont deux decisions ; la seconde se prend
+apres que la premiere ait ete vue fonctionner.
+
+### 2. Android n'avait pas tourne depuis le 25 aout, et la cause n'etait pas Android
+
+`android-init.log` appartenait a **root** depuis le 25 aout a 10 h 42 — pose par
+un `pkexec` d'une version anterieure qui portait la redirection *a l'interieur*
+de l'elevation. Le dossier, lui, restait a l'utilisateur : rien ne paraissait
+anormal. Son contenu etait d'ailleurs la panne des cinq jours,
+*« You must provide 'System OTA' and 'Vendor OTA' URLs »*.
+
+**Bash evalue une redirection AVANT de lancer la commande.** Une redirection
+refusee fait donc echouer la ligne entiere **sans que la commande ait tourne**,
+et le `|| true` l'avale. Mesure :
+
+```
+/usr/bin/touch /tmp/temoin >> <journal non inscriptible>
+code de retour : 1     ->  la commande N'A JAMAIS TOURNE
+```
+
+Pendant vingt-huit heures, `waydroid upgrade -o` et le reglage de mise en veille
+n'ont donc jamais tourne, pendant que le geste affichait *« Application des
+reglages a Android… »*. **Le succes silencieux dans sa forme la plus exacte.**
+
+**Et le journal redevenait root apres chaque reparation.** Le coupable n'est pas
+S : `waydroid shell` appelle `lxc-attach`, qui **chowne son propre `stdout`**
+pour le donner au processus du conteneur — et quand ce stdout est un fichier
+redirige, c'est le FICHIER qui change de proprietaire. Waydroid le sait a
+moitie : `tools/helpers/lxc.py` releve le mode avant et le repose apres
+(`os.chmod(sys.stdout.fileno(), perms)`). Il repose le **mode**, jamais le
+**proprietaire**.
+
+Deux correctifs, donc, et ils ne font pas double emploi :
+
+- **`s_tee`** dans `s-monde` : un processus privilegie recoit un **tuyau**,
+  jamais le descripteur du journal. `tee` est lance par le shell de
+  l'utilisateur ; rien de ce qui se passe en root ne peut l'atteindre.
+  Eprouve : le journal reste `RyuRex:RyuRex` apres un `waydroid shell` en root.
+- **Une garde a l'ouverture de `s-monde`**, parce que **dix-neuf lignes** de ce
+  depot ecrivent un journal sous `$S_ETAT` et que le legs est deja pose sur
+  cette machine. Eprouvee dans les deux sens : un journal casse est repare et
+  l'ancien garde a cote ; un journal sain garde **le meme inode**.
+
+### 3. Le verrou du monde restait pris tant qu'Android tournait
+
+`waydroid session start` est lance en arriere-plan et vit aussi longtemps que la
+session. Il **heritait du descripteur 9**, celui que `flock` tient. Releve
+pendant qu'Android tournait :
+
+```
+PID 9143  /usr/bin/python3 /usr/bin/waydroid session start   <- tient le 9
+```
+
+Un second geste attendait donc `flock -w 600` puis echouait, **sans un mot** —
+c'est exactement ainsi qu'un `s-android` relance est reste bloque cet
+apres-midi. C'est le defaut deja corrige pour `s-ouvrir-exe` le 2026-08-26,
+*« le verrou tenait pendant toute la vie du programme »*, **reste entier de ce
+cote-ci**. `9>&-` le ferme. Mesure apres correctif : **verrou libre alors
+qu'Android tourne**, et un second geste le prend en **0 s**.
+
+### 4. Android servait sa mise en page telephone — et ce n'etait ni la densite ni la taille
+
+L'utilisateur, devant l'ecran : *« dans le menu de base, tout est trop gros »*.
+L'accueil de YouTube servait **une** colonne, une vignette large de 1920 px par
+ligne. La video, elle, jouait parfaitement.
+
+**Deux hypotheses sont mortes avant la bonne**, et les ecrire ferme les pistes :
+
+| Hypothese | Ce qui l'a tuee |
+|---|---|
+| La densite | Une vignette a 100 % de large fait 1920 px que la densite soit 140 ou 240 : elle ne change que le texte et les icones. **La capture le montrait** — barre du haut petite et nette, vignettes enormes |
+| `ro.build.characteristics=tablet` | Posee, versee, confirmee par `getprop` — et YouTube n'en a tenu **aucun** compte |
+
+**Ce qui decide est le qualificateur `long`.** AOSP classe un ecran dont le
+rapport long/court atteint 1,75 comme LONG — un telephone en paysage. Isole en
+ne changeant que ce qualificateur, a largeur quasi constante :
+
+```
+1920 x 1028   1,868   xlarge-long-      w2194dp   une colonne
+1747 x 1028   1,699   xlarge-notlong-   w1996dp   TROIS colonnes
+```
+
+La taille de la fenetre se pose par `persist.waydroid.width/height`, **trouvees
+dans la table des symboles** de `hwcomposer.waydroid.so`, a cote de
+`choose_width_height(display*,int,int)`. Elle est **calculee et non codee en
+dur** : 1747 ne vaut que pour un ecran 1920x1080. Et **la formule n'a qu'une
+source** — elle vit dans `regles-kwin.py`, ou la coquille la lit deja pour
+centrer cette meme fenetre.
+
+**Trois pieges mesures en chemin, tous en faisant :**
+
+1. **Une propriete `persist.` est gardee par Android dans SON magasin** et
+   l'emporte sur `waydroid_base.prop`. Releve : le fichier portait 1747 et
+   Android repondait 1700 **a la meme seconde**. Il faut donc aussi un
+   `prop set` — c'est ce que `multi_windows` faisait deja, et le carnet notait
+   qu'il marchait « par accident ».
+2. **`waydroid prop` n'a PAS besoin de root.** Lance par `pkexec`, il repond
+   *« WayDroid session is stopped »* alors qu'elle tourne : la session appartient
+   a l'utilisateur, **root ne la voit pas**. Une elevation inutile est un mot de
+   passe demande pour rien.
+3. **kwin numerote ses comparaisons `0` sans importance, `1` EXACT,
+   `2` SOUS-CHAINE, `3` regexp.** J'ai copie `1` depuis `COMMUN`, ou il est juste
+   puisque `s-constellation` est une classe entiere. Ma regle cherchait donc une
+   fenetre dont la classe vaut **exactement** `waydroid.`. Posee, lue par kwin,
+   et ne matchant rien — la fenetre restait a `y=26` apres reconfigure et
+   ouverture neuve. **C'est l'utilisateur qui a dit « la position ne tient
+   pas »**, pas ma mesure.
+
+**Et la position venait de lui aussi.** kwin ouvrait la fenetre en `86,26` — un
+bas a 1054 alors que la barre de S commence a 1028. Il perdait vingt-six pixels,
+c'est-a-dire **exactement la rangee de commandes de l'application**. La regle
+force la POSITION seulement, jamais la taille : celle-ci appartient au
+compositeur de Waydroid, a qui `s-android` l'a donnee.
+
+Etat final, releve par kwin et **valide a l'ecran par l'utilisateur** :
+
+```
+waydroid.com.google.android.youtube | 86,0 1747x1028 | bas=1028
+```
+
+### Ce que cette passe ne prouve pas
+
+- **La signature par cle n'a jamais tourne.** L'etape est ecrite et se saute
+  tant que `SIGNING_SECRET` n'est pas pose. Rien ne prouve qu'elle signe.
+- **`policy.json` n'est pas touche** : `rpm-ostree status` dit toujours
+  `ostree-unverified-registry`, et la machine tire toujours `:latest` chaque
+  nuit par `uupd` sans rien exiger.
+- **La fenetre Android perd 173 pixels de largeur**, et l'utilisateur l'accepte
+  pour l'instant. Le rapport 1,70 est un choix de marge sous le seuil de 1,75 ;
+  **la valeur exacte du seuil n'a pas ete mesuree**, elle est lue dans AOSP.
+- **Une seule application a ete jugee.** YouTube passe en trois colonnes ; rien
+  ne dit ce que les trente-deux autres font de `notlong`.
+- **Le glitch d'affichage de Waydroid n'a pas ete revu**, et PURPLE n'a pas ete
+  rouvert.
+
+
+---
+
 ## 2026-08-26, 07 h — la revue des quatre rôles : six défauts prouvés, cinq alertes tuées
 
 Relecture complète du dépôt et de la machine avec les quatre rôles chargés,
@@ -453,11 +646,20 @@ peut empêcher une mise à jour ou un démarrage. La commande ci-dessus répond
 maintenant : c'est elle qu'il faut avoir vue passer avant de poser l'entrée dans
 `policy.json`, sur le patron exact de celle d'ublue-os.
 
+> **FAUX, mesure le 2026-08-26 en fin de journee.** Ce patron epingle des CLES
+> PUBLIQUES ; S est signe SANS cle, et `containers/image` exige `subjectEmail`
+> avec `fulcio` — que le certificat d'une identite GitHub Actions ne porte pas.
+> `skopeo` repond : *« Required email ... not found (got []) »*. Il a fallu
+> AJOUTER une paire de cles, comme l'amont. Voir la section de l'apres-midi.
+
 ### Ce qui reste, et qui demande une décision ou une présence
 
 - **Exiger la signature** (`policy.json`) — à faire après que `cosign verify`
   ait répondu, jamais avant.
-- **Android n'a toujours pas tourné** : `s-android` demande un mot de passe
+- ~~**Android n'a toujours pas tourné**~~ **Il tourne depuis le 2026-08-26
+  a 15 h, et ce qui le bloquait n'etait pas Android : deux blocs de `s-android`
+  mouraient sur une redirection vers un journal devenu root. Voir la section de
+  l'apres-midi.** Le texte d'origine : `s-android` demande un mot de passe
   légitimement — `waydroid.cfg` porte `multi_windows = true` là où S veut
   `false`, et `waydroid_base.prop` (25 août, 10 h 44) ne porte **aucun** des
   réglages. La demande était juste ; c'est le blocage sans limite qui ne

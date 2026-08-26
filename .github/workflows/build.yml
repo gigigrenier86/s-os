@@ -285,3 +285,77 @@ jobs:
           echo "  cosign verify ${REG}/${IMAGE_NAME}:latest \\"
           echo "    --certificate-identity-regexp '^https://github.com/${{ github.repository }}/' \\"
           echo "    --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+
+      # ------------------------------------------------------------------
+      # LA SECONDE SIGNATURE, ET POURQUOI IL EN FAUT DEUX
+      # ------------------------------------------------------------------
+      # MESURE DU 2026-08-26, SUR LA MACHINE, A FROID. La signature sans cle
+      # ci-dessus prouve davantage qu'une cle partagee : ce depot, ce fichier de
+      # workflow, cette branche, ce commit. Mais AUCUNE MACHINE NE PEUT
+      # L'EXIGER.
+      #
+      # « containers/image » 0.67 — celui de podman, de skopeo et de bootc —
+      # impose « subjectEmail » avec « fulcio », et sa page de manuel le dit :
+      # « Both oidcIssuer and subjectEmail are mandatory ». Or le certificat
+      # d'une identite GitHub Actions ne porte PAS de courriel : son sujet est
+      # vide et son identite est un URI. Releve par deux sources independantes,
+      # le JSON de cosign et openssl :
+      #
+      #   Subject         : (vide)
+      #   EmailAddresses  : None
+      #   URI             : https://github.com/<depot>/.github/workflows/build.yml@refs/heads/main
+      #
+      # Et la tentative rend exactement ca :
+      #
+      #   Source image rejected: Required email "https://github.com/..." not
+      #   found (got [])
+      #
+      # C'EST POURQUOI L'AMONT SIGNE AVEC UNE CLE. /etc/pki/containers/ porte
+      # « ublue-os.pub » : ce n'est pas un archaisme, c'est la seule forme que
+      # policy.json sait verifier. On ne reimplemente pas ce que l'amont
+      # maintient — et ici, on ne l'invente pas non plus.
+      #
+      # LES DEUX COEXISTENT : la sans-cle pour l'audit humain, celle-ci pour la
+      # machine. L'etape se SAUTE proprement tant que le secret n'est pas pose,
+      # pour ne pas faire rougir une construction sur une clef absente.
+      - name: Signer avec la cle de S
+        if: github.event_name != 'pull_request'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          COSIGN_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          if [ -z "${COSIGN_PRIVATE_KEY}" ]; then
+            echo "Aucune cle posee dans les secrets du depot — etape sautee."
+            echo "L'image reste signee sans cle, mais aucune machine ne pourra"
+            echo "l'EXIGER tant que cette cle n'existe pas."
+            exit 0
+          fi
+
+          REG="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          test -s "${RUNNER_TEMP}/condensat" \
+            || { echo "Aucun condensat releve a la poussee : rien a signer." >&2; exit 1; }
+          CONDENSAT="$(cat "${RUNNER_TEMP}/condensat")"
+
+          # LA CLE PUBLIQUE DU DEPOT DOIT ETRE CELLE DE LA CLE PRIVEE.
+          # Sans ce controle, on signerait avec une cle pendant que l'image
+          # livre l'autre, et la machine refuserait ses propres mises a jour —
+          # une panne qui ne se verrait qu'au premier « bootc upgrade », donc
+          # loin d'ici et sans rapport apparent.
+          PUB=files/etc/pki/containers/s-os.pub
+          test -s "$PUB" || { echo "ECHEC : $PUB manque du depot." >&2; exit 1; }
+          cosign public-key --key env://COSIGN_PRIVATE_KEY > /tmp/attendue.pub
+          if ! cmp -s /tmp/attendue.pub "$PUB"; then
+            echo "ECHEC : la cle publique du depot ne correspond pas au secret." >&2
+            echo "--- ce que le secret produit ---" >&2; cat /tmp/attendue.pub >&2
+            echo "--- ce que le depot porte    ---" >&2; cat "$PUB" >&2
+            exit 1
+          fi
+          echo "La cle publique du depot correspond bien au secret."
+
+          cosign sign --yes --key env://COSIGN_PRIVATE_KEY \
+            "${REG}/${IMAGE_NAME}@${CONDENSAT}"
+          echo "Signe par la cle de S : ${REG}/${IMAGE_NAME}@${CONDENSAT}"
+          echo ""
+          echo "Pour verifier avec la cle publique :"
+          echo "  cosign verify --key /etc/pki/containers/s-os.pub \\"
+          echo "    ${REG}/${IMAGE_NAME}@${CONDENSAT}"
