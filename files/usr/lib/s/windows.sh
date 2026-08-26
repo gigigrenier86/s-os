@@ -234,6 +234,82 @@ s_windows_charger() {
 }
 
 # ---------------------------------------------------------------------------
+# LE RENDU DE WPF — et pourquoi il n'y a pas de bon reglage global
+# ---------------------------------------------------------------------------
+# LA DECOUVERTE DU 2026-08-26, ET ELLE COUPE DANS LES DEUX SENS.
+#
+# WPF dessine par Direct3D 9 (milcore). Quand ce chemin echoue sous Wine, la
+# fenetre existe, elle a la bonne taille, et elle est NOIRE. WPF porte un
+# interrupteur pour retomber en rendu logiciel :
+#
+#   HKCU\SOFTWARE\Microsoft\Avalon.Graphics  "DisableHWAcceleration" = 1
+#
+# Mesure, en comptant les couleurs distinctes d'une capture faite par kwin :
+#
+#                        materiel    logiciel
+#   PURPLE (CefSharp)     1 couleur   3133 couleurs
+#   PcBoostApp (WPF)      6426        17 couleurs
+#
+# CHACUN MARCHE DANS LE MODE OU L'AUTRE ECHOUE. Il n'existe donc pas de bon
+# reglage global : celui qui reparerait PURPLE casserait PcBoostApp, et
+# reciproquement. Ce n'est pas un compromis a trancher, c'est un reglage a
+# porter PAR PROGRAMME.
+#
+# Ce n'est pas DXVK non plus : force en WineD3D, PURPLE reste noir. C'est bien
+# le chemin materiel de WPF lui-meme.
+#
+# La cle est globale a l'utilisateur — WPF ne connait pas de reglage par
+# programme. On la pose donc JUSTE AVANT le lancement, selon ce que
+# l'utilisateur a retenu pour ce programme-la. Deux programmes de modes
+# differents lances a la meme seconde peuvent se marcher dessus ; c'est un cas
+# rare, et le dire vaut mieux que le cacher.
+S_WIN_RENDU="$S_ETAT/windows-rendu"
+
+# CE QUI EST POSE EN CE MOMENT DANS LE REGISTRE. On le retient a cote, parce
+# que relire le registre de Wine coute plus cher que de l'ecrire, et que ce
+# chemin est celui de chaque lancement.
+S_WIN_RENDU_ACTUEL="$S_ETAT/windows-rendu-actuel"
+
+s_windows_rendu_pose() {
+    local mode="$1" reg
+    # ON N'ECRIT QUE SI CA CHANGE, MAIS ON COMPARE AU REGISTRE, PAS AU DEFAUT.
+    #
+    # LE DEFAUT QUE CECI CORRIGE : la premiere version n'ecrivait que si le mode
+    # du programme differait de « materiel ». Or la cle est GLOBALE et garde ce
+    # que le programme precedent y a laisse — apres PURPLE, qui demande le rendu
+    # logiciel, PcBoostApp tournait en logiciel sans l'avoir demande. Vu sur la
+    # machine le 2026-08-26 : sa zone centrale ne peignait pas.
+    [ "$(cat "$S_WIN_RENDU_ACTUEL" 2>/dev/null)" = "$mode" ] && return 0
+    reg="$(mktemp)" || return 1
+    printf 'REGEDIT4
+
+[HKEY_CURRENT_USER\\SOFTWARE\\Microsoft\\Avalon.Graphics]
+"DisableHWAcceleration"=dword:0000000%s
+' \
+        "$([ "$mode" = logiciel ] && echo 1 || echo 0)" > "$reg"
+    WINEPREFIX="$S_WIN_PFX" WINEDEBUG=-all \
+        "$(s_windows_proton)/files/bin/wine64" regedit "$reg" >/dev/null 2>&1
+    rm -f "$reg"
+    printf '%s' "$mode" > "$S_WIN_RENDU_ACTUEL"
+}
+
+# Le mode retenu pour un programme donne, « materiel » par defaut.
+s_windows_rendu_de() {
+    local ident="$1"
+    [ -f "$S_WIN_RENDU/$ident" ] && cat "$S_WIN_RENDU/$ident" || echo materiel
+}
+
+s_windows_rendu_retenir() {
+    mkdir -p "$S_WIN_RENDU"
+    printf '%s' "$2" > "$S_WIN_RENDU/$1"
+}
+
+# Un identifiant stable pour un programme, le meme que celui des lanceurs.
+s_windows_ident() {
+    printf 's-windows-%s' "$(printf '%s' "$1" | sha256sum | cut -c1-12)"
+}
+
+# ---------------------------------------------------------------------------
 # Le serveur resident
 # ---------------------------------------------------------------------------
 # On demande a systemd plutot que de lancer le serveur nous-memes, et ce n'est

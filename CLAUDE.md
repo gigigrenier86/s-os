@@ -425,6 +425,151 @@ la ligne de commande du banc lui-meme. Tout ce chantier n'emploie plus que
   condition est bornee, mais aucun lancement ne l'a declenche.
 - **RapidO n'a pas encore ouvert.** Il demande WebView2 en plus de .NET 8.
 
+### La suite de la nuit — la construction rouge, et une fenetre noire qui coupe dans les deux sens
+
+#### La verification tournait vingt lignes avant que le fichier existe
+
+Premiere construction apres livraison : **rouge**. La cause est ordinaire et
+entierement de moi. `41-windows.sh` s'execute a la **ligne 63** du
+`Containerfile` ; `COPY files/ /` est a la **ligne 84**. Les controles du
+Windows resident y cherchaient `/usr/bin/s-windows` — sur un fichier qui
+n'existe pas encore a cette etape.
+
+Ils demenagent dans `40-coutures.sh`, qui passe apres les COPY, la ou vivent
+deja les controles des autres gestes. `41-windows.sh` ne garde qu'`icoutils`,
+qui est un paquet et ne depend d'aucun COPY. Rejoue dans
+`ghcr.io/ublue-os/bazzite:stable`, la vraie base : **code 0**.
+
+*Les journaux d'Actions repondent 403 sans droits admin et `gh` n'est pas sur
+cette machine — la construction se rejoue donc en local, dans l'image de base,
+comme le 2026-08-25.*
+
+#### Trois defauts trouves en relisant mon propre code
+
+Aucun n'est venu d'un essai. Les trois sont sortis d'une relecture du flux de
+`s-ouvrir-exe`, ligne a ligne, une fois le code ecrit.
+
+1. **Le verrou n'etait pas reentrant.** `s-ouvrir-exe` prend le verrou,
+   constate que le Windows de S n'existe pas, et appelle
+   `s-windows --preparer` — qui prend le meme. `flock` ne compte pas les prises
+   par processus : deux ouvertures du meme fichier sont deux verrous
+   concurrents, meme entre parent et enfant. **Le tout premier double-clic
+   d'une machine fraiche serait reste muet dix minutes.** Eprouve dans les deux
+   sens sur un verrou separe : l'ancienne forme bloque, la nouvelle passe.
+
+2. **Le verrou tenait pendant toute la vie du programme.** Aucun second
+   logiciel Windows ne pouvait demarrer tant qu'un premier tournait. Ca ne se
+   voyait pas quand chaque lancement coutait cinq secondes ; a un dixieme de
+   seconde, l'utilisateur en ouvrira plusieurs — c'est l'objet meme du
+   chantier.
+
+3. **Je bloquais tout logiciel .NET Framework** tant que `dotnet48` n'etait pas
+   pose. Or `wine-mono` suffit a beaucoup d'entre eux : j'aurais casse des
+   programmes qui fonctionnaient. On previent desormais, on ne refuse plus. Le
+   refus reste pour .NET 8, et pour une raison technique et non par gout :
+   wine-mono n'implemente pas .NET Core.
+
+Et la detection distingue enfin `"frameworks"` de `"includedFrameworks"` : une
+publication **autonome** porte elle aussi un `runtimeconfig.json`, et la
+bloquer aurait arrete `PcBoostApp` en version `win-x64`, **qui tournait deja
+avant que .NET soit installe**.
+
+#### PURPLE : deux « .NET » qui n'ont rien a voir l'un avec l'autre
+
+Le lanceur de NCSoft ne s'ouvrait pas, et le journal de Wine disait exactement
+pourquoi :
+
+```
+parse_supported_runtime sku=".NETFramework,Version=v4.7.1" not implemented
+Failed to run module constructor ... wine-mono-10.4.1 ... TypeInitializationException
+```
+
+**.NET Framework 4.x et .NET 8 sont deux moteurs sans rapport.** Poser le
+second ne sert a rien au premier. `dotnetdesktop8` etait en place ; il fallait
+`dotnet48`.
+
+Et la demande est **dans le binaire**, pas dans un fichier a cote — PURPLE n'a
+aucun `.exe.config`. Le compilateur inscrit l'attribut de cible dans les
+metadonnees de l'assembly, ou il se lit en clair :
+
+```
+PurpleLauncher.exe   .NETFramework,Version=v4.7.1
+RapidO.exe           (rien — c'est son runtimeconfig.json qui parle)
+```
+
+Pose, l'erreur disparait et `NDP\v4\Full  Release = 0x80eb1`.
+
+#### La fenetre noire, et pourquoi il n'y a pas de bon reglage global
+
+PURPLE s'ouvrait alors — **et sa fenetre etait noire**. Pas un artefact de
+capture : la capture faite par kwin lui-meme sur la fenetre activee rend **une
+seule couleur distincte**.
+
+WPF dessine par Direct3D 9 (milcore), et porte un interrupteur pour retomber en
+rendu logiciel : `HKCU\SOFTWARE\Microsoft\Avalon.Graphics`,
+`DisableHWAcceleration`.
+
+| Couleurs distinctes | materiel | logiciel |
+|---|---|---|
+| PURPLE (CefSharp) | **1** | **3133** |
+| PcBoostApp (WPF) | **6426** | zone centrale absente |
+
+> **Chacun marche dans le mode ou l'autre echoue.**
+
+Il n'y a donc rien a trancher globalement : ce n'est pas un compromis, c'est un
+reglage **par programme**. D'ou `s-windows --fenetre-noire <programme>`, nomme
+d'apres le symptome et non d'apres le mecanisme — un utilisateur qui voit une
+fenetre noire ne cherchera pas « Avalon.Graphics ».
+
+**Ce n'est pas DXVK :** force en WineD3D, PURPLE reste noir. C'est bien le
+chemin materiel de WPF lui-meme.
+
+**Et la cle est globale a l'utilisateur**, ce qui a produit un quatrieme
+defaut : la premiere version n'ecrivait le registre que si le mode differait du
+defaut. Or la cle garde ce que le programme PRECEDENT y a laisse — apres
+PURPLE, `PcBoostApp` tournait en rendu logiciel sans l'avoir demande. On compare
+desormais a ce qui est reellement pose, pas au defaut.
+
+**Eprouve de bout en bout, par le vrai geste `s-ouvrir-exe` et non par un
+morceau**, en alternant les deux programmes :
+
+```
+PURPLE      3131 couleurs   PEINT   (rendu logiciel, retenu pour lui)
+PC Boost    6426 couleurs   PEINT   (rendu materiel, remis pour lui)
+PURPLE      3131 couleurs   PEINT   (reglage retrouve)
+```
+
+Chacun dans son mode, l'un apres l'autre, sans que l'utilisateur ait rien a
+faire apres la premiere fois.
+
+#### Mon banc a menti une troisieme fois
+
+`pgrep -x PurpleLauncher.e` ne matchait rien, et j'en ai conclu que PURPLE ne
+tournait pas. **`/proc/PID/comm` tronque a quinze caracteres** :
+`PurpleLauncher.exe` y devient `PurpleLauncher.`, avec le point. Le motif etait
+d'un caractere trop long.
+
+Pendant ce temps une fenetre « PURPLE » etait bien a l'ecran, et un essai
+precedent tournait encore — que mes `pkill` rataient pour la meme raison.
+
+*C'est la troisieme mesure fausse de la nuit, apres le 0,28 s d'une fenetre WPF
+et le 0,01 s d'un lancement ou rien ne tournait.* Et la troisieme confirme la
+regle des deux premieres : **un banc qui ne peut pas echouer ne mesure rien**.
+
+#### Ce que cette seconde moitie ne prouve toujours pas
+
+- **`PcBoostApp` en rendu logiciel n'a ete observe qu'une fois**, a cinq
+  secondes, et sa zone centrale etait vide alors que le reste peignait. Je n'ai
+  **pas** etabli si elle se remplit plus tard — la mesure qui trancherait est
+  une capture a trente secondes, et elle n'a pas abouti.
+- **RapidO s'ouvre et WebView2 s'initialise** — il annonce son moteur
+  `151.0.4129.107` et charge une adresse. Le contenu de la page n'a pas ete
+  observe rendu.
+- **Le repli sur `umu-run` n'a toujours jamais servi pour de vrai.**
+- **Le cout de la premiere ouverture de session avec le serveur resident n'a
+  pas ete chronometre sur un vrai demarrage.**
+
+
 ---
 
 ## 2026-08-25, 22 h 30 — le telephone tient S, et la preuve s'ecrivait elle-meme

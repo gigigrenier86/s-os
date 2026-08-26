@@ -152,6 +152,19 @@ s_windows_deverrouiller
 # ---------------------------------------------------------------------------
 # Lancer
 # ---------------------------------------------------------------------------
+# LE MODE DE RENDU RETENU POUR CE PROGRAMME-LA.
+#
+# Voir /usr/lib/s/windows.sh : PURPLE ne peint qu'en rendu logiciel, PcBoostApp
+# qu'en materiel. Il n'y a pas de bon reglage global, seulement un reglage par
+# programme, et il se pose au registre juste avant le lancement parce que WPF le
+# lit au demarrage du processus.
+#
+# ON LE POSE TOUJOURS, et s_windows_rendu_pose sait ne rien ecrire quand c'est
+# deja le bon : la cle est globale a l'utilisateur et garde ce que le programme
+# PRECEDENT y a laisse. Ne l'ecrire que « si ca differe du defaut » laissait
+# PcBoostApp tourner en rendu logiciel apres un lancement de PURPLE.
+s_windows_rendu_pose "$(s_windows_rendu_de "$(s_windows_ident "$CIBLE")")"
+
 s_dire "$NOM" "Ouverture…" application-x-executable
 
 # On se place DANS le dossier du programme. Beaucoup de logiciels Windows

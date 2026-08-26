@@ -247,6 +247,38 @@ if [ "${1:-}" = "--fondations" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# --fenetre-noire : le geste nomme d'apres le symptome
+# ---------------------------------------------------------------------------
+# POURQUOI CE NOM. Un utilisateur qui voit une fenetre noire ne cherchera pas
+# « rendu WPF » ni « Avalon.Graphics » — il cherchera « fenetre noire ». Le nom
+# d'une commande doit repondre a la question qu'on se pose, pas nommer le
+# mecanisme qu'elle emploie.
+#
+# CE QUE CA BASCULE, ET LA MESURE QUI L'A TROUVE (2026-08-26, couleurs
+# distinctes d'une capture faite par kwin) :
+#
+#                        materiel    logiciel
+#   PURPLE (CefSharp)     1 couleur   3133 couleurs
+#   PcBoostApp (WPF)      6426        17 couleurs
+#
+# Chacun marche la ou l'autre echoue. Il n'y a donc rien a trancher globalement.
+if [ "${1:-}" = "--fenetre-noire" ]; then
+    CIBLE="${2:-}"
+    [ -n "$CIBLE" ] || s_echec "Quel programme ?" \
+        "s-windows --fenetre-noire /chemin/vers/le/programme.exe"
+    CIBLE="$(readlink -f "$CIBLE")"
+    [ -f "$CIBLE" ] || s_echec "Fichier introuvable" "$CIBLE"
+    IDENT="$(s_windows_ident "$CIBLE")"
+    ACTUEL="$(s_windows_rendu_de "$IDENT")"
+    if [ "$ACTUEL" = materiel ]; then NOUVEAU=logiciel; else NOUVEAU=materiel; fi
+    s_windows_rendu_retenir "$IDENT" "$NOUVEAU"
+    s_dire "$(basename "$CIBLE")" \
+"Rendu bascule en $NOUVEAU. Relance le programme — si la fenetre reste noire, \
+retape la meme commande pour revenir." application-x-executable
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # --preparer : construire le Windows, et capturer ce que Proton decide
 # ---------------------------------------------------------------------------
 preparer() {
@@ -337,3 +369,7 @@ echo "  s-windows --tout          construire, emprunter les polices, poser les f
 echo "  s-windows --polices       emprunter les polices au Windows de cette machine"
 echo "  s-windows --fondations    .NET 8, VC++ 2022, WebView2"
 echo "  s-windows --arreter       arreter la session Windows"
+echo
+echo "  Une fenetre s'ouvre NOIRE ? Certains logiciels ne peignent qu'en rendu"
+echo "  logiciel, d'autres qu'en materiel, et il n'y a pas de bon reglage global :"
+echo "     s-windows --fenetre-noire /chemin/vers/le/programme.exe"

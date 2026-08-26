@@ -198,6 +198,24 @@ grep -q 'S_VERROU_WINDOWS' /usr/lib/s/windows.sh \
     || { echo "ECHEC : le verrou de windows.sh n'est pas reentrant." >&2; exit 1; }
 echo "  verrou         : reentrant entre s-ouvrir-exe et s-windows"
 
+# --- LA FENETRE NOIRE -------------------------------------------------------
+# WPF dessine par Direct3D 9. Quand ce chemin echoue sous Wine, la fenetre
+# existe, elle a la bonne taille, et elle ne contient qu'une couleur.
+# L'interrupteur de repli logiciel la repare — mais il casse d'autres
+# programmes, mesure a l'appui :
+#
+#                        materiel    logiciel
+#   PURPLE (CefSharp)     1 couleur   3133 couleurs
+#   PcBoostApp (WPF)      6426        zone centrale absente
+#
+# Chacun marche la ou l'autre echoue : le reglage est PAR PROGRAMME, et le
+# geste porte le nom du symptome pour etre trouvable.
+grep -q -- '--fenetre-noire' /usr/bin/s-windows \
+    || { echo "ECHEC : s-windows n'offre pas --fenetre-noire — aucun recours contre une fenetre qui ne peint pas." >&2; exit 1; }
+grep -q 's_windows_rendu_pose' /usr/bin/s-ouvrir-exe \
+    || { echo "ECHEC : s-ouvrir-exe ne pose pas le mode de rendu retenu pour le programme." >&2; exit 1; }
+echo "  rendu WPF      : reglable par programme, pose a chaque lancement"
+
 # --- L'EXTRACTEUR D'ICONES --------------------------------------------------
 command -v wrestool >/dev/null || { echo "ECHEC : wrestool absent." >&2; exit 1; }
 command -v icotool  >/dev/null || { echo "ECHEC : icotool absent." >&2; exit 1; }

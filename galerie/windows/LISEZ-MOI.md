@@ -58,3 +58,48 @@ le meme disque.
 **L'image transporte le geste ; les polices ne quittent pas la machine.** Les
 captures ci-dessus montrent des glyphes rendus, pas des fichiers de police, et
 c'est la difference qui rend leur publication legitime.
+
+
+---
+
+## PURPLE — la fenetre qui existait sans rien peindre
+
+| | |
+|---|---|
+| `purple-2026-08-26.png` | 2026-08-26, 01 h 10 |
+
+**Machine :** la meme — Intel Core i5-8400T, UHD Graphics 630, Mesa 26.2.1,
+capture faite par kwin lui-meme sur la fenetre activee.
+
+**Programme :** `PurpleLauncher.exe`, le lanceur de NCSoft. WPF, .NET
+Framework 4.7.1, interface Chromium embarquee (CefSharp). Installe dans le
+prefixe de S, lance par `s-ouvrir-exe`.
+
+### Ce que l'image montre, et ce qu'elle a remplace
+
+Le logo, le nom, la version, les boutons. Rien d'extraordinaire — sauf que
+**pendant deux heures cette fenetre existait deja, a la bonne taille, et ne
+contenait qu'une seule couleur distincte.** Noire.
+
+WPF dessine par Direct3D 9. Quand ce chemin echoue sous Wine, la fenetre se
+cree et ne peint pas. WPF porte un interrupteur de repli logiciel, et il
+retablit tout.
+
+### Le contre-exemple, qui est le vrai enseignement
+
+| Couleurs distinctes | rendu materiel | rendu logiciel |
+|---|---|---|
+| PURPLE | **1** | **3133** |
+| PcBoostApp | **6426** | zone centrale absente |
+
+**Chacun marche dans le mode ou l'autre echoue.** Il n'existe donc pas de bon
+reglage global — c'est un reglage par programme, et c'est pour ca que S offre
+`s-windows --fenetre-noire`, nomme d'apres le symptome plutot que d'apres le
+mecanisme.
+
+### Ce que cette image ne prouve pas
+
+- **Rien au-dela de l'ecran d'accueil.** Aucune connexion n'a ete tentee,
+  aucun jeu n'a ete lance.
+- **Rien sur PcBoostApp en rendu logiciel** : sa zone centrale etait vide a
+  cinq secondes, et il n'a pas ete etabli si elle se remplit plus tard.
