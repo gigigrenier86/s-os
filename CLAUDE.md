@@ -169,11 +169,109 @@ c'est la première fois qu'elle tient debout.
   le début, et il fonctionne depuis le 2026-08-25 à 17 h** : Waydroid fournit le
   pont binder entier, il lui manquait le paquet `python3-pyclip`. Éprouvé dans
   les deux sens à l'écran. Voir la section de 17 h.
-- **`bootc rollback` n'a toujours jamais été exercé**, alors que deux
-  déploiements coexistent sur cette machine.
+- ~~**`bootc rollback` n'a toujours jamais été exercé**, alors que deux
+  déploiements coexistent sur cette machine.~~ **Exercé le 2026-08-25 à
+  19 h 49, et il fonctionne.** Voir la section de 19 h 55.
 - ~~`galerie/constellation` n'a toujours aucune capture.~~ **Elle en a une,
   prise le 2026-08-25 à 12 h 23 sur cette machine**, et c'est la première pièce
   de la Galerie rendue par une vraie carte graphique. Voir plus bas.
+
+---
+
+## 2026-08-25, 19 h 55 — le filet a servi, et il tient
+
+**`bootc rollback` a ete exerce pour la premiere fois du projet.** C'etait la
+derniere promesse de ce carnet sans une seule mesure derriere elle : elle y
+figurait depuis le 2026-08-19, repetee dans six sections, et elle disait
+elle-meme que son absence de preuve *« couterait aussi cher »* que celle de
+n'importe quelle autre. Elle a coute un redemarrage a froid.
+
+### La sequence, horodatee, lue dans le journal
+
+| Heure | Ce qui s'est passe |
+|---|---|
+| 19:31:34 | `sudo bootc upgrade` — `layers already present: 128; layers needed: 19 (2.8 GB)` |
+| 19:33:57 | deploiement cree en **28 s** — `checkout=11.2s composefs=13.8s etc=2.0s` |
+| 19:36:23 | demarrage sur la **nouvelle** image `621bf38a` |
+| 19:36:34 | `s-partage` a lie le dossier partage, **onze secondes** apres l'allumage |
+| 19:36:44 | `s-session.target` atteinte |
+| 19:49:39 | `sudo bootc rollback` — *« Rolling back to image: sha256:1c3b96d2… »* |
+| 19:49:47 | **manoeuvre terminee : huit secondes**, `Freed objects: 315.7 kB` |
+| 19:52:17 | demarrage sur l'**ancienne** image, celle de 16 h 46 |
+
+**Huit secondes, et zero octet de reseau.** Le journal de bootc le dit dans sa
+langue : `Transaction complete; bootconfig swap: no; deployment count change: 0`,
+avec un cycle de gel/degel du `boot` de dix-neuf millisecondes. Rien n'est
+retelecharge parce que rien n'a besoin de l'etre — **les deux arborescences sont
+deja sur le disque, en clair.** C'est ce qui fait du rollback un filet et non
+une reinstallation.
+
+Etat de la machine apres retour : **zero unite en echec**, systeme et session ;
+`s-session.target` et `graphical-session.target` actives, **sans une seule ligne
+« Stopped target »**.
+
+### Le prix, mesure fichier par fichier — pas deduit du numero de version
+
+Les deux images portent le meme tag, la meme version `44.20260824` et le meme
+noyau. Le numero ne dit rien. On lit donc l'arborescence d'en face :
+
+| | ancienne `1c3b96d2` (celle qui tourne) | nouvelle `621bf38a` (dans la case du retour) |
+|---|---|---|
+| `pyclip` | **absent** | `usr/lib/python3.14/site-packages/pyclip` |
+| `Constellation.qml:408` | `menuDemarrer.close()` — le bogue | `Session.bureau.relire()` |
+| `s-android` | 9 166 o | **20 876 o** — le mode fenetre unique |
+
+**Le rollback coute donc exactement les trois chantiers du soir** : le
+presse-papiers Linux↔Android, la video qui joue, et le menu Demarrer dont
+« Eteindre » ne faisait rien. Le journal de la coquille le confirme a l'ecran —
+le `ReferenceError: menuDemarrer is not defined` retombe a chaque ouverture.
+
+**Ce qu'il ne coute pas**, et il fallait le verifier plutot que le supposer : le
+clavier CSA (`localectl` rend `ca`/`multix`, `kxkbrc` est en place) et la cible
+de session. Les deux etaient deja dans l'image de 16 h 46.
+
+### LE FAUX TEMOIN, ET IL M'A PRESQUE EU
+
+Pour savoir quel deploiement avait demarre, le reflexe est de lire l'argument
+`ostree=` du noyau. **Il ne distingue pas les deploiements.** Sa forme est
+`ostree=/ostree/boot.<version>/<os>/<bootcsum>/<serial>`, et `bootcsum` est
+l'empreinte du **noyau**, partagee par tout deploiement qui embarque le meme.
+
+Releve : les deux demarrages de la soiree — l'un sur la nouvelle image, l'autre
+sur l'ancienne — portent le meme `ostree=` **au caractere pres**
+(`2c6eb4d8…`). Un temoin qui rend la meme valeur dans les deux cas et qu'on
+lirait comme une identite : exactement la forme de faux verdict que ce carnet
+collectionne depuis le 2026-08-20.
+
+Ce qui identifie vraiment le deploiement booté est l'etoile d'`ostree admin
+status`, ou le rond de `rpm-ostree status`. Rien d'autre.
+
+### Et la recette ecrite pour mesurer ca s'est trompee a son premier essai
+
+`grimoire/ostree-comparer-deploiements.sh` lisait le checksum par le **dernier
+champ** de chaque ligne d'`ostree admin status`. Sur la ligne du booté c'est le
+bon ; sur celle du rollback, le dernier champ est `(rollback)`. La fonction
+rendait donc un seul deploiement sur deux — et sa reponse aurait ete
+« un seul deploiement, aucun retour possible », ce qui est faux et rassurant
+dans le mauvais sens.
+
+**Trouve en l'executant, pas en la relisant**, et corrige en cherchant le motif
+d'un checksum plutot qu'une position. Eprouvee dans les deux sens : trois
+fichiers qui different rendent 1 et les nomment, deux gestes que la nouvelle
+image ne touche pas rendent 0.
+
+### Ce que cette passe ne prouve pas
+
+- **Le rollback n'a pas ete exerce sur une image cassee.** Il l'a ete sur une
+  image saine, par choix : la nouvelle a tourne treize minutes sans une unite en
+  echec, session ouverte et Android demarre. Ce qui est prouve, c'est que la
+  manoeuvre fonctionne et ce qu'elle coute — pas qu'elle sauve une machine qui
+  ne demarre plus.
+- **Le retour vers `621bf38a` n'a pas encore ete fait.** Tant qu'il ne l'est
+  pas, la machine tourne **sans** le presse-papiers Android, sans la video, et
+  avec « Eteindre » inerte dans le menu Demarrer.
+- **Le second sens du filet n'est pas mesure.** Le carnet ecrivait a 17 h qu'*« un
+  second rollback les rend »* ; c'est toujours une deduction.
 
 ---
 
@@ -585,11 +683,14 @@ dans les deux sens, pas en la relisant.*
   image **blanche** : ni Constellation ni la barre n'y sont — donc un second
   bureau virtuel donne aujourd'hui un ecran sans bureau et sans barre, ce qui est
   un defaut a part entiere, releve et non corrige.
-- **`bootc rollback` n'a toujours pas ete exerce.** Les deux deploiements sont
-  mesures : celui qui tourne (`1c3b96d2`, 16 h 46) porte le clavier CSA et la
-  cible corrigee ; la cible du rollback (`39f70f4f`, 15 h 44) porte ni l'un ni
-  l'autre — elle a encore `StopWhenUnneeded`. Revenir en arriere coute donc
-  exactement ces deux correctifs, et un second rollback les rend.
+- ~~**`bootc rollback` n'a toujours pas ete exerce.**~~ **Exerce le 2026-08-25
+  a 19 h 49.** Les deux deploiements etaient mesures ainsi a 17 h : celui qui
+  tournait (`1c3b96d2`, 16 h 46) portait le clavier CSA et la cible corrigee ;
+  la cible du rollback (`39f70f4f`, 15 h 44) ni l'un ni l'autre. **La cible a
+  change depuis** — le `bootc upgrade` de 19 h 31 l'a remplacee par
+  `621bf38a`. Le raisonnement, lui, s'est verifie mot pour mot : revenir en
+  arriere coute exactement les correctifs de l'image quittee, et un second
+  rollback les rend. Voir la section de 19 h 55.
 - **Rien de ces trois fichiers n'est dans l'image.** Le presse-papiers a tourne
   par injection `PYTHONPATH`, pas depuis `/usr`.
 
@@ -767,7 +868,8 @@ Releve du 2026-08-25 a 16 h, sur une machine redemarree a 15 h 50 :
   pose.
 - ~~**Le presse-papiers Linux↔Android n'existe toujours pas.**~~ **Corrige le
   2026-08-25 a 17 h** — il ne manquait qu'un paquet. Voir la section de 17 h.
-- **`bootc rollback` n'a toujours jamais ete exerce.**
+- ~~**`bootc rollback` n'a toujours jamais ete exerce.**~~ **Exerce le
+  2026-08-25 a 19 h 49 — voir la section de 19 h 55.**
 
 ---
 
@@ -1456,7 +1558,8 @@ disponible dès l'ouverture de session ; ça ne débloque pas cinq jours.
 
 - **`43-amorcage.sh` n'a jamais tourné.** Il régénère l'initramfs, seul
   changement du dépôt qui puisse empêcher la machine de démarrer. Il est branché
-  dans cette version. `bootc rollback` n'a toujours jamais été exercé.
+  dans cette version. ~~`bootc rollback` n'a toujours jamais été exercé.~~
+  *(Exercé le 2026-08-25 à 19 h 49 — voir la section de 19 h 55.)*
 - **La coquille native n'a jamais démarré une vraie session.** Elle a été rendue
   en image, hors écran, sur les deux pipelines — jamais ouverte par le greeter.
 - **Le presse-papiers commun n'existe pas.** Linux↔Windows fonctionne déjà, Wine
@@ -1550,7 +1653,7 @@ la syntaxe éprouvée**. Une seule variable à la fois.
 ### Deux dossiers neufs, et leurs règles d'entrée
 
 - **`grimoire/`** — les mécanismes qui ont fonctionné, extraits et réutilisables.
-  Règle : **rien n'entre sans une ligne `PREUVE:` datée**. Dix pièces.
+  Règle : **rien n'entre sans une ligne `PREUVE:` datée**. Quinze pièces.
   Son propre outil, lancé sur le dépôt, a trouvé sept scripts ayant perdu leur
   bit d'exécution dans git — dont quatre dans `build_files/`.
 - **`galerie/`** — l'identité visuelle, jalon 6. Règle : **rien n'entre sans une
@@ -1631,10 +1734,11 @@ langue français et un `argv.json` qui ouvre l'éditeur en français.
   matériel, **RetroArch fonctionne**, **Zoom s'ouvre**, **Antigravity est
   déclaré bon** — et **Vivaldi ne se lance pas du tout**, son binaire étant
   introuvable. Le reste n'a toujours ouvert aucune fenêtre.
-- **`bootc rollback` n'a jamais été exercé.** C'est pourtant le filet de sécurité
-  du projet, et il est exerçable dès aujourd'hui dans la machine virtuelle : deux
-  déploiements y coexistent. Cela coûte un redémarrage à froid, et changerait une
-  affirmation en mesure.
+- ~~**`bootc rollback` n'a jamais été exercé.**~~ **Exercé le 2026-08-25 à
+  19 h 49, sur la machine réelle et non dans le banc.** Ce paragraphe disait,
+  et c'était juste : *« cela coûte un redémarrage à froid, et changerait une
+  affirmation en mesure »*. Cela a coûté un redémarrage à froid, et c'est
+  devenu une mesure. Voir la section de 19 h 55.
 - **Aucune ISO installable n'a été produite.** La voie employée est
   `bootc install to-disk` depuis le registre.
 
@@ -3614,8 +3718,10 @@ même où l'utilisateur va vérifier le nom de son système.**
 
 **Ce qui reste à la base :** l'écran d'amorçage. `43-amorcage.sh` est écrit et
 **n'est pas branché** — il régénère l'initramfs, seul changement de ce dépôt qui
-puisse empêcher la machine de démarrer, et `bootc rollback` n'a toujours jamais
-été exercé. Son en-tête dit ce qu'il faut faire avant de le brancher.
+puisse empêcher la machine de démarrer, et ~~`bootc rollback` n'a toujours
+jamais été exercé~~ — **exercé depuis, le 2026-08-25 à 19 h 49, et il
+fonctionne : le filet existe pour de bon.** Son en-tête dit ce qu'il faut faire
+avant de le brancher.
 
 ### Les trois démons du démarrage — trois causes différentes
 
