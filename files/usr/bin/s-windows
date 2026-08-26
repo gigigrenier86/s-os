@@ -190,14 +190,29 @@ fi
 # ecrit dans le registre pendant qu'un autre wineserver le lit produit un
 # prefixe a moitie ecrit — et « a moitie » est le mot que l'utilisateur a
 # employe pour decrire ce qui ne marchait pas.
-FONDATIONS="vcrun2022 dotnetdesktop8 webview2"
+# QUATRE, ET IL EN FAUT QUATRE. Les deux « .NET » de cette liste sont deux
+# moteurs SANS RAPPORT l'un avec l'autre, et poser l'un ne sert a rien a l'autre :
+#
+#   dotnetdesktop8  .NET 8 — les logiciels ecrits depuis 2020 environ
+#   dotnet48        .NET Framework 4.8 — tout ce qui a ete ecrit avant, et
+#                   beaucoup de ce qui s'ecrit encore. PURPLE l'exige.
+#
+# Wine remplace le second par « wine-mono », qui ne suffit pas a tout : mesure
+# du 2026-08-26, PURPLE se fermait sans une fenetre sur une
+# TypeInitializationException levee par wine-mono.
+#
+# dotnet48 est le plus long des quatre — plusieurs minutes. Il est garde dans la
+# liste malgre ca : le poser une fois vaut mieux que le decouvrir manquant a
+# chaque logiciel qui l'exige. L'ordre compte, il passe en dernier pour que les
+# trois autres soient acquis meme s'il echoue.
+FONDATIONS="vcrun2022 dotnetdesktop8 webview2 dotnet48"
 
 if [ "${1:-}" = "--fondations" ]; then
     s_windows_pret || s_echec "Le Windows de S n'existe pas encore" \
         "Lance d'abord : s-windows --tout"
     command -v winetricks >/dev/null 2>&1 || s_echec "winetricks est absent" \
         "Il fournit les runtimes que les logiciels Windows exigent."
-    s_verrou windows
+    s_windows_verrou
 
     REPRISE="$(s_windows_pause)"
     s_windows_charger
@@ -262,11 +277,11 @@ preparer() {
 }
 
 if [ "${1:-}" = "--preparer" ] || [ "${1:-}" = "--tout" ]; then
-    s_verrou windows
+    s_windows_verrou
     preparer
     if [ "${1:-}" = "--tout" ]; then
         emprunter_polices >/dev/null || true
-        s_dire "Windows de S" "Pose des fondations — quelques minutes."
+        s_dire "Windows de S" "Pose des fondations — compter dix minutes, une seule fois."
         exec "$S_GESTES/s-windows" --fondations
     fi
     s_dire "Windows de S" "Pret."

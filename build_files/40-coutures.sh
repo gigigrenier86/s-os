@@ -138,4 +138,88 @@ grep -q 's-lien-windows --recenser' /usr/bin/s-ouvrir-exe \
     || { echo "ECHEC : s-ouvrir-exe ne recense pas les protocoles." >&2; exit 1; }
 echo "  s-ouvrir-exe    : recense les protocoles apres chaque execution"
 
+# ---------------------------------------------------------------------------
+# LE WINDOWS DE S EST UNE SESSION, PAS UN LANCEUR — 2026-08-26
+# ---------------------------------------------------------------------------
+# Mesure sur la machine de l'utilisateur, avec preuve d'ecriture a chaque coup :
+#
+#   « cmd /c exit » par umu-run            4,53 a 5,12 s, A CHAQUE FOIS
+#   wine direct, 1er de la session         1,37 s
+#   wine direct, lancements suivants       0,109 s  (huit mesures, ecart 0,004)
+#
+# CES CONTROLES SONT ICI ET NON DANS 41-windows.sh, ET C'EST UN CORRECTIF.
+# Ils y etaient, et la construction du 2026-08-26 a 03 h 37 a echoue pour ca :
+# 41-windows.sh tourne a la ligne 63 du Containerfile, « COPY files/ / » a la
+# ligne 84. Aucun geste de S n'existe encore a cette etape — le chmod echouait
+# sur un fichier absent. Une verification doit s'executer APRES ce qu'elle
+# verifie, et c'est exactement ce que dit le commentaire de 36-constellation.
+chmod 0755 /usr/bin/s-windows /usr/bin/s-ouvrir-exe /usr/bin/s-menu-windows
+bash -n /usr/bin/s-windows
+bash -n /usr/bin/s-ouvrir-exe
+bash -n /usr/bin/s-menu-windows
+bash -n /usr/lib/s/windows.sh
+bash -n /usr/lib/s/icone-exe.sh
+python3 -m py_compile /usr/lib/s/polices.py
+rm -rf /usr/lib/s/__pycache__ 2>/dev/null || true
+echo "  s-windows      : syntaxe analysee"
+
+# --- LE SERVEUR RESIDENT ----------------------------------------------------
+test -s /usr/lib/systemd/user/s-windows.service \
+    || { echo "ECHEC : s-windows.service absent — le Windows de S renaitrait a chaque .exe." >&2; exit 1; }
+systemctl --global enable s-windows.service
+test -L /etc/systemd/user/s-session.target.wants/s-windows.service \
+    || { echo "ECHEC : s-windows.service n'est pas tire par s-session.target." >&2; exit 1; }
+echo "  s-windows.service : resident, tire par s-session.target"
+
+# --- LA LETTRE P: A DEMENAGE AVEC LA CREATION DU PREFIXE ---------------------
+# On ancre sur l'APPEL et non sur le mot : la version precedente cherchait
+# « s-partage » dans s-ouvrir-exe et aurait continue de passer sur une simple
+# phrase de commentaire. Meme piege que le garde-fou de plasma_waitforname.
+grep -qE '^\s*"\$S_GESTES/s-partage"' /usr/bin/s-windows \
+    || { echo "ECHEC : s-windows ne rappelle pas s-partage — la lettre P: ne serait jamais posee." >&2; exit 1; }
+echo "  s-windows      : pose la lettre P: apres creation du prefixe"
+
+# --- LE FILET DOIT DESCENDRE LE SERVEUR -------------------------------------
+# Mesure du 2026-08-26 : umu-run pendant qu'un wineserver tient le prefixe rend
+# AUCUNE FENETRE apres soixante secondes, sans un mot. Un filet qui ne rattrape
+# rien tout en ayant l'air de le faire est pire qu'aucun filet.
+grep -q 's_windows_pause' /usr/bin/s-ouvrir-exe \
+    || { echo "ECHEC : le repli sur umu-run n'arrete pas le serveur resident — il echouerait en silence." >&2; exit 1; }
+echo "  s-ouvrir-exe   : le repli arrete le serveur avant de rejouer"
+
+# --- LE VERROU DOIT SUPPORTER D'ETRE REPRIS PAR UN ENFANT --------------------
+# s-ouvrir-exe prend le verrou puis appelle « s-windows --preparer », qui prend
+# le meme. Sans le garde d'environnement, le tout premier double-clic d'une
+# machine neuve attendait dix minutes. Eprouve le 2026-08-26 : l'ancienne forme
+# bloque, la nouvelle passe.
+grep -q 's_windows_verrou' /usr/bin/s-ouvrir-exe \
+    || { echo "ECHEC : s-ouvrir-exe emploie un verrou non reentrant — blocage au premier lancement." >&2; exit 1; }
+grep -q 'S_VERROU_WINDOWS' /usr/lib/s/windows.sh \
+    || { echo "ECHEC : le verrou de windows.sh n'est pas reentrant." >&2; exit 1; }
+echo "  verrou         : reentrant entre s-ouvrir-exe et s-windows"
+
+# --- L'EXTRACTEUR D'ICONES --------------------------------------------------
+command -v wrestool >/dev/null || { echo "ECHEC : wrestool absent." >&2; exit 1; }
+command -v icotool  >/dev/null || { echo "ECHEC : icotool absent." >&2; exit 1; }
+grep -q 's_icone_exe' /usr/bin/s-menu-windows \
+    || { echo "ECHEC : s-menu-windows ne sort pas l'icone des programmes." >&2; exit 1; }
+echo "  icones         : wrestool + icotool, branches dans s-menu-windows"
+
+# --- LE LECTEUR DE NOM DE POLICE --------------------------------------------
+# Il decide sous quel nom une police est declaree au registre, et ce nom ne se
+# deduit PAS du fichier : SegoeIcons.ttf se declare « Segoe Fluent Icons ». On
+# l'eprouve sur une police reelle de l'image plutot que d'esperer.
+python3 - <<'ESSAI_POLICES'
+import glob
+import sys
+sys.path.insert(0, "/usr/lib/s")
+import polices
+
+candidats = sorted(glob.glob("/usr/share/fonts/**/*.ttf", recursive=True))
+assert candidats, "aucune police dans l'image pour eprouver le lecteur"
+noms = polices.nom_windows(candidats[0])
+assert noms and noms[0].strip(), "le lecteur n'a rendu aucun nom pour %s" % candidats[0]
+print("  polices.py     : %s -> %r" % (candidats[0].rsplit("/", 1)[-1], noms[0]))
+ESSAI_POLICES
+
 echo "=== 40-coutures : fait ==="

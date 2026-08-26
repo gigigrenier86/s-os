@@ -43,7 +43,19 @@ CIBLE="$(readlink -f "$CIBLE")"
 NOM="$(basename "$CIBLE")"
 DOSSIER="$(dirname "$CIBLE")"
 
-s_verrou windows
+# LE VERROU NE PROTEGE QUE LA PROVISION, ET C'EST UN CHANGEMENT DE 2026-08-26.
+#
+# « s_verrou » garde le fichier ouvert jusqu'a la fin du script. Tant qu'un
+# programme Windows tournait, aucun autre ne pouvait demarrer — il attendait le
+# verrou, jusqu'a dix minutes.
+#
+# Ca ne se voyait pas tant que chaque lancement coutait cinq secondes et qu'on
+# n'en ouvrait qu'un. Avec une session residente et des lancements a un dixieme
+# de seconde, l'utilisateur EN OUVRIRA plusieurs — c'est meme tout l'objet du
+# chantier. Le verrou est donc relache des que la preparation est finie : deux
+# double-clics rapides ne doivent pas provisionner deux fois, mais deux
+# programmes Windows doivent pouvoir vivre ensemble.
+s_windows_verrou
 
 # ---------------------------------------------------------------------------
 # Le Windows de S existe-t-il, et est-il a jour ?
@@ -69,15 +81,58 @@ s_windows_charger || s_echec "Le Windows de S est incomplet" \
 # « <programme>.runtimeconfig.json » aupres de tout binaire qui a besoin d'un
 # runtime installe. Sa presence, plus l'absence de dotnet dans le prefixe,
 # suffit a nommer le manque avant meme de lancer quoi que ce soit.
+# --- Famille 1 : .NET moderne (Core, 5, 6, 8...) -----------------------------
+# Le SDK depose « <programme>.runtimeconfig.json » aupres de tout binaire qui a
+# besoin d'un runtime installe. Une publication autonome n'en a pas.
+# ET IL FAUT DISTINGUER DEUX CHOSES QUI SE RESSEMBLENT, sinon on bloque un
+# programme qui marche. Une publication AUTONOME porte elle aussi un
+# runtimeconfig.json — mais elle y ecrit « includedFrameworks » (le moteur est
+# dans le dossier) la ou une publication dependante ecrit « frameworks » (le
+# moteur doit etre installe). Verifie sur les deux variantes du meme projet le
+# 2026-08-26 : la variante win-x64 tournait deja avant que .NET soit pose.
 RUNTIMECONFIG="${CIBLE%.*}.runtimeconfig.json"
-if [ -f "$RUNTIMECONFIG" ] && [ ! -d "$S_WIN_PFX/drive_c/Program Files/dotnet" ]; then
+if [ -f "$RUNTIMECONFIG" ] && grep -q '"frameworks"' "$RUNTIMECONFIG" \
+   && [ ! -d "$S_WIN_PFX/drive_c/Program Files/dotnet" ]; then
     VERSION_NET="$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[0-9]+' "$RUNTIMECONFIG" \
                    | grep -oE '[0-9]+$' | head -1)"
-    s_dire "$NOM a besoin de .NET ${VERSION_NET:-8}" \
-"Ce programme n'embarque pas son moteur : il faut le poser une fois dans le \
-Windows de S. Lance : s-windows --fondations" dialog-warning
-    s_echec "Il manque .NET ${VERSION_NET:-8}" \
-            "s-windows --fondations le pose, puis ce programme s'ouvrira."
+    s_echec "$NOM a besoin de .NET ${VERSION_NET:-8}" \
+"Ce programme n'embarque pas son moteur. Lance : s-windows --fondations"
+fi
+
+# --- Famille 2 : .NET Framework 4.x, et ce n'est PAS la meme chose -----------
+# MESURE DU 2026-08-26 SUR PURPLE, le lanceur de NCSoft. Il ne s'ouvrait pas, et
+# le journal de Wine disait exactement pourquoi :
+#
+#   parse_supported_runtime sku=".NETFramework,Version=v4.7.1" not implemented
+#   Failed to run module constructor ... wine-mono-10.4.1 ... TypeInitializationException
+#
+# .NET Framework 4.x et .NET 8 sont deux moteurs SANS RAPPORT. Poser le second
+# ne sert a rien au premier. Wine fournit « wine-mono » en remplacement, et
+# wine-mono ne suffit pas a tout — ici il leve une exception a l'initialisation
+# et le programme disparait sans une fenetre.
+#
+# LA DEMANDE EST DANS LE BINAIRE, pas dans un fichier a cote : PURPLE n'a aucun
+# « .exe.config ». Le compilateur inscrit l'attribut de cible dans les
+# metadonnees de l'assembly, ou il se lit en clair. Un motif suffit a nommer le
+# moteur exige AVANT de lancer quoi que ce soit.
+if [ ! -d "$S_WIN_PFX/drive_c/windows/Microsoft.NET/Framework/v4.0.30319/WPF" ] \
+   && strings -a "$CIBLE" 2>/dev/null | grep -qE '\.NETFramework,Version=v4'; then
+    CADRE="$(strings -a "$CIBLE" 2>/dev/null \
+             | grep -oE '\.NETFramework,Version=v[0-9.]+' | head -1 | sed 's/.*=v//')"
+    # ON PREVIENT, ON NE REFUSE PAS — et la nuance est importante.
+    #
+    # Wine remplace .NET Framework par « wine-mono », qui suffit a BEAUCOUP de
+    # programmes. Refuser de lancer tant que dotnet48 n'est pas pose casserait
+    # des logiciels qui fonctionnaient tres bien. On nomme donc le risque et on
+    # laisse sa chance au programme : si wine-mono suffit, il s'ouvre ; sinon,
+    # l'utilisateur a deja sous les yeux la ligne exacte a taper.
+    #
+    # C'est l'inverse pour .NET 8 plus haut, et pour une raison technique, pas
+    # par gout : wine-mono n'implemente PAS .NET Core. Un programme .NET 8 sans
+    # son moteur ne peut pas demarrer, quoi qu'on fasse.
+    s_dire "$NOM demande .NET Framework ${CADRE:-4.x}" \
+"Wine va essayer avec son propre moteur. Si le programme se ferme sans rien \
+dire, pose le vrai : s-windows --fondations dotnet48" dialog-warning
 fi
 
 # ---------------------------------------------------------------------------
@@ -89,6 +144,10 @@ fi
 s_windows_serveur || s_dire "Windows de S" \
     "La session Windows n'a pas pu rester ouverte — ce lancement sera plus lent." \
     dialog-warning
+
+# La preparation est finie : on rend le verrou. Fermer le descripteur 9 relache
+# le flock — c'est la seule facon, « flock -u » demanderait le meme descripteur.
+s_windows_deverrouiller
 
 # ---------------------------------------------------------------------------
 # Lancer

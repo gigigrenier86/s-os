@@ -75,6 +75,33 @@ S_WIN_CACHE="$S_DATA/windows-cache"       # caches de shaders, hors du prefixe
 S_WIN_SERVICES="services.exe explorer.exe rpcss.exe winedevice.exe plugplay.exe svchost.exe wineserver tabtip.exe conhost.exe start.exe winemenubuilder.exe"
 
 # ---------------------------------------------------------------------------
+# UN VERROU QUI SUPPORTE D'ETRE REPRIS PAR UN ENFANT
+# ---------------------------------------------------------------------------
+# LE BLOCAGE QUE CECI EVITE, ET IL AURAIT FRAPPE LA MACHINE NEUVE EN PREMIER.
+#
+# s-ouvrir-exe prend le verrou, constate que le Windows de S n'existe pas
+# encore, et appelle « s-windows --preparer » — qui prend LE MEME verrou. Le
+# parent le tient, l'enfant l'attend : « flock -w 600 » et dix minutes de
+# silence sur le tout premier double-clic d'une machine fraiche.
+#
+# flock ne compte pas les prises par processus : deux ouvertures du meme
+# fichier sont deux verrous concurrents, meme entre parent et enfant. On porte
+# donc l'information dans l'environnement, que l'enfant herite.
+s_windows_verrou() {
+    [ -n "${S_VERROU_WINDOWS:-}" ] && return 0
+    s_verrou windows
+    export S_VERROU_WINDOWS=1
+}
+
+# Rendre le verrou : fermer le descripteur relache le flock — « flock -u »
+# exigerait le meme descripteur, et on ne l'a plus sous la main ici.
+s_windows_deverrouiller() {
+    [ -n "${S_VERROU_WINDOWS:-}" ] || return 0
+    exec 9>&- 2>/dev/null || true
+    unset S_VERROU_WINDOWS
+}
+
+# ---------------------------------------------------------------------------
 # Quelle version de Proton, et ou est-elle depliee
 # ---------------------------------------------------------------------------
 s_windows_version() {
