@@ -38,10 +38,23 @@ import sys
 # pour mot au « title: » de Bulle.qml et de Barre.qml.
 TITRE_BULLE = "S - notification"
 TITRE_BARRE = "S - barre"
+TITRE_LATERALE = "S - barre laterale"
 
 LARGEUR_BULLE = 380
 MARGE_BULLE = 24
 HAUTEUR_BARRE = 52
+# LA LARGEUR EST CELLE DU PANNEAU DEPLOYE, ET LA FENETRE LA GARDE TOUJOURS.
+# Elle ne bouge donc jamais : c'est sa zone SENSIBLE qui retrecit quand elle est
+# repliee, pas sa geometrie. Un client Wayland ne se positionne pas lui-meme
+# (mesure du 2026-08-25, une fenetre demandant x=1516 s'est affichee au centre) ;
+# une languette qui grandirait devrait etre replacee a chaque ouverture, et on
+# la verrait sauter.
+# ELLE DOIT VALOIR « largeur » DE BarreLaterale.qml, PAS « largeurBarre ». La
+# fenetre est plus large que la colonne visible : le nom d'un reglage s'ecrit a
+# gauche de celle-ci, dans le reste de la fenetre. Deux fichiers qui doivent
+# rester d'accord finissent par diverger — ce depot le repete depuis
+# « s-partage » — d'ou ce rappel plutot qu'un simple nombre.
+LARGEUR_LATERALE = 300
 
 # LE RAPPORT QUI DECIDE DE LA MISE EN PAGE D'ANDROID, ET IL N'EST PAS COSMETIQUE.
 #
@@ -113,6 +126,20 @@ def regles(largeur, hauteur):
         "size": "%d,%d" % (largeur, HAUTEUR_BARRE),
         "sizerule": "2",
     })
+    laterale = dict(COMMUN)
+    laterale.update({
+        "Description": "S - la barre laterale, au bord droit",
+        "title": TITRE_LATERALE,
+        "position": "%d,0" % max(0, largeur - LARGEUR_LATERALE),
+        # LA TAILLE EST FORCEE POUR LA MEME RAISON QUE CELLE DE LA BARRE : la
+        # fenetre demande toute la hauteur de l'ecran, et un souvenir de
+        # geometrie suffirait a la rendre plus courte — une ligne qui s'arrete
+        # au milieu du bord droit n'a plus l'air d'une poignee, mais d'un
+        # defaut d'affichage.
+        "size": "%d,%d" % (LARGEUR_LATERALE, hauteur),
+        "sizerule": "2",
+    })
+
     # LES FENETRES ANDROID, COLLEES EN HAUT.
     #
     # MESURE DU 2026-08-26 : kwin posait la fenetre de YouTube en 110,26 —
@@ -147,7 +174,8 @@ def regles(largeur, hauteur):
         "types": "1",
     }
 
-    return {"s-bulle": bulle, "s-barre": barre, "s-android": android}
+    return {"s-bulle": bulle, "s-barre": barre, "s-laterale": laterale,
+            "s-android": android}
 
 
 def poser(largeur, hauteur):

@@ -186,6 +186,273 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-26, soir — le ciel porte des fichiers, le clic droit existe, et une barre s'ouvre au bord droit
+
+Trois chantiers menés avec l'utilisateur devant l'écran, dans l'ordre qu'il a
+fixé : les étoiles jaunes, le clic droit, la barre latérale. **Il a trouvé
+quatre défauts que mes bancs n'ont pas vus, et il en a tué un que je croyais
+avoir trouvé.**
+
+### 1. Le ciel porte des fichiers, et c'est la règle inverse des applications
+
+Une **application** ne monte au ciel que si on l'y pose — sinon un bureau de
+cinquante-deux icônes n'est plus un bureau, c'est une liste. Un **fichier** y
+est parce qu'il est dans le dossier. C'est la règle de tous les bureaux depuis
+trente ans, et s'en écarter voudrait dire qu'un fichier déposé sur le bureau ne
+s'y verrait pas.
+
+Les deux cohabitent donc dans le même `Repeater`, et il a fallu une garde
+explicite pour qu'un fichier **placé à la main** ne soit pas dessiné deux fois —
+une fois par la boucle des positions, une fois par celle des fichiers.
+
+**Un `.desktop` posé sur le bureau garde son monde et sa vraie icône.** Le
+peindre en jaune avec une icône de document dirait le contraire de ce qu'il
+est ; le carnet reproche déjà au menu d'avoir dit « le genre et jamais lequel ».
+
+Le dossier se **demande** (`XDG_DESKTOP_DIR`), il ne se devine pas : `~/Bureau`
+n'est vrai que parce que cette machine est en français.
+
+### 2. LE DÉFAUT TROUVÉ EN CHEMIN VALAIT PLUS QUE LE CHANTIER
+
+`chemin_icone()` ne cherchait que dans les sous-dossiers **`apps`**. Les icônes
+d'un fichier vivent ailleurs — `mimetypes`, `places` — donc aucun fichier n'en
+recevait. En corrigeant, une seconde disposition est apparue, **mesurée sur
+cette machine** :
+
+```
+Adwaita, hicolor :  <theme>/<taille>/<categorie>/    16x16/mimetypes/…
+breeze           :  <theme>/<categorie>/<taille>/    mimetypes/16/…
+```
+
+Le code ne connaissait que la première. **breeze est le thème de KDE**, donc
+tout ce qu'il fournit était invisible. Mesuré avant/après sur les 76
+applications du ciel :
+
+| | icônes réelles |
+|---|---|
+| avant | 59 sur 76 — **77 %** |
+| après | 68 sur 76 — **89 %** |
+
+**Konsole, le Play Store, la Surveillance du système, le Centre d'aide et cinq
+autres n'ont jamais eu leur icône dans Constellation.** Personne ne l'avait vu
+parce qu'un glyphe générique fait illusion. Ce défaut n'a rien à voir avec les
+fichiers ; il est sorti en travaillant à côté.
+
+### 3. Le clic droit : on n'écrit aucun geste de fichier
+
+KDE fait tout cela depuis vingt ans, et `kioclient` l'expose en ligne de
+commande. Ce qui est écrit ici n'est que la couture.
+
+| Geste | Qui travaille |
+|---|---|
+| Ouvrir | `kioclient exec` — il résout le type, l'application par défaut, les `.desktop` |
+| **Propriétés** | **`kioclient openProperties`** — la vraie boîte de Dolphin |
+| Mettre à la corbeille | `kioclient move … trash:/`, **jamais `rm`** |
+| Compresser | `ark --add --changetofirstpath` |
+| Terminal ici | `konsole --workdir` |
+| Renommer, Créer | **écrits ici** — il n'existe pas de `kioclient rename` |
+
+**La corbeille échoue sur `/tmp`**, et la branche d'échec l'a dit elle-même :
+*« Impossible de trouver ou de créer un dossier de corbeille à cet
+emplacement »*. Ce n'est pas un défaut — la spec freedesktop veut une corbeille
+par volume, et un tmpfs n'en a pas. Sur `~`, éprouvé : le fichier part et se
+retrouve dans `~/.local/share/Trash/files`.
+
+Et le menu proposait **« Retirer du bureau » à un fichier**, ce qui ne veut rien
+dire : pour lui, `placees` ne porte que sa POSITION, jamais sa présence. Le
+geste l'aurait remis en grille en prétendant l'enlever.
+
+### 4. La barre latérale : une seule fenêtre, et un masque
+
+Demande de l'utilisateur, mot pour mot : *« une fine ligne qui fait toute la
+hauteur de l'écran du côté droit, apparaissant (quand nous ne sommes pas en
+train de jouer à un jeu par exemple) au contact de la souris avec le rebord »*.
+
+**La fenêtre fait toujours 300 pixels de large et ne bouge jamais.** Un client
+Wayland ne se positionne pas lui-même — mesure du 2026-08-25, une fenêtre
+demandant `x=1516` s'est affichée au centre — donc une languette qui grandirait
+devrait être replacée par kwin à chaque ouverture, et on la verrait sauter.
+
+**Ce qui change, c'est sa zone SENSIBLE.** Mesuré sur le protocole,
+`WAYLAND_DEBUG` à l'appui, dans les deux sens :
+
+```
+replié   ->  wl_region.add(295, 0, 5, 1080)      5 px recoivent la souris
+deploye  ->  wl_region.add(0, 0, 300, 1080)      toute la fenetre
+```
+
+Sans ce masque, 300 pixels du bord droit avaleraient tous les clics — la colonne
+où vivent les ascenseurs de toutes les fenêtres.
+
+**La colonne visible ne fait que 76 px**, mais la fenêtre reste large : le nom
+d'un réglage ne tient pas dans 76 px, il s'écrit donc **à gauche**. Une infobulle
+Qt se poserait PAR-DESSUS la colonne qu'elle nomme — exactement le défaut
+corrigé sur la barre des tâches le 2026-08-25.
+
+**Neuf réglages, tous mesurés, aucun deviné :**
+
+| Réglage | Outil | Relevé |
+|---|---|---|
+| Volume | `wpctl` | 100 %, non muet |
+| **Luminosité** | **`ddcutil setvcp 10`** | 60/100, lisible sans root, **483 ms** |
+| Contraste | `ddcutil setvcp 12` | 70/100 |
+| Wi-Fi | `nmcli radio wifi` | activé |
+| Tailnet | `tailscale status --json` | `Running`, 100.103.169.98 |
+| Énergie | **`tuned-adm`** | `balanced-bazzite` |
+| Android | `waydroid status` | `RUNNING` |
+| Capturer, Verrouiller | `spectacle`, le geste de session | — |
+
+**`powerprofilesctl` n'est PAS sur cette machine** — le chercher aurait donné un
+réglage absent alors que la machine sait parfaitement changer de profil.
+Bazzite emploie `tuned`.
+
+Et **la luminosité par DDC/CI est la trouvaille** : un mini-PC de bureau n'a
+aucun `backlight` dans `/sys`, donc `brightnessctl` n'y trouverait rien. C'est
+le bus I2C du câble vidéo qui parle à l'écran, et le LG ULTRAGEAR répond.
+
+**Les quatre couleurs de S sont tirées au sort à chaque ouverture.** Un réglage
+n'appartient à aucun monde — c'est justement pourquoi sa couleur peut changer
+sans mentir. Mesuré : 4 couleurs distinctes, **0 répétition voisine sur 3600
+tirages**. Et l'anneau sert de jauge : le même cercle qui dit « posé et jamais
+exercé » au ciel dit ici « soixante pour cent ».
+
+### 5. LE MASQUE NE SE POSAIT JAMAIS, ET L'ERREUR ÉTAIT AVALÉE
+
+L'utilisateur : *« le menu disparaît aussitôt que je tente de choisir »*.
+
+La première version retrouvait la fenêtre une fois par `findChild` et gardait la
+référence dans une fermeture. Sonde à l'appui :
+
+```
+RuntimeError: libshiboken: Internal C++ object
+              (PySide6.QtGui.QWindow) already deleted.
+```
+
+**PySide6 se croit propriétaire d'un objet rendu par `findChild` et libère son
+enveloppe dès le premier retour à la boucle.** Le masque n'était donc jamais
+reposé : la barre restait sensible sur cinq pixels même déployée, la souris
+n'entrait pas dans le panneau, son survol n'était jamais reçu — et le minuteur
+de fermeture allait au bout.
+
+**Et mon `except AttributeError: pass` avalait l'erreur en silence**, ce qui a
+coûté la moitié du diagnostic. QML passe désormais la fenêtre en argument à
+chaque appel : rien n'est gardé, rien ne peut être libéré sous nos pieds.
+
+### 6. CE QUE L'UTILISATEUR A TROUVÉ, ET QUE MES BANCS N'ONT PAS VU
+
+Quatre défauts en une soirée, tous à l'écran, aucun par relecture.
+
+- **« Les étoiles restaient sous la barre, même épinglées. »** Un `DragHandler`
+  écrit directement dans `x`/`y`, et une écriture **détruit la liaison** qu'elle
+  remplace. Invisible tant qu'on mémorisait la position — le modèle rendait le
+  même pixel. Le jour où un glissement ne mémorise rien (l'épinglage), l'étoile
+  reste où la souris l'a lâchée.
+- **« Plus du tout déplaçables. »** MA RÉGRESSION, introduite une heure plus tôt
+  en corrigeant la précédente : je reposais la liaison **aussi** dans la branche
+  qui enregistre, où `modelData` porte encore l'ANCIENNE position — l'étoile
+  sautait en arrière à chaque lâcher.
+- **« Beaucoup trop large. »** 320 px de panneau ; ramené à 76.
+- **« Je vois presque plus rien. »** Luminosité **0** et contraste **0**, relevés
+  par `ddcutil`. La molette réglait à l'aveugle : la valeur ne se relit qu'après
+  près d'une seconde d'I2C, donc l'anneau montrait l'ancienne pendant qu'il
+  tournait. **Le geste se rendait lui-même irréversible** — à zéro, la barre qui
+  permettrait de remonter est invisible comme le reste. Plancher à 10 %, jauge
+  qui répond tout de suite, et une glissière au clic avec un différé de 180 ms.
+
+### 7. UNE HYPOTHÈSE QUE J'AVAIS ET QU'IL A TUÉE
+
+J'avais relevé six positions dans `placees.json` qu'aucun geste n'expliquait, et
+j'en avais conclu à un « glissement fantôme » émis à l'apparition de chaque
+étoile. J'avais écrit le correctif ET un commentaire affirmant la mesure.
+
+**« C'est moi qui ai glissé les étoiles. »**
+
+Le correctif est parti, `Astre.qml` est redevenu identique à `HEAD`. *Un
+commentaire qui affirme une mesure jamais faite est pire que pas de commentaire
+du tout* — et sans sa phrase, il entrait dans le dépôt.
+
+### 8. Deux contrôles neufs, qui attrapent ce qui n'échoue qu'au clic
+
+- **Le contrôle de construction compte les étoiles.** « Aucun avertissement »
+  n'est pas « quelque chose s'est dessiné » : la scène chargeait sans une
+  plainte quand le pont ne rendait aucun fichier. Il compte désormais, et le
+  leurre porte les trois cas — un dossier, un fichier, un fichier déjà placé
+  (qui vérifie l'absence de doublon), plus un fichier épinglé depuis ailleurs
+  qui ne doit PAS monter au ciel.
+- **La concordance des slots.** Un slot présent au pont mais absent du leurre ne
+  fait rien échouer : la scène charge, le menu s'ouvre, tout paraît sain — et
+  l'appel meurt AU CLIC, chez l'utilisateur. **Sept gestes de fichiers étaient
+  dans ce cas.** Éprouvé dans les deux sens : slot retiré → code 1 en le
+  nommant, slot présent → code 0.
+
+### 9. LE BLUETOOTH N'EXISTE PAS SOUS LINUX, ET CE N'EST PAS LINUX
+
+L'utilisateur : *« sur Windows j'ai Bluetooth, mais il tend à être là, des fois
+non »*. Relevé sur les **huit démarrages enregistrés** depuis le 25 août :
+
+```
+usb 1-14: device descriptor read/64, error -71     (x4)
+usb 1-14: device not accepting address 9, error -71
+usb usb1-port14: unable to enumerate USB device
+```
+
+La carte est une **Intel Wireless 8265/8275**, un combo Wi-Fi + Bluetooth dont
+le Wi-Fi marche parfaitement en PCIe et dont **le Bluetooth passe par l'USB**.
+`error -71` est `EPROTO` — une erreur de couche physique. Sur une carte M.2
+combo, le Bluetooth emprunte les broches USB du connecteur : **contact
+intermittent, carte mal serrée**. Ça colle avec « des fois oui, des fois non ».
+
+**Ce qui n'est PAS prouvé :** que le port 14 *soit* le Bluetooth. C'est
+l'hypothèse la plus probable — une M720q n'a pas quatorze ports externes — mais
+rien ne l'établit. **La mesure qui trancherait est physique :** rouvrir la
+machine, resserrer la carte M.2, et regarder si `lsusb` montre un `8087:`.
+
+En attendant, **l'étoile Bluetooth ne se dessine pas du tout**. `_bluetooth()`
+rend `None` — pas `False` — et la différence est tout le reste : « False »
+voudrait dire « éteint, tu peux l'allumer » et poserait une étoile qui ne fait
+rien. Le jour où la carte est resserrée, elle apparaît seule.
+
+### 10. Mes propres fautes, écrites parce qu'elles reviennent
+
+- **`kill` sur un motif a fauché mon shell TROIS FOIS** dans la soirée : ma
+  ligne de commande contient le motif que je cherche. Le carnet le documente
+  **cinq fois depuis le 20 août** et interdit `pgrep -f` pour ça. Forme employée
+  ensuite : `awk` excluant `$$` et son parent.
+- **Le contrôle de construction vise `/usr/share` par défaut**, ce qui est juste
+  PENDANT la construction — `COPY files/ /` a déjà eu lieu — et faux à la main :
+  il rend alors un verdict sur l'IMAGE et non sur le dépôt qu'on vient de
+  modifier. Une heure perdue à comparer deux scènes différentes en les croyant
+  identiques. Il annonce désormais le chemin qu'il vérifie.
+- **Trois `s.replace()` sans `assert`**, dont aucun n'a matché : les sondes
+  n'ont jamais été écrites et le banc a rendu un verdict sur du code non
+  instrumenté.
+- **Mon isolation de banc coupait aussi ce qui devait sortir.** Un faux
+  `XDG_CONFIG_HOME` a envoyé la règle kwin dans un `kwinrulesrc` que kwin ne lit
+  pas — le panneau s'affichait au centre de l'écran, et j'ai d'abord accusé le
+  code. Et un `kioclient exec` lancé depuis ce banc a ouvert un VRAI Kate dans
+  la session, qui a fini par déposer un fichier d'essai dans le vrai `~/Bureau`.
+  *Un banc qui lance de vrais programmes n'est pas un banc isolé.*
+
+### Ce que cette passe ne prouve pas
+
+- **RIEN N'EST DANS L'IMAGE.** Tout a tourné depuis le dépôt, par `S_QML` et
+  `S_NOYAU`, dans une seconde Constellation lancée à côté de la vraie. Il faut
+  une construction et un `bootc upgrade`.
+- **L'effacement pendant un jeu n'a jamais été exercé.** Le rapporteur de kwin
+  envoie désormais `plein`, et la barre s'y abonne ; aucune fenêtre en plein
+  écran n'a été ouverte pour le vérifier.
+- **Le survol réel du bord n'a été mesuré qu'en forçant la propriété depuis
+  Python.** Les captures montrent le résultat ; le geste, c'est l'utilisateur
+  qui l'exerce.
+- **La glissière au clic vient d'être écrite et n'a pas été essayée.**
+- **`s-android` n'est pas appelé par la bascule Android** quand elle éteint :
+  seul le démarrage passe par le geste de S, l'arrêt appelle `waydroid session
+  stop` directement.
+- **Aucun réglage n'a été exercé à distance**, alors que c'est désormais le
+  mode de travail annoncé.
+
+---
+
 ## 2026-08-26, 16 h 46 — la machine exige la signature de S, et le mot est enfin dans `rpm-ostree`
 
 Le carnet se terminait, deux sections plus bas, sur une phrase précise :

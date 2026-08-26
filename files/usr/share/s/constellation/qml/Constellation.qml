@@ -32,7 +32,7 @@ ApplicationWindow {
     title: "Constellation"
 
     // --- L'etat, tel que le noyau le rend ---------------------------------
-    property var donnees: ({ etoiles: [], usage: ({}), placees: ({}), epingles: [] })
+    property var donnees: ({ etoiles: [], usage: ({}), placees: ({}), epingles: [], fichiers: [] })
     property string fondActuel: "nebuleuse"
     property bool nomsToujours: false
     // Relevee une fois : la liste des dossiers personnels ne bouge pas
@@ -54,13 +54,28 @@ ApplicationWindow {
     function appParId(ident) {
         for (var i = 0; i < donnees.etoiles.length; i++)
             if (donnees.etoiles[i].id === ident) return donnees.etoiles[i];
+        // Les fichiers sont dans une liste a part — sinon ils monteraient dans
+        // le menu Demarrer — mais le clic droit, lui, doit pouvoir les
+        // retrouver par leur identifiant comme n'importe quelle etoile.
+        var f = donnees.fichiers || [];
+        for (var j = 0; j < f.length; j++)
+            if (f[j].id === ident) return f[j];
         return null;
     }
+
+    readonly property bool estFichier: false
+    function estUnFichier(ident) { return String(ident).indexOf("fichier:") === 0; }
 
     // UNE ETOILE GROSSIT AVEC L'USAGE, et l'echelle est logarithmique : sans
     // cela, une application lancee cent fois ecraserait tout le ciel. Bornee
     // 30 a 60 pixels — la hierarchie se voit, rien ne devient illisible.
     function tailleDe(app) {
+        // UN FICHIER NE GROSSIT PAS AVEC L'USAGE. L'echelle logarithmique dit
+        // « ce logiciel sert souvent » ; appliquee a un fichier dont le
+        // compteur vaut toujours zero, elle rendrait 30 px pour tous — les
+        // etoiles jaunes seraient les plus petites du ciel alors que ce sont
+        // celles qu'on vient d'y poser.
+        if ((app.src || "") === "fichier") return Theme.sphere;
         if (maxUsage <= 0) return Theme.sphere;
         var t = Math.log(1 + (app.compte || 0)) / Math.log(1 + maxUsage);
         return 30 + t * 30;
@@ -164,15 +179,75 @@ ApplicationWindow {
         id: ciel
         anchors.fill: parent
 
+        // LE CLIC DROIT SUR LE VIDE NE FAISAIT RIEN, ET C'EST LA MOITIE
+        // MANQUANTE DU GESTE. Le menu du 2026-08-24 ne s'ouvrait que sur une
+        // etoile ; sur le fond, il ne se passait rien — alors que c'est
+        // exactement la ou l'on cherche « creer un dossier » ou « ouvrir un
+        // terminal ici ».
+        //
+        // IL EST POSE SUR LE CIEL ET NON SUR LE FOND parce que le ciel couvre
+        // toute la scene. Les etoiles gardent la main : leur propre gestionnaire
+        // de bouton droit consomme l'evenement avant qu'il ne remonte ici.
+        TapHandler {
+            acceptedButtons: Qt.RightButton
+            onTapped: function (evenement) {
+                var p = ciel.mapToItem(null, evenement.position.x,
+                                       evenement.position.y);
+                menuDuFond.ouvrirA(p.x, p.y);
+            }
+        }
+
         Repeater {
+            objectName: "repeaterCiel"
             model: {
-                // Seules les etoiles POSEES sont au ciel. Le reste vit dans le
-                // menu : un bureau qui affiche cinquante-deux icones n'est pas
-                // un bureau, c'est une liste.
+                // DEUX REGLES OPPOSEES DANS LE MEME CIEL, ET C'EST VOULU.
+                //
+                // Une APPLICATION n'y monte que si on l'y a posee. Le reste
+                // vit dans le menu : un bureau qui affiche cinquante-deux
+                // icones n'est pas un bureau, c'est une liste.
+                //
+                // Un FICHIER y est parce qu'il est dans le dossier. C'est la
+                // regle inverse, et c'est celle de tous les bureaux depuis
+                // trente ans — s'en ecarter voudrait dire qu'un fichier
+                // depose sur le bureau ne s'y verrait pas.
                 var sortie = [];
-                for (var ident in bureau.donnees.placees) {
+                var places = bureau.donnees.placees;
+
+                for (var ident in places) {
+                    // Un fichier place a la main est servi par la boucle
+                    // suivante, avec sa position. Le laisser passer ici aussi
+                    // le dessinerait DEUX FOIS, l'un sur l'autre.
+                    if (bureau.estUnFichier(ident)) continue;
                     var a = bureau.appParId(ident);
-                    if (a) sortie.push({ app: a, pos: bureau.donnees.placees[ident] });
+                    if (a) sortie.push({ app: a, pos: places[ident] });
+                }
+
+                // LA GRILLE DE DEPART. Un fichier qu'on n'a jamais deplace se
+                // range comme dans n'importe quel gestionnaire : en colonnes,
+                // depuis le coin haut-gauche. L'ordre vient du noyau — dossiers
+                // d'abord, puis par nom — donc il ne bouge pas d'une session a
+                // l'autre.
+                var fs = bureau.donnees.fichiers || [];
+                var largeur = ciel.width > 0 ? ciel.width : 1920;
+                var hauteur = (ciel.height - 70) > 0 ? (ciel.height - 70) : 1010;
+                var marge = 70, pasX = 108, pasY = 100;
+                var parColonne = Math.max(1, Math.floor((hauteur - marge) / pasY));
+                var col = 0, lig = 0;
+
+                for (var i = 0; i < fs.length; i++) {
+                    var f = fs[i];
+                    // Un fichier epingle a la barre depuis un autre dossier est
+                    // dans la liste pour que la barre le retrouve — il n'a rien
+                    // a faire au ciel.
+                    if ((f.bureau || 0) === 0) continue;
+                    var p = places[f.id];
+                    if (!p) {
+                        p = { x: (marge + col * pasX) / largeur,
+                              y: (marge + lig * pasY) / hauteur };
+                        lig += 1;
+                        if (lig >= parColonne) { lig = 0; col += 1; }
+                    }
+                    sortie.push({ app: f, pos: p });
                 }
                 return sortie;
             }
@@ -181,15 +256,71 @@ ApplicationWindow {
                 required property var modelData
                 app: modelData.app
                 diametre: bureau.tailleDe(modelData.app)
+                // LE NOM D'UN FICHIER EST TOUJOURS VISIBLE. Une application se
+                // reconnait a son icone ; deux captures d'ecran du meme jour
+                // portent la meme, et sans leur nom rien ne les distingue.
                 montrerNom: bureau.nomsToujours
+                            || (modelData.app.src || "") === "fichier"
                 x: modelData.pos.x * ciel.width - diametre / 2
                 y: modelData.pos.y * (ciel.height - 70) - diametre / 2
+
+                // UN GLISSEMENT DETRUIT LES DEUX LIAISONS CI-DESSUS, ET IL
+                // FAUT LES REPOSER A LA MAIN. Le DragHandler a « target:
+                // astre » : il ECRIT dans x et y, et en QML une ecriture
+                // remplace definitivement la liaison qu'elle recouvre. L'etoile
+                // cesse alors de suivre sa position du modele.
+                //
+                // POURQUOI CELA N'AVAIT JAMAIS SAUTE AUX YEUX. Jusqu'ici tout
+                // glissement se terminait par « pont.placer » : le modele
+                // rendait exactement la position que la souris venait de poser,
+                // donc la liaison morte et la liaison vivante donnaient le meme
+                // pixel. Le jour ou un glissement ne memorise PAS la position —
+                // celui qui epingle a la barre — l'etoile est restee la ou on
+                // l'avait lachee, c'est-a-dire sous la barre et invisible.
+                // Trouve par l'utilisateur a l'ecran, le 2026-08-26.
+                function replacer() {
+                    x = Qt.binding(function () {
+                        return modelData.pos.x * ciel.width - diametre / 2;
+                    });
+                    y = Qt.binding(function () {
+                        return modelData.pos.y * (ciel.height - 70) - diametre / 2;
+                    });
+                }
 
                 onOuvrir: {
                     bureau.dire(pont.lancer(app.id));
                     bureau.relire();
                 }
                 onDeplacee: function (nx, ny) {
+                    // GLISSER SUR LA BARRE EPINGLE, ET C'EST LE GESTE QUE TOUT
+                    // LE MONDE ESSAIE EN PREMIER. Le clic droit le proposait
+                    // deja ; personne ne cherche un menu pour faire ce qu'un
+                    // glissement dit tout seul.
+                    //
+                    // LE CIEL COUVRE L'ECRAN ENTIER, BARRE COMPRISE : la barre
+                    // est une fenetre posee PAR-DESSUS, elle ne prend pas de
+                    // place au bureau. C'est donc ici, en coordonnees du ciel,
+                    // qu'on sait si l'etoile a ete lachee sur elle — et non
+                    // dans la barre, qui ne recoit jamais ce relachement
+                    // puisque la souris est tenue par le ciel jusqu'au bout.
+                    if (ny + diametre > ciel.height - barreTaches.hauteur) {
+                        pont.epingler(app.id, true);
+                        bureau.dire((app.nom || "") + " epinglee a la barre");
+                        // On ne memorise PAS la position : l'etoile doit
+                        // reprendre sa place au ciel, pas rester sous la barre.
+                        replacer();
+                        bureau.relire();
+                        return;
+                    }
+                    // ON NE REPOSE PAS LA LIAISON ICI, ET C'EST TOUT LE
+                    // CONTRAIRE DE LA BRANCHE CI-DESSUS. « pont.placer » vient
+                    // d'enregistrer la nouvelle position, mais « modelData »
+                    // porte encore l'ANCIENNE tant que « relire » n'a pas eu
+                    // lieu : reposer la liaison maintenant ferait sauter
+                    // l'etoile en arriere a chaque lacher. Mesure a l'ecran par
+                    // l'utilisateur le 2026-08-26 — « plus du tout
+                    // deplacables ». L'etoile reste donc ou la souris l'a mise,
+                    // et la prochaine relecture lui rendra une liaison fraiche.
                     pont.placer(app.id,
                                 (nx + diametre / 2) / ciel.width,
                                 (ny + diametre / 2) / (ciel.height - 70));
@@ -220,6 +351,38 @@ ApplicationWindow {
             if (typeof fenetres !== "undefined" && fenetres)
                 fenetres.activerBureau();
             menuDemarrer.visible ? menuDemarrer.close() : menuDemarrer.open();
+        }
+    }
+
+    // ══ 3 bis. LA BARRE LATERALE ══════════════════════════════════════════
+    BarreLaterale {
+        id: laterale
+        // Elle s'efface entierement pendant un jeu. « plein » vient du
+        // rapporteur de kwin, seul a pouvoir le savoir : un client Wayland ne
+        // voit pas l'etat des fenetres des autres.
+        efface: barreTaches.ouvertures.some(function (f) {
+            return f.plein === true && f.reduite !== true;
+        })
+        onOuverte: pont.rafraichirReglages()
+        onReglageBascule: function (cle, vers) {
+            bureau.dire(pont.reglerRapide(cle, vers));
+        }
+        onReglageValeur: function (cle, valeur) {
+            bureau.dire(pont.reglerRapide(cle, valeur));
+        }
+        onReglageChoix: function (cle, valeur) {
+            bureau.dire(pont.reglerRapide(cle, valeur));
+        }
+        onReglageAction: function (cle) {
+            if (cle === "verrouiller") { bureau.dire(pont.session("verrouiller")); return; }
+            bureau.dire(pont.reglerRapide(cle, true));
+        }
+    }
+
+    Connections {
+        target: pont
+        function onReglagesPrets(json) {
+            laterale.reglages = JSON.parse(json);
         }
     }
 
@@ -674,6 +837,14 @@ ApplicationWindow {
             Object.prototype.hasOwnProperty.call(bureau.donnees.placees, cible.id)
         readonly property bool epinglee: cible !== null && (cible.epingle || 0) > 0
 
+        // UN FICHIER ET UNE APPLICATION N'ONT PAS LES MEMES GESTES, ET LE MENU
+        // LE DISAIT MAL. « Retirer du bureau » etait propose a un fichier :
+        // pour lui, « placees » ne porte que sa POSITION, jamais sa presence —
+        // le geste l'aurait remis en grille en pretendant l'enlever.
+        readonly property bool estFichier: cible !== null &&
+            String(cible.id || "").indexOf("fichier:") === 0
+        readonly property bool estDossier: estFichier && (cible.dossier || 0) === 1
+
         background: Verre {
             radius: 8
             implicitWidth: 232
@@ -698,6 +869,11 @@ ApplicationWindow {
         }
 
         ArticleMenu {
+            // Sans objet pour un fichier : il EST sur le bureau parce qu'il est
+            // dans le dossier, et rien dans ce menu ne peut l'en sortir sans le
+            // deplacer pour de vrai.
+            visible: !menuContextuel.estFichier
+            height: visible ? implicitHeight : 0
             text: menuContextuel.posee ? "Retirer du bureau" : "Placer sur le bureau"
             onTriggered: {
                 if (menuContextuel.posee) {
@@ -711,6 +887,254 @@ ApplicationWindow {
                 }
                 bureau.relire();
             }
+        }
+
+        // ── Les gestes qui n'ont de sens que sur un fichier ─────────────────
+        SeparateurMenu { visible: menuContextuel.estFichier
+                         height: visible ? implicitHeight : 0 }
+
+        ArticleMenu {
+            visible: menuContextuel.estFichier
+            height: visible ? implicitHeight : 0
+            text: "Renommer\u2026"
+            onTriggered: saisie.ouvrirPour(menuContextuel.cible)
+        }
+
+        ArticleMenu {
+            visible: menuContextuel.estFichier
+            height: visible ? implicitHeight : 0
+            text: "Compresser\u2026"
+            onTriggered: bureau.dire(pont.compresser(menuContextuel.cible.id))
+        }
+
+        ArticleMenu {
+            visible: menuContextuel.estDossier
+            height: visible ? implicitHeight : 0
+            text: "Ouvrir un terminal ici"
+            onTriggered: bureau.dire(pont.terminalIci(menuContextuel.cible.id))
+        }
+
+        ArticleMenu {
+            visible: menuContextuel.estFichier
+            height: visible ? implicitHeight : 0
+            text: "Proprietes"
+            // C'EST LA VRAIE BOITE DE KDE, celle de Dolphin, ouverte par
+            // « kioclient openProperties ». En ecrire une ici voudrait dire
+            // reimplementer la lecture des droits, des types MIME, des ACL et
+            // des metadonnees — pour rendre moins bien ce que l'amont maintient.
+            onTriggered: bureau.dire(pont.proprietes(menuContextuel.cible.id))
+        }
+
+        SeparateurMenu { visible: menuContextuel.estFichier
+                         height: visible ? implicitHeight : 0 }
+
+        ArticleMenu {
+            visible: menuContextuel.estFichier
+            height: visible ? implicitHeight : 0
+            // « grave » teinte les gestes qu'on ne defait pas — la propriete
+            // attendait ce jour depuis le 2026-08-24.
+            grave: true
+            text: "Mettre a la corbeille"
+            // JAMAIS « rm ». La corbeille se defait ; une suppression, non. Un
+            // bureau qui supprime pour de bon au clic droit est un bureau qu'on
+            // n'ose plus utiliser.
+            onTriggered: {
+                bureau.dire(pont.corbeille(menuContextuel.cible.id));
+                bureau.relire();
+            }
+        }
+    }
+
+    // ══ 5 ter. LE MENU DU FOND DU BUREAU ══════════════════════════════════
+    // CE QUE DOLPHIN MET DANS LE SIEN, MOINS CE QUI N'A PAS DE SENS ICI. Son
+    // menu de fond porte « Creer nouveau », « Coller », « Trier », « Affichage »,
+    // « Actualiser », « Ouvrir un terminal ici » et « Proprietes ». Le tri et
+    // l'affichage appartiennent a une LISTE de fichiers ; le ciel de S n'en est
+    // pas une — on y pose les etoiles ou l'on veut. « Ranger les etoiles » les
+    // remplace : il rend au bureau la grille dont on s'est ecarte.
+    Menu {
+        id: menuDuFond
+        objectName: "menuDuFond"
+
+        function ouvrirA(ex, ey) {
+            x = Math.min(ex, bureau.width - width - 8);
+            y = Math.min(ey, bureau.height - height - 8);
+            open();
+        }
+
+        background: Verre {
+            radius: 8
+            implicitWidth: 244
+        }
+
+        ArticleMenu {
+            text: "Nouveau dossier"
+            onTriggered: saisie.creer(true)
+        }
+
+        ArticleMenu {
+            text: "Nouveau document"
+            onTriggered: saisie.creer(false)
+        }
+
+        SeparateurMenu { }
+
+        ArticleMenu {
+            text: "Ouvrir un terminal ici"
+            // La chaine vide vise le dossier du bureau : le pont retombe sur
+            // le dossier personnel quand l'identifiant n'est pas un fichier.
+            onTriggered: bureau.dire(pont.terminalIci(""))
+        }
+
+        ArticleMenu {
+            text: "Ouvrir le dossier Bureau"
+            onTriggered: pont.ouvrirDossier(pont.dossierBureau())
+        }
+
+        SeparateurMenu { }
+
+        // « RANGER LES ETOILES » A EXISTE UNE HEURE, ET IL EST RETIRE.
+        // Il effacait les positions pour rendre la grille de depart. Deux
+        // raisons de ne pas le garder, et la seconde est la vraie : l'alignement
+        // en colonnes n'est pas ce qu'on veut d'un ciel — on y pose les etoiles
+        // ou l'on veut, c'est sa nature ; et un geste qui defait d'un clic tout
+        // ce qu'on a range a la main est un geste dont on se mefie.
+        // La grille reste ce que le ciel dessine pour un fichier qu'on n'a
+        // jamais deplace, et cela suffit.
+
+        ArticleMenu {
+            text: bureau.nomsToujours ? "Masquer les noms" : "Montrer les noms"
+            onTriggered: {
+                bureau.nomsToujours = !bureau.nomsToujours;
+                pont.reglerFond("noms", bureau.nomsToujours);
+            }
+        }
+
+        SeparateurMenu { }
+
+        ArticleMenu {
+            text: "Changer le fond\u2026"
+            onTriggered: {
+                if (typeof fenetres !== "undefined" && fenetres)
+                    fenetres.activerBureau();
+                menuDemarrer.vue = "reglages";
+                menuDemarrer.open();
+            }
+        }
+    }
+
+    // ══ 5 bis. LA BOITE DE SAISIE ═════════════════════════════════════════
+    // ELLE EST ECRITE ICI ET NON DELEGUEE, contrairement aux proprietes ou a la
+    // compression. Il n'existe pas de « kioclient rename » ni de « kioclient
+    // newfile » : ces deux gestes vivent dans l'interface de Dolphin, pas dans
+    // un outil. C'est la seule piece de ce menu que l'amont ne fournit pas.
+    //
+    // UNE SEULE BOITE POUR LES DEUX, parce qu'elles ne different que par leur
+    // titre et par ce qu'elles font du texte. En ecrire deux voudrait dire
+    // maintenir deux fois le meme habillage — et ce depot repete depuis
+    // « s-partage » que deux fichiers qui doivent rester d'accord finissent
+    // toujours par diverger.
+    Popup {
+        id: saisie
+        modal: true
+        focus: true
+        anchors.centerIn: Overlay.overlay
+        width: 380
+        padding: 18
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        property var cible: null
+        property string titre: ""
+        property string bouton: ""
+        // « renommer » | « dossier » | « fichier »
+        property string quoi: "renommer"
+
+        function ouvrirPour(app) {
+            cible = app;
+            quoi = "renommer";
+            titre = "Renommer";
+            bouton = "Renommer";
+            champ.text = app.nom || "";
+            open();
+            champ.forceActiveFocus();
+            // On ne selectionne pas l'extension : renommer « photo.png », c'est
+            // presque toujours changer « photo », jamais « .png ». Dolphin fait
+            // exactement cela, et pour la meme raison.
+            var point = champ.text.lastIndexOf(".");
+            if (point > 0) champ.select(0, point);
+            else champ.selectAll();
+        }
+
+        function creer(estDossier) {
+            cible = null;
+            quoi = estDossier ? "dossier" : "fichier";
+            titre = estDossier ? "Nouveau dossier" : "Nouveau document";
+            bouton = "Creer";
+            champ.text = estDossier ? "Nouveau dossier" : "Sans titre.txt";
+            open();
+            champ.forceActiveFocus();
+            var point = champ.text.lastIndexOf(".");
+            if (point > 0) champ.select(0, point);
+            else champ.selectAll();
+        }
+
+        background: Verre { radius: Theme.rayon }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 12
+
+            Text {
+                text: saisie.titre
+                color: Theme.texte
+                font.family: Theme.police
+                font.pixelSize: 15
+            }
+
+            TextField {
+                id: champ
+                Layout.fillWidth: true
+                color: Theme.texte
+                font.family: Theme.police
+                font.pixelSize: 13
+                selectByMouse: true
+                background: Rectangle {
+                    radius: 6
+                    color: Theme.verre2
+                    border.color: champ.activeFocus ? Theme.bordVif : Theme.bord
+                    border.width: 1
+                }
+                onAccepted: saisie.valider()
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Item { Layout.fillWidth: true }
+                ArticleMenu {
+                    text: "Annuler"
+                    implicitWidth: 96
+                    onTriggered: saisie.close()
+                }
+                ArticleMenu {
+                    text: saisie.bouton
+                    implicitWidth: 110
+                    onTriggered: saisie.valider()
+                }
+            }
+        }
+
+        function valider() {
+            var dit;
+            if (quoi === "renommer") {
+                if (!cible) { close(); return; }
+                dit = pont.renommer(cible.id, champ.text);
+            } else {
+                dit = pont.creerSurLeBureau(champ.text, quoi === "dossier");
+            }
+            bureau.dire(dit);
+            close();
+            bureau.relire();
         }
     }
 

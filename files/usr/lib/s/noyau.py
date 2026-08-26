@@ -38,6 +38,28 @@ FICHIER_PLACEES = os.path.join(ETAT, "placees.json")
 FICHIER_EPINGLES = os.path.join(ETAT, "epingles.json")
 FICHIER_REGLAGES = os.path.join(ETAT, "reglages.json")
 
+# LE DOSSIER DU BUREAU NE SE DEVINE PAS, IL SE DEMANDE. « ~/Bureau » est vrai
+# sur cette machine parce qu'elle est en francais ; elle rendrait « ~/Desktop »
+# en anglais et « ~/Escritorio » en espagnol. Deviner un chemin est la faute que
+# le carnet nomme le plus souvent dans ce depot — on lit donc la declaration
+# XDG, et le repli n'est utilise que si elle manque.
+def dossier_bureau():
+    fichier = os.path.join(
+        os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
+        "user-dirs.dirs")
+    try:
+        with open(fichier, "r", encoding="utf-8") as f:
+            for ligne in f:
+                ligne = ligne.strip()
+                if not ligne.startswith("XDG_DESKTOP_DIR="):
+                    continue
+                brut = ligne.split("=", 1)[1].strip().strip('"')
+                return os.path.expandvars(
+                    brut.replace("$HOME", os.path.expanduser("~")))
+    except OSError:
+        pass
+    return os.path.expanduser("~/Bureau")
+
 # --------------------------------------------------------------------------
 # L'inventaire : lire les .desktop de la machine, et n'en garder que des astres
 # --------------------------------------------------------------------------
@@ -185,8 +207,15 @@ _ICONES = {}          # nom d'icone -> (chemin trouve ou "", instant)
 _ICONES_TTL = 30.0    # une icone posee par une installation doit finir par etre vue
 
 
-def dossiers_icones():
+def dossiers_icones(categories=("apps",)):
     """Ou chercher le fichier d'une icone, du plus grand au plus petit.
+
+    LA CATEGORIE N'EST PAS UN DETAIL, ET L'AVOIR CODEE EN DUR A COUTE UN
+    DEFAUT. Cette fonction ne regardait que « apps », ce qui suffisait tant que
+    Constellation ne portait que des lanceurs. Les icones d'un FICHIER vivent
+    ailleurs — « mimetypes » pour les types, « places » pour les dossiers — et
+    aucun fichier du bureau n'en recevait : ils retombaient tous sur le glyphe,
+    sans qu'une seule ligne signale que le theme en avait une.
 
     On ne fait pas une vraie resolution de theme freedesktop — elle demande de
     remonter les heritages de « index.theme » et n'apporterait rien ici. On
@@ -222,16 +251,32 @@ def dossiers_icones():
             except OSError:
                 continue
             for taille in sorted(tailles, key=rang, reverse=True):
-                chemin = os.path.join(base, taille, "apps")
-                if os.path.isdir(chemin):
-                    dossiers.append(chemin)
+                for categorie in categories:
+                    chemin = os.path.join(base, taille, categorie)
+                    if os.path.isdir(chemin):
+                        dossiers.append(chemin)
+            # BREEZE RANGE A L'ENVERS, ET C'EST MESURE SUR CETTE MACHINE :
+            # « breeze/mimetypes/16/application-pdf.svg » — la categorie avant
+            # la taille, alors qu'Adwaita et hicolor font « 16x16/mimetypes ».
+            # Ne connaitre qu'une des deux dispositions revient a ignorer le
+            # theme d'icones de KDE en entier.
+            for categorie in categories:
+                sous = os.path.join(base, categorie)
+                try:
+                    tailles2 = os.listdir(sous)
+                except OSError:
+                    continue
+                for taille in sorted(tailles2, key=rang, reverse=True):
+                    chemin = os.path.join(sous, taille)
+                    if os.path.isdir(chemin):
+                        dossiers.append(chemin)
     for nu in ("/usr/share/pixmaps", os.path.join(maison, ".local/share/pixmaps")):
         if os.path.isdir(nu):
             dossiers.append(nu)
     return dossiers
 
 
-def chemin_icone(nom):
+def chemin_icone(nom, categories=("apps",)):
     """Le fichier de l'icone d'une application, ou "" s'il n'y en a pas.
 
     POURQUOI CETTE FONCTION EXISTE. Les glyphes dessines dans la page disent le
@@ -247,13 +292,18 @@ def chemin_icone(nom):
     if nom.startswith("/"):
         return nom if os.path.isfile(nom) else ""
 
-    vu = _ICONES.get(nom)
+    # LA CATEGORIE ENTRE DANS LA CLEF DU CACHE. Sans elle, un « folder »
+    # cherche dans « apps » et non trouve empecherait de le retrouver dans
+    # « places » pendant tout le TTL — un cache qui memorise une absence
+    # repond faux plus longtemps qu'il ne repond juste.
+    clef = (nom, categories)
+    vu = _ICONES.get(clef)
     if vu is not None and (time.monotonic() - vu[1]) < _ICONES_TTL:
         if not vu[0] or os.path.isfile(vu[0]):
             return vu[0]
 
     trouve = ""
-    for dossier in dossiers_icones():
+    for dossier in dossiers_icones(categories):
         for ext in (".png", ".svg"):
             essai = os.path.join(dossier, nom + ext)
             if os.path.isfile(essai):
@@ -261,7 +311,7 @@ def chemin_icone(nom):
                 break
         if trouve:
             break
-    _ICONES[nom] = (trouve, time.monotonic())
+    _ICONES[clef] = (trouve, time.monotonic())
     return trouve
 
 
@@ -542,6 +592,239 @@ def _ordre_par_usage():
 # L'inventaire mis en forme pour la coquille
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# LES ETOILES JAUNES : ce que le bureau porte et qui n'est pas une application
+# --------------------------------------------------------------------------
+#
+# CE QUI CHANGE DE NATURE ICI. Jusqu'ici le ciel ne portait que des LANCEURS,
+# et une etoile ne montait qu'apres avoir ete placee a la main. Un fichier
+# obeit a la regle inverse : il est au ciel parce qu'il est dans le dossier,
+# et il en part quand on l'en sort. C'est ce que tout bureau fait depuis
+# trente ans, et s'en ecarter voudrait dire qu'un fichier depose sur le bureau
+# ne s'y verrait pas.
+#
+# LE JAUNE NE DIT PAS UN MONDE. Rouge, bleu et vert repondent « d'ou vient ce
+# logiciel ». Le jaune repond « ce n'en est pas un ».
+
+# Le glyphe d'un fichier, par famille de type MIME. Aucun n'est dessine pour
+# l'occasion : les vingt-huit glyphes de Constellation existaient deja, et huit
+# d'entre eux nomment exactement ces familles.
+_GLYPHES_MIME = (
+    ("inode/directory", "i-dossier"),
+    ("image/",          "i-image"),
+    ("video/",          "i-video"),
+    ("audio/",          "i-note-mus"),
+    ("text/html",       "i-globe"),
+    ("text/x-",         "i-code"),
+    ("application/x-shellscript", "i-code"),
+    ("application/json", "i-code"),
+    ("application/xml",  "i-code"),
+    ("application/zip",  "i-boite"),
+    ("application/x-tar", "i-boite"),
+    ("application/x-compressed", "i-boite"),
+    ("application/gzip", "i-boite"),
+    ("application/pdf",  "i-doc"),
+    ("text/",            "i-notes"),
+)
+
+# Le cache des icones de fichiers. Clef : (chemin, mtime, taille). QMimeDatabase
+# LIT LE CONTENU pour trancher un fichier sans extension, ce qui coute un acces
+# disque — et l'inventaire est relu toutes les quinze secondes. Le mtime dans la
+# clef fait que le cache se perime tout seul quand le fichier change.
+_MIME_CACHE = {}
+_MIME_CACHE_MAX = 4096
+_BASE_MIME = None
+
+
+def _base_mime():
+    """QMimeDatabase, ou None si Qt n'est pas la.
+
+    L'IMPORT EST PARESSEUX, ET CE N'EST PAS UNE PRECAUTION DE STYLE. « s-monde »
+    appelle ce module depuis un python3 NU — pas celui de la coquille — pour
+    poser la position d'une etoile a l'installation d'un logiciel, et son bloc
+    se termine par « 2>/dev/null || true ». Un « import PySide6 » en tete de
+    fichier y echouerait SANS UN MOT, et le placement automatique des etoiles
+    cesserait sans que rien ne le signale. Le succes silencieux, pris par le
+    bout ou personne ne regarde.
+    """
+    try:
+        from PySide6.QtCore import QMimeDatabase
+    except Exception:
+        return None
+    global _BASE_MIME
+    if _BASE_MIME is None:
+        _BASE_MIME = QMimeDatabase()
+    return _BASE_MIME
+
+
+def _glyphe_pour(type_mime):
+    for prefixe, glyphe in _GLYPHES_MIME:
+        if type_mime == prefixe or type_mime.startswith(prefixe):
+            return glyphe
+    return "i-doc"
+
+
+def icone_de_fichier(chemin, est_dossier, mtime, taille):
+    """Le glyphe et le fichier d'icone d'un fichier du bureau.
+
+    Rend (glyphe, chemin_icone). Le glyphe est toujours rendu ; le chemin
+    d'icone peut etre vide, auquel cas l'etoile retombe sur le glyphe — la
+    meme regle que pour les applications.
+    """
+    clef = (chemin, mtime, taille)
+    vu = _MIME_CACHE.get(clef)
+    if vu is not None:
+        return vu
+
+    CAT = ("mimetypes", "places", "apps")
+
+    if est_dossier:
+        resultat = ("i-dossier",
+                    chemin_icone("folder", CAT) or chemin_icone("inode-directory", CAT))
+    else:
+        base = _base_mime()
+        if base is None:
+            # REPLI SANS QT, ET IL EST HONNETE SUR CE QU'IL SAIT. « mimetypes »
+            # ne lit que l'extension : il ne trouvera rien sur un fichier qui
+            # n'en a pas. Mieux vaut un glyphe generique qu'un mauvais.
+            import mimetypes
+            type_mime = mimetypes.guess_type(chemin)[0] or "application/octet-stream"
+            resultat = (_glyphe_pour(type_mime), "")
+        else:
+            m = base.mimeTypeForFile(chemin)
+            type_mime = m.name()
+            # DEUX NOMS D'ICONE, ET IL FAUT LES DEUX. « iconName » rend
+            # « text-plain », qui n'existe dans presque aucun theme ;
+            # « genericIconName » rend « text-x-generic », qui existe partout.
+            # N'essayer que le premier laisserait la plupart des fichiers sans
+            # icone alors que le theme en a une.
+            fichier = (chemin_icone(m.iconName(), CAT)
+                       or chemin_icone(m.genericIconName(), CAT))
+            # UNE IMAGE EST SA PROPRE ICONE. C'est ce que fait tout bureau
+            # depuis toujours, et ca ne coute rien ici : QML borne deja la
+            # memoire de decodage par « sourceSize ». La borne de taille, elle,
+            # evite de decoder un TIFF de 200 Mo pour une vignette de 40 px.
+            if type_mime.startswith("image/") and taille <= 20 * 1024 * 1024:
+                fichier = chemin
+            resultat = (_glyphe_pour(type_mime), fichier)
+
+    if len(_MIME_CACHE) > _MIME_CACHE_MAX:
+        _MIME_CACHE.clear()
+    _MIME_CACHE[clef] = resultat
+    return resultat
+
+
+def fichiers_bureau():
+    """Ce que porte le dossier du bureau, sous la forme d'etoiles.
+
+    L'ordre est celui de tout gestionnaire de fichiers : les dossiers d'abord,
+    puis les fichiers, chacun par nom. Il n'est pas cosmetique — c'est lui qui
+    decide de la place en grille des etoiles qu'on n'a jamais deplacees, donc
+    de leur stabilite d'une session a l'autre.
+    """
+    racine = dossier_bureau()
+    try:
+        noms = os.listdir(racine)
+    except OSError:
+        return []
+
+    entrees = []
+    for nom in noms:
+        # Les fichiers caches restent caches. Un bureau qui montre « .directory »
+        # ne montre pas ce que l'utilisateur y a mis.
+        if nom.startswith("."):
+            continue
+        chemin = os.path.join(racine, nom)
+        try:
+            etat = os.stat(chemin)
+        except OSError:
+            # Un lien casse, ou un fichier disparu entre le listing et le stat.
+            # On l'ignore plutot que de faire tomber tout l'inventaire.
+            continue
+        entrees.append((chemin, nom, os.path.isdir(chemin), etat))
+
+    entrees.sort(key=lambda e: (not e[2], e[1].lower()))
+
+    etoiles = []
+    for chemin, nom, est_dossier, etat in entrees:
+        # UN .desktop POSE SUR LE BUREAU EST UN LANCEUR, PAS UN FICHIER. Le
+        # peindre en jaune avec une icone de document dirait le contraire de ce
+        # qu'il est — et le carnet reproche deja au menu d'avoir dit « le genre
+        # et jamais lequel ». On le lit donc, et il prend son monde et son icone.
+        if not est_dossier and nom.endswith(".desktop"):
+            champs = lire_desktop(chemin)
+            if champs and champs.get("Exec"):
+                ligne_exec = champs.get("Exec", "")
+                etoiles.append({
+                    "id": "fichier:" + chemin,
+                    "nom": nom_affiche(champs) or nom[:-len(".desktop")],
+                    "src": choisir_monde(ligne_exec),
+                    "ico": choisir_icone(nom_affiche(champs) or nom,
+                                         champs.get("Categories", "")),
+                    "ep": 1,
+                    "epingle": 0,
+                    "img": _url_icone(chemin_icone(champs.get("Icon", ""))),
+                    "txt": commentaire(champs) or chemin,
+                    "compte": 0,
+                    "chemin": chemin,
+                    "dossier": 0,
+                })
+                continue
+
+        glyphe, fichier_icone = icone_de_fichier(
+            chemin, est_dossier, int(etat.st_mtime), etat.st_size)
+        etoiles.append({
+            "id": "fichier:" + chemin,
+            "nom": nom,
+            "src": "fichier",
+            "ico": glyphe,
+            # « ep » vaut 1 : l'anneau d'une etoile jaune est PLEIN. Le trait
+            # pointille veut dire « pose dans l'image et jamais exerce », ce qui
+            # n'a aucun sens pour un fichier qui est la, sur le disque.
+            "ep": 1,
+            "epingle": 0,
+            "img": _url_icone(fichier_icone),
+            "txt": chemin,
+            "compte": 0,
+            "chemin": chemin,
+            "dossier": 1 if est_dossier else 0,
+        })
+    return etoiles
+
+
+def _url_icone(chemin):
+    return ("file://" + chemin) if chemin else ""
+
+
+def ouvrir_fichier(chemin):
+    """Ouvre un fichier ou un dossier avec ce que la machine lui associe.
+
+    ON NE REIMPLEMENTE PAS CE QUE L'AMONT MAINTIENT. « kioclient exec » est
+    l'ouvreur de KDE : il resout le type MIME, trouve l'application par defaut,
+    honore les .desktop et les executables, et sait ouvrir un dossier dans le
+    gestionnaire de fichiers. Ecrire cette resolution ici serait la refaire
+    moins bien.
+    """
+    if not os.path.exists(chemin):
+        return False, "ce fichier n'existe plus"
+    outil = chemin_executable("kioclient")
+    if not outil:
+        # Repli sur la voie freedesktop, presente meme sans KDE.
+        outil = chemin_executable("gio")
+        if outil:
+            argv = [outil, "open", chemin]
+        else:
+            return False, "aucun ouvreur sur cette machine"
+    else:
+        argv = [outil, "exec", chemin]
+    try:
+        subprocess.Popen(argv, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as err:
+        return False, "ouverture impossible : %s" % err
+    return True, os.path.basename(chemin)
+
+
 def composer_etoiles():
     """Tout ce que la coquille affiche, en une seule lecture.
 
@@ -554,6 +837,35 @@ def composer_etoiles():
     usage = charger_usage()
     placees = charger_placees()
     choisies = charger_epingles()
+    fichiers = fichiers_bureau()
+
+    # UN FICHIER EPINGLE QUI QUITTE LE BUREAU RESTE EPINGLE. On range une
+    # capture dans Images apres l'avoir mise a la barre : elle doit y rester.
+    # La barre le retrouve par « appParId », qui ne cherche que dans cette
+    # liste — un fichier absent d'ici serait donc une epingle morte, cliquable
+    # et sans effet. Le drapeau « bureau » dit au ciel de ne pas le dessiner.
+    sur_le_bureau = set(f["id"] for f in fichiers)
+    for f in fichiers:
+        f["bureau"] = 1
+    for e in (choisies or []):
+        if not e.startswith("fichier:") or e in sur_le_bureau:
+            continue
+        chemin = e[len("fichier:"):]
+        if not os.path.exists(chemin):
+            continue
+        try:
+            etat = os.stat(chemin)
+        except OSError:
+            continue
+        est_dossier = os.path.isdir(chemin)
+        glyphe, ico = icone_de_fichier(chemin, est_dossier,
+                                       int(etat.st_mtime), etat.st_size)
+        fichiers.append({
+            "id": e, "nom": os.path.basename(chemin), "src": "fichier",
+            "ico": glyphe, "ep": 1, "epingle": 1, "img": _url_icone(ico),
+            "txt": chemin, "compte": 0, "chemin": chemin,
+            "dossier": 1 if est_dossier else 0, "bureau": 0,
+        })
 
     ordre = sorted(apps.values(), key=lambda a: -usage.get(a["id"], 0))
     if choisies is None:
@@ -561,7 +873,13 @@ def composer_etoiles():
     else:
         # On ne garde que celles qui existent encore : une application
         # desinstallee laisserait sinon un trou cliquable dans la barre.
-        epinglees = [e for e in choisies if e in apps]
+        #
+        # UN FICHIER PASSE PAR UNE AUTRE PORTE. Il n'est pas dans « apps » — il
+        # n'a pas de .desktop — et le filtre le rejetait donc SANS UN MOT :
+        # l'epingle etait ecrite dans epingles.json, la barre ne montrait rien,
+        # et le geste paraissait ne pas marcher.
+        vivants = set(f["id"] for f in fichiers)
+        epinglees = [e for e in choisies if e in apps or e in vivants]
 
     etoiles = []
     for a in ordre:
@@ -586,6 +904,11 @@ def composer_etoiles():
         "usage": usage,
         "placees": placees,
         "epingles": epinglees,
+        # LES FICHIERS SONT UNE CLEF A PART, ET C'EST DELIBERE. Les verser dans
+        # « etoiles » les ferait monter dans le menu Demarrer, qui liste les
+        # applications de la machine — un menu ou l'on trouverait les captures
+        # d'ecran posees sur le bureau ne serait plus un menu.
+        "fichiers": fichiers,
     }
 
 
@@ -631,3 +954,147 @@ def sauver_reglage(cle, valeur):
         os.replace(temporaire, FICHIER_REGLAGES)
     except OSError as err:
         print("s-noyau : reglage non sauve : %s" % err, file=sys.stderr)
+
+
+# --------------------------------------------------------------------------
+# LES GESTES DE FICHIERS
+# --------------------------------------------------------------------------
+#
+# ON N'EN ECRIT AUCUN. Copier, deplacer, mettre a la corbeille, ouvrir une
+# boite de proprietes, compresser : KDE fait tout cela depuis vingt ans, et
+# « kioclient » l'expose en ligne de commande. Reecrire ces gestes ici, ce
+# serait refaire moins bien ce que l'amont maintient — la faute que ce depot a
+# payee cinq jours sur « s-android ».
+#
+# CE QUI EST ECRIT ICI EST DONC UNIQUEMENT LA COUTURE : trouver l'outil, lui
+# passer le bon chemin, et rendre une phrase que la coquille puisse afficher.
+
+def _outil(nom):
+    return chemin_executable(nom)
+
+
+def _lancer_detache(argv):
+    """Lance sans attendre, hors du groupe de processus de l'appelant.
+
+    « start_new_session » n'est pas une precaution de style : un programme
+    lance depuis un script meurt avec le groupe de processus de son lanceur.
+    Ce depot l'a paye deux fois — le wineserver resident le 2026-08-26 a
+    l'aube, PURPLE le meme jour en fin de journee.
+    """
+    try:
+        subprocess.Popen(argv, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True, ""
+    except OSError as err:
+        return False, str(err)
+
+
+def proprietes_fichier(chemin):
+    """La vraie boite de proprietes de KDE, celle de Dolphin."""
+    if not os.path.exists(chemin):
+        return False, "ce fichier n'existe plus"
+    outil = _outil("kioclient")
+    if not outil:
+        return False, "kioclient n'est pas sur cette machine"
+    ok, err = _lancer_detache([outil, "openProperties", chemin])
+    return (True, os.path.basename(chemin)) if ok else (False, err)
+
+
+def corbeille(chemin):
+    """Met a la corbeille — jamais « rm ».
+
+    LA DIFFERENCE N'EST PAS COSMETIQUE. « rm » est definitif ; la corbeille est
+    un geste qu'on peut defaire. Un bureau qui supprime pour de bon au clic
+    droit est un bureau qu'on n'ose plus utiliser.
+    """
+    if not os.path.exists(chemin):
+        return False, "ce fichier n'existe plus"
+    outil = _outil("kioclient")
+    if not outil:
+        return False, "kioclient n'est pas sur cette machine"
+    try:
+        r = subprocess.run([outil, "move", chemin, "trash:/"],
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as err:
+        return False, "corbeille impossible : %s" % err
+    if r.returncode != 0:
+        # LA BRANCHE D'ECHEC MONTRE CE QUI S'EST PASSE AVANT DE CONCLURE. Ce
+        # depot a paye deux fois le meme faux verdict le 2026-08-26 : un
+        # message qui nommait UNE cause pour n'importe quel echec.
+        detail = (r.stderr or r.stdout or "").strip().splitlines()
+        return False, detail[-1][:120] if detail else "code %d" % r.returncode
+    return True, os.path.basename(chemin)
+
+
+def renommer(chemin, nouveau_nom):
+    """Renomme dans le meme dossier. Le nouveau nom ne peut pas changer d'endroit."""
+    if not os.path.exists(chemin):
+        return False, "ce fichier n'existe plus"
+    nouveau_nom = (nouveau_nom or "").strip()
+    if not nouveau_nom:
+        return False, "un nom vide n'est pas un nom"
+    # UN NOM N'EST PAS UN CHEMIN. Sans ce controle, taper « ../ailleurs » dans
+    # la boite de renommage DEPLACERAIT le fichier hors du bureau — un geste
+    # que rien dans l'interface n'annonce.
+    if "/" in nouveau_nom or nouveau_nom in (".", ".."):
+        return False, "un nom ne peut pas contenir de barre oblique"
+    cible = os.path.join(os.path.dirname(chemin), nouveau_nom)
+    if os.path.exists(cible):
+        return False, "%s existe deja" % nouveau_nom
+    try:
+        os.rename(chemin, cible)
+    except OSError as err:
+        return False, "renommage impossible : %s" % err
+    return True, nouveau_nom
+
+
+def compresser(chemins):
+    """Ouvre Ark sur une archive a creer, avec les fichiers dedans.
+
+    « --add-to » demande le nom de l'archive ; sans lui, « --add » demande a
+    l'utilisateur ou la mettre, ce qui est exactement le comportement voulu
+    pour un clic droit « Compresser… ».
+    """
+    chemins = [c for c in (chemins or []) if os.path.exists(c)]
+    if not chemins:
+        return False, "rien a compresser"
+    outil = _outil("ark")
+    if not outil:
+        return False, "Ark n'est pas sur cette machine"
+    ok, err = _lancer_detache([outil, "--add", "--changetofirstpath"] + chemins)
+    return (True, "%d element(s)" % len(chemins)) if ok else (False, err)
+
+
+def terminal_ici(dossier):
+    """Ouvre un terminal dans un dossier."""
+    if not os.path.isdir(dossier):
+        return False, "ce dossier n'existe plus"
+    for nom, argv in (("konsole", ["--workdir", dossier]),
+                      ("kgx", ["--working-directory", dossier]),
+                      ("xterm", ["-e", "cd '%s' && $SHELL" % dossier])):
+        outil = _outil(nom)
+        if outil:
+            ok, err = _lancer_detache([outil] + argv)
+            return (True, os.path.basename(dossier) or "/") if ok else (False, err)
+    return False, "aucun terminal sur cette machine"
+
+
+def creer(dossier, nom, est_dossier):
+    """Cree un dossier ou un fichier vide sur le bureau."""
+    nom = (nom or "").strip()
+    if not nom:
+        return False, "un nom vide n'est pas un nom"
+    if "/" in nom or nom in (".", ".."):
+        return False, "un nom ne peut pas contenir de barre oblique"
+    cible = os.path.join(dossier, nom)
+    if os.path.exists(cible):
+        return False, "%s existe deja" % nom
+    try:
+        if est_dossier:
+            os.makedirs(cible)
+        else:
+            with open(cible, "x", encoding="utf-8"):
+                pass
+    except OSError as err:
+        return False, "creation impossible : %s" % err
+    return True, nom

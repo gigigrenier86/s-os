@@ -125,7 +125,14 @@ function decrire(f) {
         classe: String(f.resourceClass || ""),
         titre: String(f.caption || ""),
         active: (workspace.activeWindow === f),
-        reduite: (f.minimized === true)
+        reduite: (f.minimized === true),
+        // LE PLEIN ECRAN SORT D'ICI PARCE QUE PERSONNE D'AUTRE NE PEUT LE
+        // SAVOIR. Un client Wayland ne voit pas l'etat des fenetres des
+        // autres — c'est la raison meme de ce script. La barre laterale s'en
+        // sert pour ne pas surgir par-dessus un jeu : une languette qui
+        // s'ouvre au bord de l'ecran pendant une partie est exactement ce
+        // qu'on ne veut pas.
+        plein: (f.fullScreen === true)
     };
 }
 

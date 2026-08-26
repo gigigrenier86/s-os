@@ -20,8 +20,10 @@ celle du bureau de la base — version pour version, 6.11 ici — et l'interface
 est du QML, c'est-a-dire des donnees, pas du code compile.
 """
 
+import json
 import os
 import sys
+import threading
 
 # Le noyau vit dans /usr/lib/s. On accepte aussi une copie de travail a cote de
 # ce fichier : c'est la seule facon d'essayer la coquille sans reconstruire une
@@ -38,11 +40,13 @@ else:
     _LIB = "/usr/lib/s"
 
 import noyau  # noqa: E402
+import reglages  # noqa: E402
 import notifications  # noqa: E402
 import fenetres as fenetres_mod  # noqa: E402
 import importlib.util as _iu  # noqa: E402
 
-from PySide6.QtCore import QObject, QUrl, Slot  # noqa: E402
+from PySide6.QtCore import QObject, QRect, QUrl, Signal, Slot  # noqa: E402
+from PySide6.QtGui import QRegion, QWindow  # noqa: E402
 from PySide6.QtGui import QGuiApplication  # noqa: E402
 from PySide6.QtQml import QQmlApplicationEngine  # noqa: E402
 
@@ -96,6 +100,16 @@ class Pont(QObject):
     # ---- Gestes ----------------------------------------------------------
     @Slot(str, result=str)
     def lancer(self, ident):
+        # UNE ETOILE JAUNE S'OUVRE PAR LE MEME GESTE QUE LES AUTRES, ET C'EST
+        # TOUT L'INTERET DE LE TRANCHER ICI. La scene appelle « pont.lancer »
+        # sans savoir si elle tient une application ou un fichier ; si la
+        # distinction remontait jusqu'a QML, chaque endroit qui ouvre quelque
+        # chose devrait la refaire — le ciel, le menu, la barre, le clic droit.
+        # Un seul endroit sait, et c'est celui-ci.
+        if ident.startswith("fichier:"):
+            ok, dit = noyau.ouvrir_fichier(ident[len("fichier:"):])
+            return dit
+
         apps = noyau.inventaire()
         if ident not in apps:
             return "inconnue : " + ident
@@ -118,6 +132,185 @@ class Pont(QObject):
         placees = noyau.charger_placees()
         placees[ident] = {"x": x, "y": y}
         noyau.sauver_placees(placees)
+
+    # ---- Les gestes de fichiers -----------------------------------------
+    # ILS PRENNENT UN IDENTIFIANT D'ETOILE, PAS UN CHEMIN. La scene ne
+    # manipule que des identifiants ; lui faire passer des chemins bruts
+    # voudrait dire qu'une faute de QML peut viser n'importe quel fichier de la
+    # machine. Le chemin se deduit ici, et seulement pour une etoile jaune.
+
+    @staticmethod
+    def _chemin(ident):
+        return ident[len("fichier:"):] if ident.startswith("fichier:") else ""
+
+    @Slot(str, result=str)
+    def proprietes(self, ident):
+        chemin = self._chemin(ident)
+        if not chemin:
+            return "pas un fichier"
+        return noyau.proprietes_fichier(chemin)[1]
+
+    @Slot(str, result=str)
+    def corbeille(self, ident):
+        chemin = self._chemin(ident)
+        if not chemin:
+            return "pas un fichier"
+        ok, dit = noyau.corbeille(chemin)
+        return ("%s est a la corbeille" % dit) if ok else dit
+
+    @Slot(str, str, result=str)
+    def renommer(self, ident, nom):
+        chemin = self._chemin(ident)
+        if not chemin:
+            return "pas un fichier"
+        ok, dit = noyau.renommer(chemin, nom)
+        if ok:
+            # L'IDENTIFIANT D'UN FICHIER EST SON CHEMIN : le renommer en change
+            # donc. Sans ce report, l'epingle et la position resteraient
+            # attachees a un nom qui n'existe plus — une epingle morte et une
+            # etoile revenue en grille, sans que rien ne l'explique.
+            neuf = "fichier:" + os.path.join(os.path.dirname(chemin), dit)
+            for charger, sauver in ((noyau.charger_placees, noyau.sauver_placees),):
+                d = charger()
+                if ident in d:
+                    d[neuf] = d.pop(ident)
+                    sauver(d)
+            epingles = noyau.charger_epingles()
+            if epingles and ident in epingles:
+                noyau.sauver_epingles([neuf if e == ident else e for e in epingles])
+        return dit
+
+    @Slot(str, result=str)
+    def compresser(self, ident):
+        chemin = self._chemin(ident)
+        if not chemin:
+            return "pas un fichier"
+        return noyau.compresser([chemin])[1]
+
+    @Slot(str, result=str)
+    def terminalIci(self, ident):
+        chemin = self._chemin(ident) or os.path.expanduser("~")
+        if chemin and not os.path.isdir(chemin):
+            chemin = os.path.dirname(chemin)
+        return noyau.terminal_ici(chemin)[1]
+
+    @Slot(str, bool, result=str)
+    def creerSurLeBureau(self, nom, est_dossier):
+        ok, dit = noyau.creer(noyau.dossier_bureau(), nom, est_dossier)
+        return ("%s cree" % dit) if ok else dit
+
+    @Slot(str, result=str)
+    def cheminDe(self, ident):
+        """Le chemin d'une etoile jaune, pour les gestes qui en ont besoin."""
+        return self._chemin(ident)
+
+    # ---- Les reglages rapides -------------------------------------------
+    #
+    # ILS SONT LUS DANS UN FIL, ET CE N'EST PAS UN LUXE. Mesure du 2026-08-26 :
+    # composer la liste coute 914 ms a froid, dont l'essentiel part en I2C vers
+    # l'ecran pour la luminosite et le contraste. Un appel direct depuis QML
+    # gelerait la coquille ENTIERE pendant ce temps — souris comprise, puisque
+    # c'est la boucle d'evenements qui attend.
+    #
+    # LE PANNEAU S'OUVRE DONC AVEC CE QU'IL SAIT DEJA, et se remplit quand la
+    # reponse arrive. C'est la difference entre un panneau qui parait casse et
+    # un panneau qui parait vif.
+
+    reglagesPrets = Signal(str)
+
+    @Slot()
+    def rafraichirReglages(self):
+        def travail():
+            try:
+                liste = reglages.rapides()
+            except Exception as err:  # noqa: BLE001
+                print("s-constellation : reglages illisibles : %s" % err,
+                      file=sys.stderr)
+                liste = []
+            self.reglagesPrets.emit(json.dumps(liste))
+        threading.Thread(target=travail, daemon=True).start()
+
+    @Slot(str, "QVariant", result=str)
+    def reglerRapide(self, cle, valeur):
+        """Applique un reglage. Rend la phrase a afficher.
+
+        CELUI-CI EST SYNCHRONE, ET C'EST VOULU : l'utilisateur vient de cliquer,
+        il attend une reponse. Les gestes longs — tailscale, le profil
+        d'energie — sont bornes par leur propre delai dans reglages.py, jamais
+        laisses sans fin. Le blocage sans limite est le defaut que « s_root » a
+        ferme le 2026-08-26 pour les neuf pkexec de S.
+        """
+        try:
+            ok, dit = reglages.regler(cle, valeur)
+        except Exception as err:  # noqa: BLE001
+            return "reglage impossible : %s" % err
+        # On relit derriere : un profil d'energie ou un Wi-Fi bascule change
+        # l'etat que le panneau affiche, et rien d'autre ne le lui dirait.
+        self.rafraichirReglages()
+        return dit
+
+    @Slot(QWindow, bool)
+    def bornerLaterale(self, fenetre, deploye):
+        """Reduit la zone sensible de la barre laterale, ou la rend entiere.
+
+        ═══ POURQUOI LA FENETRE ARRIVE EN ARGUMENT ═══
+        La premiere version la retrouvait une fois par « findChild » et gardait
+        la reference dans une fermeture. Mesure du 2026-08-26, sonde a l'appui :
+
+            RuntimeError: libshiboken: Internal C++ object
+                          (PySide6.QtGui.QWindow) already deleted.
+
+        PySide6 se croit proprietaire d'un objet rendu par « findChild » et
+        libere son enveloppe des le premier retour a la boucle. Le masque
+        n'etait donc JAMAIS repose : la barre restait sensible sur cinq pixels
+        meme deployee, la souris n'entrait pas dans le panneau, son survol
+        n'etait jamais recu — et le minuteur de fermeture allait au bout. Vu a
+        l'ecran par l'utilisateur : « le menu disparait aussitot que je tente de
+        choisir ».
+        ET MON « except » AVALAIT L'ERREUR EN SILENCE, ce qui a coute la moitie
+        du diagnostic.
+
+        QML passe donc la fenetre a chaque appel. Rien n'est garde, rien ne peut
+        etre libere sous nos pieds.
+
+        ═══ CE QUE LE MASQUE REGLE ═══
+        La barre occupe toujours la meme largeur, meme repliee — un client
+        Wayland ne se positionne pas lui-meme (mesure du 2026-08-25), donc une
+        languette qui grandirait devrait etre replacee par kwin a chaque
+        ouverture et on la verrait sauter. Sans masque, cette largeur avalerait
+        tous les clics du bord droit, la ou vivent les ascenseurs de toutes les
+        fenetres.
+
+        « setMask » part en « wl_surface.set_input_region » — releve sur le
+        protocole, WAYLAND_DEBUG a l'appui :
+            wl_region#56.add(315, 0, 5, 1080)
+        """
+        if fenetre is None:
+            return
+        try:
+            largeur = int(fenetre.width())
+            hauteur = int(fenetre.height())
+            ligne = int(fenetre.property("epaisseurLigne") or 5)
+        except (RuntimeError, TypeError, ValueError) as err:
+            print("s-constellation : zone sensible non bornee : %s" % err,
+                  file=sys.stderr)
+            return
+        if largeur <= 0 or hauteur <= 0:
+            return
+        if deploye:
+            fenetre.setMask(QRegion(QRect(0, 0, largeur, hauteur)))
+        else:
+            fenetre.setMask(QRegion(QRect(largeur - ligne, 0, ligne, hauteur)))
+
+    @Slot(result=str)
+    def dossierBureau(self):
+        """Ou vivent les etoiles jaunes.
+
+        UN SLOT QUI NOMME CE QU'IL REND. La premiere version demandait le
+        dossier par « cheminDe("fichier:") », qui rend la chaine VIDE : le
+        geste « Ouvrir le dossier Bureau » n'aurait rien ouvert, sans erreur.
+        """
+        return noyau.dossier_bureau()
 
     @Slot(str)
     def retirerDuBureau(self, ident):
@@ -209,6 +402,7 @@ def main():
         print("s-constellation : la scene n'a pas charge — voir les erreurs QML "
               "ci-dessus.", file=sys.stderr)
         return 1
+
     return app.exec()
 
 

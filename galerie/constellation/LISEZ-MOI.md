@@ -95,3 +95,37 @@ S_QML=~/S/files/usr/share/s/constellation/qml \
 
 Sans interface graphique et sans déranger les fenêtres ouvertes — la recette est
 au Grimoire : [`kwin-capturer-la-coquille.sh`](../../grimoire/kwin-capturer-la-coquille.sh).
+
+---
+
+## Les etoiles jaunes et la barre laterale — 2026-08-26
+
+**Machine : `s`, ThinkCentre M720q, Intel UHD Graphics 630, pilote `i915`,
+Mesa — rendu materiel, pas `llvmpipe`.** Captures prises a 18 h 28 et 18 h 41
+par `spectacle -b -n -f`, depuis la session en cours.
+
+### `etoiles-jaunes-2026-08-26.png`
+
+Le ciel porte des FICHIERS. Quatre etoiles jaunes tirees du vrai `~/Bureau` —
+`capture.png` (qui porte sa propre image en vignette), `note.txt`,
+`rapport.pdf`, `script.sh` — chacune avec l'icone que le theme breeze donne a
+son type MIME, et son nom toujours visible.
+
+Ce que la piece prouve, et qui ne se deduit d'aucun code : le jaune se lit
+comme un pair des trois autres mondes et non comme une alerte, et la grille de
+depart est celle d'un bureau, pas celle d'un ciel.
+
+### `barre-laterale-2026-08-26.png`
+
+La barre laterale deployee : une colonne de neuf reglages au bord droit, chacun
+dessine comme une etoile.
+
+**Les teintes sont tirees au sort a chaque ouverture parmi les quatre couleurs
+de S** — un reglage n'appartient a aucun monde, c'est justement pourquoi sa
+couleur peut changer sans mentir. Releve sur cette capture : rouge, vert,
+jaune, rouge, jaune, rouge, vert, jaune, rouge — aucune voisine identique.
+
+**Et l'anneau sert de jauge.** Le deuxieme rond, en vert, est ouvert en haut a
+droite : c'est la luminosite a 60 %, lue par `ddcutil getvcp 10` sur le LG
+ULTRAGEAR. Le meme anneau qui dit « pose et jamais exerce » au ciel dit ici
+« soixante pour cent ».
