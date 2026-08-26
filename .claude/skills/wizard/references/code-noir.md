@@ -69,9 +69,33 @@ grep -rhoE 'https?://[a-zA-Z0-9._~/-]+' build_files/*.sh Containerfile \
 
 ---
 
-## Le constat ouvert : S ne signe pas son image, et ne la vérifie pas
+## Le constat à moitié refermé : S signe son image depuis le 2026-08-26
 
-**Mesuré le 2026-08-25 au soir. C'est le seul Code Noir non refermé du projet.**
+> **Mise à jour du 2026-08-26.** La première moitié est faite : la construction
+> **signe** désormais l'image, sans clé, par l'identité OIDC du workflow. Vérifié
+> depuis la machine, code de retour **0** :
+>
+> ```bash
+> cosign verify ghcr.io/gigigrenier86/s-os:latest \
+>   --certificate-identity-regexp '^https://github.com/gigigrenier86/s-os/' \
+>   --certificate-oidc-issuer https://token.actions.githubusercontent.com
+> ```
+>
+> Le certificat prouve *ce dépôt, ce workflow, cette branche, ce commit* — plus
+> précis qu'une clé partagée, et rien à garder ni à faire tourner.
+>
+> **Ce qui reste ouvert est la seconde moitié, et c'est une décision :**
+> `policy.json` n'EXIGE toujours pas la signature, donc `rpm-ostree status` dit
+> encore `ostree-unverified-registry`. Signer ne casse rien ; exiger peut
+> empêcher une mise à jour ou un démarrage.
+>
+> **Et le contexte a changé la gravité du constat :** `uupd.timer` est actif sur
+> la machine et tire `:latest` toutes les nuits vers 04 h 06, sans que personne
+> décide. Ce n'était pas écrit dans le dépôt avant ce jour-là.
+
+Le relevé d'origine, conservé parce qu'il dit pourquoi c'était vrai :
+
+**Mesuré le 2026-08-25 au soir.**
 
 Trois relevés qui concordent :
 

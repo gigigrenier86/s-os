@@ -419,6 +419,40 @@ manque — exactement le faux verdict payé le matin même sur la clé de F-Droi
 Deux fois la même faute dans la même journée : **une branche d'échec doit
 montrer ce qui s'est passé avant de dire ce qu'elle en conclut.**
 
+### L'image de S est signée, et la signature se vérifie
+
+**Run #72, sur `0fa3c09` : réussi.** Et depuis cette machine, sans rien de
+préparé d'avance :
+
+```
+cosign verify ghcr.io/gigigrenier86/s-os:latest \
+  --certificate-identity-regexp '^https://github.com/gigigrenier86/s-os/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+```
+  - The cosign claims were validated
+  - Existence of the claims in the transparency log was verified offline
+  - The code-signing certificate was verified using trusted CA certificates
+
+  Subject : .../.github/workflows/build.yml@refs/heads/main
+  Issuer  : https://token.actions.githubusercontent.com
+  Digest  : sha256:3308822c89e63ad63ce60b9c687c8865af9940be76605656803b33114dc5c0ee
+  Rekor   : logIndex 2602579452
+```
+**Code de retour : 0.**
+
+Ce que le certificat prouve est plus précis qu'une clé partagée : non pas
+« quelqu'un qui détenait la clé de S », mais **ce dépôt, ce fichier de workflow,
+cette branche, ce commit**. Personne ne détient de clé privée, donc personne ne
+peut la perdre.
+
+**La moitié qui reste est une décision, pas un travail.** `rpm-ostree status`
+dit toujours `ostree-unverified-registry`, parce que `/etc/containers/policy.json`
+n'exige rien pour `ghcr.io/gigigrenier86`. Signer était sans risque ; **exiger**
+peut empêcher une mise à jour ou un démarrage. La commande ci-dessus répond
+maintenant : c'est elle qu'il faut avoir vue passer avant de poser l'entrée dans
+`policy.json`, sur le patron exact de celle d'ublue-os.
+
 ### Ce qui reste, et qui demande une décision ou une présence
 
 - **Exiger la signature** (`policy.json`) — à faire après que `cosign verify`
