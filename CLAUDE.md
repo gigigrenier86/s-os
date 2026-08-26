@@ -298,13 +298,19 @@ rendu logiciel    8888 coul.   3308 coul.
 rendu materiel    9735 coul.   3492 coul.
 ```
 
-**La zone centrale se remplit, dans les deux rendus.** La table de
-`s-windows --fenetre-noire` annonce « PcBoostApp : matériel 6426, logiciel
-**17** ». Le 17 était une photo prise à cinq secondes d'un programme qui n'avait
-pas fini de peindre. **La différence mesurée entre les deux rendus n'était pas
-le rendu, c'était le temps de pose.** Le geste `--fenetre-noire` reste utile —
-mais sa justification pour PcBoostApp ne tient plus, et celle de PURPLE n'a pas
-été réexaminée.
+**La zone centrale se remplit, dans les deux rendus.** Le commentaire livré dans
+`s-windows` et dans `windows.sh` annonce « PcBoostApp : matériel 6426, logiciel
+**17** », et le carnet écrivait « zone centrale absente ». À trente secondes,
+ce carré central contient **3308 couleurs**.
+
+**Ce que ça établit, et ce que ça n'établit pas.** Ça tue la phrase « la zone
+centrale ne peint pas en rendu logiciel » : elle peint. Ça n'établit **pas** que
+le temps de pose soit la seule cause de l'écart — les deux séries n'ont pas été
+prises sur la même fenêtre (1028×733 ici, taille non consignée là-bas), donc
+leurs totaux ne se comparent pas ligne à ligne. **La mesure qui trancherait :**
+les deux rendus, à 5 s puis à 30 s, dans une seule série et sur la même fenêtre.
+En l'état, la justification de `--fenetre-noire` pour PcBoostApp ne tient plus ;
+celle de PURPLE n'a pas été réexaminée.
 
 ### Trois pièges de banc, dont deux déjà écrits ici
 
