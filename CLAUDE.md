@@ -183,6 +183,168 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-25, 22 h 30 — le telephone tient S, et la preuve s'ecrivait elle-meme
+
+L'entree de 21 h se terminait ainsi : *« Rien de l'acces distant n'est donc
+exerce a cette heure. »* Une heure et demie plus tard tout l'est — et la preuve
+n'a pas eu besoin d'etre cherchee : **elle m'a ecrit.**
+
+### Ce que le carnet disait, et ce que la machine a repondu
+
+Releve du 2026-08-25 a 22 h, sur une machine amorcee a **21 h 21** sur l'image
+`44.20260825` (`sha256:08e8f0bb…`), construite neuf minutes plus tot.
+
+| Ligne du carnet, ecrite a 21 h | Ce que la machine repond a 22 h |
+|---|---|
+| `tailscaled` *disabled, inactive* | **enabled, active** |
+| `mosh` **absent** | `/usr/bin/mosh` et `/usr/bin/mosh-server` — **mosh 1.4.0** |
+| `tailscale up` jamais lance | **lance** — `s` = `100.103.169.98`, `s.taila13c03.ts.net` |
+| `45-telephone.sh` jamais construit | **dans l'image, et amorcee dessus** |
+| Tailscale SSH non prouve | **prouve** — trois sessions au journal |
+
+Le Pixel est sur le tailnet en connexion **directe** (192.168.40.148:40563), pas
+par un relais DERP. Le script de construction a donc fait exactement ce qu'on
+lui demandait, sans qu'une seule commande soit tapee sur la machine — *ce qui
+doit tenir va dans l'image*, verifie une fois de plus.
+
+### Tailscale SSH survit a SELinux Enforcing, et l'avertissement est un faux temoin
+
+Le controle de sante de Tailscale annonce, a chaque demarrage du demon :
+
+```
+health(warnable=ssh-unavailable-selinux-enabled):
+  SELinux is enabled; Tailscale SSH may not work.
+```
+
+**Il ne lit que `getenforce`.** Le journal, lui, nomme le mecanisme reel :
+
+```
+22:13:56  ssh-conn: 100.76.223.14:47864->RyuRex@100.103.169.98:22
+          access granted to <compte>@ as ssh-user "RyuRex"
+          audit: SSH login: user=RyuRex uid=1000 node=pixel-9-pro-fold…
+          starting pty command: [/usr/bin/tailscaled be-child ssh
+                --login-shell=/bin/bash --uid=1000 --tty-name=pts/2
+                --is-selinux-enforcing --force-v1-behavior --shell]
+```
+
+`--is-selinux-enforcing --force-v1-behavior` : **tailscaled detecte `Enforcing`
+tout seul et bascule sur son chemin de repli pty.** Ce n'est pas un
+contournement pose par S, c'est prevu dans le produit. `tailscaled` tourne par
+ailleurs en `unconfined_service_t`, donc non confine.
+
+### LA PREUVE N'ETAIT PAS A CHERCHER : ELLE PARLAIT
+
+Une seconde session Claude Code a ouvert un canal vers celle-ci pour annoncer
+que la connexion fonctionnait. L'arbre de processus de `pts/2` :
+
+```
+11173  tailscaled  be-child ssh  --tty-name=pts/2  --is-selinux-enforcing
+ 11181    /bin/bash -l
+  11292      claude          <- la session qui ecrivait
+```
+
+Sa socket : `/tmp/cc-socks/11292.sock`. **Son PID exact.** Elle ne rapportait pas
+que Tailscale SSH fonctionne — **elle tournait dedans.** Son premier message
+etait deja la mesure, 31 secondes apres l'ouverture de la session.
+
+### Trois faux temoins dans la meme soiree, et j'en ai commis un
+
+**Le mien.** Pour savoir qui repond sur le port 22 du tailnet, le reflexe est de
+sonder `100.103.169.98:22` **depuis `s` elle-meme**. Les deux sondes rendent
+`SSH-2.0-OpenSSH_10.2` — parce qu'une machine qui vise sa propre adresse
+tailscale ne traverse jamais le tunnel : le noyau route en local, droit sur
+`sshd`. **Un temoin qui rend la meme valeur dans les deux cas ne mesure rien.**
+
+**Et la reponse etait dans ma propre sortie, dix minutes plus tot.** Mon premier
+`ps -eZ` rendait `tailscaled … pts/5`. **Un demon ne possede pas de pty.**
+C'etait la session SSH de 21 h 53, ouverte a cet instant. Je ne l'ai pas lue.
+
+**Les deux autres viennent de la session voisine, et elle les a retires
+elle-meme.** Un `ausearch -m avc` qui echouait sur *Permission denied* avec un
+`|| echo` en bout de chaine, dont l'absence de sortie a ete lue comme une
+absence de denis — le releve reel est **84 denis aujourd'hui**, tous
+`bootupctl` et `tokio-rt-worker`, aucun sur tailscale ni sshd. Et un
+`ls /run/user/1000/cc-socks/` qui ne trouvait pas sa propre socket, d'ou la
+conclusion que le nom ne suivait pas le PID.
+
+**Il y a DEUX dossiers de sockets sur cette machine :**
+
+```
+/tmp/cc-socks/11292.sock                       <- la session venue du Pixel
+/run/user/1000/cc-socks/{3796,5974,5981,9283,11044}.sock   <- les cinq locales
+```
+
+*« Je ne peux pas voir » n'est pas « il n'y a rien »*, trois fois dans la meme
+heure, par deux sessions differentes.
+
+### Mosh passe, et c'est lui qui a tranche le pare-feu
+
+```
+22:29:56  --cmd=mosh-server 'new' '-c' '256' '-s' '-l' 'LANG=en_US.UTF-8'
+                 '--' 'tmux' 'new' '-A' '-s' 's'
+```
+
+| Temoin | Valeur |
+|---|---|
+| `mosh-server` | **en cours** |
+| Clients tmux | **deux** — `/dev/pts/2` (Tailscale SSH) et `/dev/pts/8` (mosh) |
+| Compteurs du Pixel | tx 5,9 Mo → **11,9 Mo** |
+
+Trois choses d'un coup : Tailscale SSH accepte une **commande non interactive**,
+`mosh-server` demarre a travers lui, et **l'UDP passe sur `tailscale0`**.
+
+Cette derniere etait une **deduction** que ce carnet refusait d'ecrire comme
+acquise : `firewall-cmd --get-zone-of-interface=tailscale0` repond `no zone`, et
+« donc il retombe sur la zone par defaut, qui ouvre `1025-65535/udp` » est le
+mecanisme documente de firewalld, pas une mesure. **Mosh l'a mesuree en se
+connectant.**
+
+La moitie serveur avait ete isolee d'abord, sur `s` seule : `LANG=fr_FR.UTF-8`
+(mosh refuse de demarrer hors UTF-8, panne classique ecartee) et `mosh-server`
+rendant `MOSH CONNECT 60999` en code 0. **Une variable a la fois.**
+
+### Ce que ca coute, et ce qu'il faut savoir avant que ca surprenne
+
+- **Mosh impose `LANG=en_US.UTF-8`**, celui de Termux, a la session qu'il ouvre.
+  Sans effet aujourd'hui — la session tmux `s` existait deja et garde
+  `fr_FR.UTF-8` — mais une session tmux **neuve** ouverte par mosh serait en
+  anglais sur un systeme dont toute l'interface est en francais.
+- **Deux clients sur une meme session tmux** : le compositeur de tmux dimensionne
+  la fenetre au plus petit des deux. Une connexion morte laissee attachee
+  retrecit l'affichage sans raison visible.
+- **S'attacher a la session `s` par `tmux new -A -s s` depuis le telephone
+  rejoint le pane qui fait tourner Claude Code sur la machine.** L'ecran du
+  telephone affiche alors l'invite de Claude, et tout ce qui est tape lui
+  arrive — y compris les commandes destinees a un shell. `pkg` n'existant pas
+  sur S, une commande Termux tapee la ne peut aboutir nulle part. Il faut
+  `CTRL-b c` pour une fenetre neuve, ou `Volume Bas + B` sur Termux, qui fait
+  office de `CTRL` sans aucune configuration.
+
+### Ce que cette passe ne prouve pas
+
+- **`XDG_RUNTIME_DIR` dans une session Tailscale SSH n'est pas mesure.** La
+  socket du telephone etait la seule dans `/tmp` quand les cinq autres sont
+  dans `XDG_RUNTIME_DIR` : l'indice est fort, la mesure n'a pas ete prise — le
+  processus a quitte pendant que je la cherchais. **Ce que ca vaudrait si ca se
+  confirmait :** sans `XDG_RUNTIME_DIR`, rien ne trouve le bus de session
+  utilisateur, donc `s-partage`, `s-android`, la coquille et l'agent polkit. Un
+  geste `s-*` lance depuis le telephone echouerait, ou reussirait a moitie en
+  silence. Le test tient en une ligne, depuis une session ouverte par Tailscale
+  SSH : `echo "[$XDG_RUNTIME_DIR]"`.
+- **Le repli par cle SSH n'a jamais servi et n'existe pas.**
+  `~/.ssh/authorized_keys` est **absent** pour `RyuRex`. Tout repose donc sur
+  Tailscale SSH ; le jour ou la politique du tailnet change, il n'y a pas de
+  seconde porte. *Ce n'est pas un incident, c'est une garantie absente* — meme
+  famille que la signature d'image.
+- **Les 84 denis AVC du jour ne sont pas expliques.** Ils ne touchent ni
+  tailscale ni sshd, et personne ne les a regardes.
+- **La survie a un vrai changement de reseau n'est pas mesuree.** Mosh est
+  prouve connecte ; le basculement Wi-Fi → donnees mobiles, qui est sa seule
+  raison d'etre ici, ne l'a pas ete.
+- **Le confort reel d'un TUI sur un ecran de telephone n'est pas juge.**
+
+---
+
 ## 2026-08-25, nuit — les quatre rôles étaient injoignables, et le Wizard prend sa forme
 
 Trois heures plus tôt, les rôles entraient dans le dépôt et le commit se
@@ -412,21 +574,20 @@ disponible, puisque les coutures se terminent par `ostree container commit`.
 
 ### Ce que cette passe ne prouve pas — et c'est presque tout le cote machine
 
-- **`tailscale up` n'a jamais tourne.** `sudo` exige un mot de passe dans cette
-  session, et l'appairage demande de toute facon un humain connecte a son
-  compte. Rien de l'acces distant n'est donc **exerce** a cette heure.
-- **Le script de construction n'a jamais ete construit.** Il est ecrit, sa
-  syntaxe validee, son mode `100755` et ses fins de ligne LF verifies — les
-  deux pieges du carnet — mais aucune CI ne l'a passe.
-- **Tailscale SSH n'est pas prouve ici.** La politique par defaut d'un tailnet
-  personnel comporte une regle `ssh` en `action: check`, donc une
-  reauthentification par navigateur de temps en temps. Si le tailnet n'en a
-  pas, la connexion sera refusee et il faudra une cle SSH classique. **Le repli
-  est prevu, il n'est pas mesure.**
-- **Mosh au-dessus de Tailscale SSH n'est pas prouve** : mosh amorce sa session
-  par un `ssh` qui execute `mosh-server`, puis passe en UDP direct. Ca devrait
-  passer ; ca sera mesure au premier essai, et le repli sur `ssh` + `tmux`
-  fonctionne de toute facon.
+- ~~**`tailscale up` n'a jamais tourne.**~~ **Lance, et le tailnet est monte** —
+  releve le 2026-08-25 a 22 h : `s` = `100.103.169.98`, le Pixel en connexion
+  directe. Voir la section de 22 h 30.
+- ~~**Le script de construction n'a jamais ete construit.**~~ **Construit,
+  publie et amorce** — image `44.20260825`, `sha256:08e8f0bb…` : `tailscaled`
+  est `enabled` et `mosh` est pose, sans qu'une commande ait ete tapee sur la
+  machine.
+- ~~**Tailscale SSH n'est pas prouve ici.**~~ **Prouve, et sous SELinux
+  `Enforcing`** — trois sessions au journal, `access granted` a chacune. Le
+  repli par cle SSH n'a donc jamais servi, et il **n'existe pas** :
+  `~/.ssh/authorized_keys` est toujours absent. Voir la section de 22 h 30.
+- ~~**Mosh au-dessus de Tailscale SSH n'est pas prouve**~~ **Mesure le
+  2026-08-25 a 22 h 29 : il passe.** Et c'est lui qui a tranche la question du
+  pare-feu que ce carnet laissait en deduction. Voir la section de 22 h 30.
 - **Le confort reel d'un TUI sur un ecran de telephone n'est pas juge.** C'est
   l'utilisateur qui l'exercera le premier.
 
