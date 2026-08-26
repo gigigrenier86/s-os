@@ -175,13 +175,133 @@ c'est la première fois qu'elle tient debout.
 - ~~`galerie/constellation` n'a toujours aucune capture.~~ **Elle en a une,
   prise le 2026-08-25 à 12 h 23 sur cette machine**, et c'est la première pièce
   de la Galerie rendue par une vraie carte graphique. Voir plus bas.
-- **L'image de S n'est ni signée ni vérifiée** — `ostree-unverified-registry`,
-  aucune étape `cosign` dans le flux d'Actions, et `policy.json` fait retomber
-  `ghcr.io/gigigrenier86` sur `insecureAcceptAnything` alors qu'il vérifie
-  `ghcr.io/ublue-os` par sigstore. Mesuré le 2026-08-25 au soir ; **rien n'a été
-  changé pour ça**. Garantie absente, pas incident. Voir la section de la nuit.
+- ~~**L'image de S n'est ni signée ni vérifiée**~~ — **elle est signée depuis le
+  2026-08-26 à 12 h 28, et la machine l'EXIGE depuis le redémarrage de 16 h 44.**
+  `rpm-ostree status` dit `ostree-image-signed` sur le déploiement booté, et la
+  politique active rejette une image que la clé de S ne signe pas. Voir la
+  section de 16 h 46. Le texte d'origine, vrai le 2026-08-25 au soir :
+  `ostree-unverified-registry`, aucune étape `cosign` dans le flux d'Actions, et
+  `policy.json` faisait retomber `ghcr.io/gigigrenier86` sur
+  `insecureAcceptAnything` alors qu'il vérifiait `ghcr.io/ublue-os` par sigstore.
 
 ---
+
+## 2026-08-26, 16 h 46 — la machine exige la signature de S, et le mot est enfin dans `rpm-ostree`
+
+Le carnet se terminait, deux sections plus bas, sur une phrase précise :
+*« Ce qui reste : le redémarrage. Tant qu'il n'a pas eu lieu, la politique
+active est l'ancienne, `rpm-ostree status` dit encore
+`ostree-unverified-registry` sur les trois déploiements, et `uupd` tirerait
+toujours sans rien exiger à 4 h. »*
+
+Le redémarrage a eu lieu à **16 h 44**. Les trois moitiés de cette phrase sont
+tombées ensemble.
+
+```
+● ostree-image-signed:docker://ghcr.io/gigigrenier86/s-os:latest
+       Digest : sha256:1a85013d…        Version : 44.20260826.2d1b55c
+
+  ostree-unverified-registry:docker://…  <- le repli, deploye sous l'ancienne politique
+       Digest : sha256:3308822c…        Version : 44.20260826.0fa3c09
+```
+
+**`ostree-image-signed`.** C'est la première fois que ce mot apparaît dans ce
+projet, et il ne s'obtient pas en signant : il s'obtient en **exigeant**. Le
+carnet distinguait les deux décisions depuis le 2026-08-25 ; la seconde est
+prise.
+
+### Éprouvé dans les deux sens, et cette fois sans policy de test
+
+La vérification de l'après-midi passait par une politique écrite dans le
+bloc-notes, avec `keyPath` remappé sur le déploiement en attente — nécessaire,
+puisque la politique active était encore l'ancienne. **Plus rien de tel ici :
+`skopeo` lit `/etc/containers/policy.json`, celui du système, celui qui gouverne
+`uupd`.**
+
+| | Ce que la machine répond |
+|---|---|
+| `1a85013d` — signée par la clé de S | `Copying blob` — **acceptée** |
+| `3308822c` — non signée par elle | `cryptographic signature verification failed: invalid signature when validating ASN.1 encoded signature` — **rejetée** |
+| `:latest` — ce que `uupd` tirera à 4 h | `Copying blob` — **passe** |
+
+Le message du rejet mérite d'être lu : la vérification **a trouvé une
+signature** — celle sans clé, par identité OIDC, qui reste publiée à côté de
+l'image — et elle ne valide pas contre la clé publique de S. Ce n'est pas une
+signature absente, c'est une signature qui n'est pas la bonne. C'est exactement
+le comportement voulu.
+
+Et la clé de l'image est celle du dépôt **au bit près** :
+`26bb8579…` des deux côtés.
+
+### Ce que ça change pour le repli, et il faut le dire
+
+`3308822c` est l'image du rollback. **C'est aussi, mot pour mot, celle que le
+sens 2 vient de rejeter.**
+
+Le filet tient quand même, et pour une raison mesurée le 2026-08-25 à 19 h 49 :
+un `bootc rollback` ne retélécharge rien — les deux arborescences sont déjà sur
+le disque, en clair, et la manœuvre coûte huit secondes et zéro octet de réseau.
+La politique gouverne le **tirage**, pas le retour.
+
+**Ce qui n'est plus possible, en revanche, c'est de re-tirer cette image.** Une
+machine neuve, ou celle-ci après un nettoyage du magasin, ne pourrait pas
+l'installer. Ce n'est pas un incident : c'est le prix normal d'une politique qui
+exige, et il vaut d'être écrit avant d'être découvert un jour où l'on compte
+dessus.
+
+### L'état de la session, relevé au même moment
+
+| | |
+|---|---|
+| Unités en échec | **aucune**, système et session |
+| `s-session.target` / `graphical-session.target` | **actives** toutes deux |
+| `s-partage.service` | a lié le dossier partagé à **16:44:13** — treize secondes après l'allumage |
+| Agent polkit | `polkit-kde-authentication-agent-1`, PID 2354 |
+| Clavier | `ca` / `multix` — la disposition importée de Windows tient |
+| `s-windows.service` | active, **`wineserver` vivant** |
+| `uupd.timer` | actif, prochain passage **jeudi 04 h 00** — sous la nouvelle politique |
+
+L'image bootée vient de `2d1b55c` ; l'écart avec `HEAD` (`cfb0f99`) ne porte que
+sur ce carnet. **Tout le code du dépôt est dans l'image.**
+
+### ET MON TÉMOIN A MENTI, DANS LA FAMILLE QUE CE CARNET COLLECTIONNE
+
+Pour savoir si `s-partage` avait tourné, j'ai interrogé :
+
+```
+systemctl --user show s-partage.service -p Result -p ExecMainStatus
+    Result=success
+    ExecMainStatus=0
+    ActiveState=inactive
+```
+
+J'en ai conclu qu'il avait tourné et fini. **`s-partage.service` n'est pas une
+unité utilisateur** — elle vit dans `/usr/lib/systemd/system/`. Et
+`systemctl --user show` d'une unité qui **n'existe pas** ne dit pas qu'elle
+n'existe pas : il rend un objet par défaut, dont `Result=success` et
+`ExecMainStatus=0`.
+
+**Un témoin qui rend « succès » pour une chose absente est le succès silencieux
+retourné vers l'outil de mesure.** Le journal, lui, disait `-- No entries --`,
+et c'est cette contradiction qui a fait chercher plus loin. La forme sûre est
+`systemctl --user cat`, qui répond franchement *« No files found »*, ou
+`list-unit-files`, qui ne montre que ce qui existe.
+
+C'est la même leçon que `pgrep -x` tronqué à quinze caractères et que
+l'`ostree=` du noyau : **un témoin qui ne peut pas dire « je ne sais pas » ne
+mesure rien.**
+
+### Ce que cette passe ne prouve pas
+
+- **`uupd` n'a pas encore tourné sous cette politique.** Le sens de sa mise à
+  jour est prouvé à froid par `skopeo`, avec le même fichier de politique — mais
+  le passage réel de 4 h n'a pas eu lieu. C'est la dernière chose à regarder,
+  et elle se regarde toute seule demain matin.
+- **Aucune image mal signée n'a jamais atteint cette machine par le chemin
+  normal.** Le rejet est mesuré par `skopeo`, pas par un `bootc upgrade` qui
+  aurait rencontré une vraie mauvaise image.
+- **Le glitch d'affichage de Waydroid n'a pas été revu**, Android est `STOPPED`,
+  et PURPLE n'a pas été rouvert depuis le redémarrage.
 
 ## 2026-08-26, 16 h — un cinquieme role : l'oeil qui regarde l'ecran avant que quiconque touche au code
 
@@ -484,12 +604,11 @@ mesure mesure encore moins.
   3308822c  non signee par elle ->  REJETEE
   ```
 
-  **Ce qui reste : le redemarrage.** Tant qu'il n'a pas eu lieu, la politique
-  active est l'ancienne, `rpm-ostree status` dit encore
-  `ostree-unverified-registry` sur les trois deploiements, et `uupd` tirerait
-  toujours sans rien exiger a 4 h. Le deploiement en attente porte la
-  politique, la cle et la declaration — verifies fichier par fichier, la cle
-  identique a celle du depot au bit pres.
+  ~~**Ce qui reste : le redemarrage.**~~ **Il a eu lieu a 16 h 44, et la chaine
+  est eprouvee avec la politique REELLE du systeme** : l'image signee passe,
+  l'image non signee par la cle est rejetee cryptographiquement, et `:latest`
+  — ce que `uupd` tirera a 4 h — passe. `rpm-ostree status` dit desormais
+  `ostree-image-signed`. Voir la section de 16 h 46.
 - **La fenetre Android perd 173 pixels de largeur**, et l'utilisateur l'accepte
   pour l'instant. Le rapport 1,70 est un choix de marge sous le seuil de 1,75 ;
   **la valeur exacte du seuil n'a pas ete mesuree**, elle est lue dans AOSP.
@@ -779,8 +898,8 @@ maintenant : c'est elle qu'il faut avoir vue passer avant de poser l'entrée dan
 
 ### Ce qui reste, et qui demande une décision ou une présence
 
-- **Exiger la signature** (`policy.json`) — à faire après que `cosign verify`
-  ait répondu, jamais avant.
+- ~~**Exiger la signature** (`policy.json`)~~ — **fait, et actif sur la machine
+  depuis le redémarrage du 2026-08-26 à 16 h 44.** Voir la section de 16 h 46.
 - ~~**Android n'a toujours pas tourné**~~ **Il tourne depuis le 2026-08-26
   a 15 h, et ce qui le bloquait n'etait pas Android : deux blocs de `s-android`
   mouraient sur une redirection vers un journal devenu root. Voir la section de
