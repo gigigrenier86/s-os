@@ -132,8 +132,35 @@ jobs:
 
       - name: Construire l'image
         run: |
+          # LES ETIQUETTES, ET POURQUOI ELLES ONT ETE AJOUTEES LE 2026-08-26.
+          #
+          # Le Containerfile n'en posait AUCUNE : l'image heritait entierement
+          # de celles de Bazzite. Releve ce jour-la sur l'image publiee, alors
+          # que son manifeste venait d'etre construit :
+          #
+          #   org.opencontainers.image.revision = 75cf7fe1...  <- pas un commit de S
+          #   org.opencontainers.image.created  = 2026-08-25T23:59:43Z
+          #   org.opencontainers.image.version  = 44.20260825
+          #   (manifeste reellement construit le 2026-08-26 a 11 h 02 UTC)
+          #
+          # CE QUE CA COUTAIT : l'image ne pouvait pas dire de quel commit elle
+          # venait. Le matin meme, repondre a « est-ce que l'image porte bien ce
+          # que le depot contient ? » a demande de comparer 75 fichiers un par
+          # un. Une etiquette y repond en une commande. Et « bootc status »
+          # affichait la MEME version pour l'image demarree et pour celle de
+          # repli, alors que leurs condensats different.
+          #
+          # La version porte le jour ET le commit court : elle bouge donc a
+          # chaque construction, ce que « 44.20260825 » ne faisait pas.
+          VERSION="44.$(date -u +%Y%m%d).$(git rev-parse --short HEAD)"
+          echo "Version de cette image : $VERSION"
           podman build \
             --tag "${IMAGE_NAME}:${GITHUB_SHA}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --label "org.opencontainers.image.version=${VERSION}" \
+            --label "org.opencontainers.image.title=S" \
             --file Containerfile \
             .
 

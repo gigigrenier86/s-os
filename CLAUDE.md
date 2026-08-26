@@ -308,7 +308,31 @@ second critère — `steam_proton` désigne le monde Windows, le titre désigne 
 programme dedans. **Éprouvé depuis un shell nu**, sans affichage ni bus : la
 coquille en 1920×1080, la barre en 1920×52, par son titre.
 
-### 6. Les cinq alertes que la revue a tuées
+### 6. L'image ne pouvait pas dire de quel commit elle venait
+
+Trouvé en vérifiant autre chose : le `:latest` publié portait
+
+```
+org.opencontainers.image.revision = 75cf7fe1...   <- n'existe pas dans S
+org.opencontainers.image.created  = 2026-08-25T23:59:43Z
+org.opencontainers.image.version  = 44.20260825
+manifeste réellement construit le   2026-08-26 à 11 h 02 UTC
+```
+
+Le Containerfile ne pose **aucune** étiquette : elles viennent toutes de
+Bazzite. `75cf7fe1` est un commit d'ublue-os, pas de S — vérifié,
+`git cat-file` ne le connaît pas.
+
+**Ce que ça coûtait, et ce n'est pas théorique :** le matin même, répondre à
+*« est-ce que l'image porte bien ce que le dépôt contient ? »* a demandé de
+comparer **75 fichiers un par un**. Une étiquette y répond en une commande. Et
+`bootc status` affichait la même version `44.20260825` pour l'image démarrée
+**et** pour celle de repli, alors que leurs condensats diffèrent.
+
+La construction pose désormais `revision`, `source`, `created`, `title`, et une
+version qui bouge : `44.<jour>.<commit court>`.
+
+### 7. Les cinq alertes que la revue a tuées
 
 Une alerte réfutée proprement ferme une piste. Elles valent d'être écrites :
 
