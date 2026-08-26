@@ -191,6 +191,16 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/45-telephone.sh
 
+# EXIGER LA SIGNATURE — apres le COPY, qui pose la cle et la declaration.
+#
+# Sa place ici n'est pas indifferente : le script LIT deux fichiers venus de
+# « COPY files/ / » et echoue s'ils manquent. Plus haut, il ne les verrait pas
+# et livrerait une image qui exige une signature qu'elle ne sait pas verifier.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/46-signature.sh
+
 # Les coutures — la partie qui bouge le plus
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
