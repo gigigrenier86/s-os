@@ -346,6 +346,52 @@ Une alerte réfutée proprement ferme une piste. Elles valent d'être écrites :
 
 Et la dérive dépôt/image se limitait aux deux fichiers corrigés le matin même.
 
+### Ce que cette revue a cassé, et ce qu'il a fallu pour le voir
+
+La construction **#70 a échoué**, sur mes changements. Elle est morte à **426 s
+sur les 517** d'une construction réussie — donc dans la dernière couche, celle
+des coutures. Les journaux d'Actions répondent **403** sans droits admin, et
+`gh` n'est pas sur la machine : le message d'erreur était hors d'atteinte.
+
+Tout ce qui se vérifie sans lui a été vérifié, et **tout passait** : les onze
+contrôles par motif rejoués un par un contre les fichiers réels, le bloc F-Droid
+rejoué dans un conteneur Fedora, la clé bien présente dans le commit poussé,
+aucun `.containerignore`. Quatre pistes mortes.
+
+**Alors la machine a construit l'image elle-même.** `podman` est là — le
+Containerfile dit encore *« elle n'a ni podman ni WSL »*, et ce n'est plus vrai.
+Vingt et une couches plus tard, le message :
+
+```
+gpg: Fatal: can't create directory '/root/.gnupg': No such file or directory
+ECHEC : build_files/cles/f-droid.asc ne porte pas la sous-cle attendue.
+```
+
+**`/root` est un lien vers `var/roothome`**, et `/var` est vide pendant la
+construction d'une image ostree. `gpg` crée son dossier de travail au premier
+appel qui en a besoin — `--show-keys` en a besoin, `--dearmor` non — et il n'y a
+nulle part où le créer. Un outil innocent, une vérification juste, une image qui
+ne se construit plus.
+
+**Et la seconde ligne est un faux verdict de plus, le mien.** Mon `|| { echo
+"ECHEC : ... ne porte pas la sous-clé attendue" }` attribuait à la clé
+n'importe quel échec de la commande — y compris la mort de l'outil. Une branche
+d'échec qui nomme UNE cause doit d'abord montrer ce qui s'est réellement passé.
+La nouvelle version affiche la sortie de `gpgv` avant de conclure.
+
+**Le correctif :** plus aucun appel à `gpg`. Le trousseau est posé en forme
+**binaire** dans le dépôt — ce qui supprime le `--dearmor` — et `gpgv` suffit :
+il ne fait que vérifier, avec le trousseau qu'on lui donne. `GNUPGHOME` est
+malgré tout dérouté vers `/tmp`, monté en tmpfs pour ce `RUN`. Mesuré en
+conteneur : signature bonne, empreinte confirmée **sur la sortie de `gpgv`
+elle-même**, et `/root` comme `/var` restent intacts.
+
+**Ce que ça change au-delà de ce défaut :** cette machine peut désormais
+reproduire une construction entière en local, avec son journal complet, sans
+dépendre d'Actions ni de droits qu'on n'a pas. Toute panne de construction se
+diagnostique ici maintenant, en une passe, au lieu de neuf minutes par
+hypothèse.
+
 ### Ce qui reste, et qui demande une décision ou une présence
 
 - **Exiger la signature** (`policy.json`) — à faire après que `cosign verify`

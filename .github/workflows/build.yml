@@ -78,10 +78,10 @@ jobs:
           # dans /ctx. Son absence ne se verrait donc pas dans la boucle
           # ci-dessus — elle se verrait neuf minutes plus tard, au moment ou la
           # verification de signature en a besoin.
-          if [ -s build_files/cles/f-droid.asc ]; then
-            echo "  present : build_files/cles/f-droid.asc"
+          if [ -s build_files/cles/f-droid.gpg ]; then
+            echo "  present : build_files/cles/f-droid.gpg"
           else
-            echo "  ABSENT DU CONTEXTE : build_files/cles/f-droid.asc"
+            echo "  ABSENT DU CONTEXTE : build_files/cles/f-droid.gpg"
             manque=1
           fi
           # LES CONTROLES PAR MOTIF, REJOUES CONTRE LES FICHIERS REELS.

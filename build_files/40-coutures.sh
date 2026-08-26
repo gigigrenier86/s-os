@@ -52,20 +52,49 @@ curl -fsSL --retry 3 -o /usr/share/s/apk/fdroid.apk https://f-droid.org/F-Droid.
 # n'est pas un controle.
 CLE_FDROID_ATTENDUE=802A9799016112346E1FEFF47A029E54DD5DCE7A
 curl -fsSL --retry 3 -o /tmp/fdroid.apk.asc https://f-droid.org/F-Droid.apk.asc
-gpg --dearmor < /ctx/build_files/cles/f-droid.asc > /tmp/fdroid.gpg
 
-# L'empreinte du trousseau pose dans le depot est confrontee a celle qu'on
-# attend AVANT de s'en servir : un remplacement de ce fichier au fil des
-# commits se verrait ici, et pas seulement le jour ou quelqu'un le relirait.
-gpg --show-keys --with-colons /ctx/build_files/cles/f-droid.asc \
-    | grep -q "^fpr:::::::::${CLE_FDROID_ATTENDUE}:" \
-    || { echo "ECHEC : build_files/cles/f-droid.asc ne porte pas la sous-cle attendue." >&2; exit 1; }
+# AUCUN APPEL A « gpg » ICI, ET C'EST UNE CORRECTION PAYEE PAR UNE CONSTRUCTION.
+#
+# La premiere version de ce controle appelait « gpg --dearmor » et
+# « gpg --show-keys ». La construction a echoue a 426 s sur 517 — pile sur cette
+# couche, la derniere. La cause n'etait pas la verification : c'est que gpg cree
+# son dossier « ~/.gnupg » au premier appel, que « /root » est un LIEN vers
+# « var/roothome » sur un systeme ostree, et que ce RUN se termine par
+# « ostree container commit », qui refuse du contenu dans /var.
+#
+# Un outil parfaitement innocent, une verification juste, et une image qui ne se
+# construit plus — parce qu'un dossier de travail est tombe dans le seul endroit
+# que cette couche doit laisser vide.
+#
+# gpgv suffit et ne cree rien : il ne fait QUE verifier, avec le trousseau
+# qu'on lui donne. Le trousseau est donc pose dans le depot en forme BINAIRE
+# (build_files/cles/f-droid.gpg), ce qui supprime le « --dearmor ». GNUPGHOME
+# est malgre tout deroute vers /tmp — monte en tmpfs pour ce RUN, donc jamais
+# dans l'image — au cas ou une version future de gpgv voudrait ecrire.
+#
+# Pour relire ou refaire ce trousseau, sur une machine de travail et non ici :
+#   gpg --show-keys build_files/cles/f-droid.gpg
+#   curl -fsSL 'https://keys.openpgp.org/vks/v1/by-fingerprint/37D2C98789D8311948394E3E41E7044E1DBA2E89' \
+#     | gpg --dearmor > build_files/cles/f-droid.gpg
+export GNUPGHOME=/tmp/gnupg
+install -d -m 700 "$GNUPGHOME"
 
-if ! gpgv --keyring /tmp/fdroid.gpg /tmp/fdroid.apk.asc /usr/share/s/apk/fdroid.apk; then
+# L'EMPREINTE EST VERIFIEE SUR LA SORTIE DE gpgv LUI-MEME, et pas a cote : une
+# signature valide faite par une AUTRE cle passerait un controle qui se
+# contenterait du code de retour. On exige les deux.
+if ! gpgv --keyring /ctx/build_files/cles/f-droid.gpg \
+          /tmp/fdroid.apk.asc /usr/share/s/apk/fdroid.apk > /tmp/fdroid-verdict 2>&1; then
+    cat /tmp/fdroid-verdict >&2
     echo "ECHEC : la signature de F-Droid.apk ne verifie pas." >&2
     exit 1
 fi
-rm -f /tmp/fdroid.apk.asc /tmp/fdroid.gpg
+if ! grep -q "key ${CLE_FDROID_ATTENDUE}" /tmp/fdroid-verdict; then
+    cat /tmp/fdroid-verdict >&2
+    echo "ECHEC : signature valide, mais faite par une autre cle que celle attendue." >&2
+    exit 1
+fi
+rm -rf /tmp/fdroid.apk.asc /tmp/fdroid-verdict "$GNUPGHOME"
+unset GNUPGHOME
 echo "  F-Droid : $(stat -c%s /usr/share/s/apk/fdroid.apk) octets, signature verifiee"
 
 # --- Les types que Windows connait et que Linux ignore ----------------------
