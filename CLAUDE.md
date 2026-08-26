@@ -183,6 +183,79 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-26, 16 h — un cinquieme role : l'oeil qui regarde l'ecran avant que quiconque touche au code
+
+Un brouillon trainait a la racine du depot, `Voyeur.md`, ecrit a la main. Il est
+devenu `.claude/skills/voyeur/SKILL.md`, a cote des quatre autres — un `.md`
+pose a la racine du dossier des roles ne s'invoque pas, il faut
+`<nom>/SKILL.md` avec son en-tete `name:` / `description:`. Le brouillon est
+sorti du depot une fois absorbe.
+
+**Son declencheur est une phrase, pas un besoin technique :** « regarde je te
+montre ». C'est le premier role qui s'arme sur ce que dit l'utilisateur plutot
+que sur l'etat du code.
+
+### Ce que le brouillon disait, et ce qui a ete corrige
+
+Il ne connaissait que deux destinataires — le Wizard et l'Alchimiste — et il en
+manquait donc la moitie. La table de repartition en couvre quatre : le Wizard
+pour ce qu'il faut chercher ou dont l'origine ne se voit pas, l'Alchimiste pour
+ce qui n'existe pas et qu'il faut forger, le Contremaitre pour ce que l'OS ou
+l'image immuable barre, LePeintre pour ce qui est laid ou mal rendu.
+
+Il faisait aussi du Voyeur le « chef d'orchestre », ce qui entre en collision
+avec la regle 0 : l'ordre des roles est celui du travail, et le Wizard y passe
+le premier parce que la faute qu'il evite se commet avant qu'on la voie.
+**Tranche ainsi : le Voyeur est en amont des quatre, pas au-dessus.** Il
+designe la cible ; le Wizard garde sa preseance des qu'il y a quelque chose a
+chercher.
+
+### La regle qu'il porte et que les autres n'ont pas
+
+**Une capture est une affirmation sur le passe.** Elle prouve qu'une chose s'est
+affichee, jamais *pourquoi*. Ce carnet en avait deja la preuve datee, plus haut,
+sans l'avoir formulee comme une regle : un ecran montrait
+`System.ComponentModel.Win32Exception (0x80004005): Success.` a
+`HwndWrapper..ctor`, code 82. Le lire comme une regression de S etait faux — le
+shell qui lancait le programme n'avait pas de `DISPLAY`, et ni le mot
+« display » ni le mot « X11 » n'apparaissaient a l'ecran. **L'oeil avait raison
+sur les pixels et tort sur la cause.**
+
+D'ou l'obligation qui lui est faite : separer a voix haute *ce que je vois* de
+*ce que j'en deduis*. Le premier est un fait, le second reste une hypothese tant
+qu'une commande ne l'a pas confirmee — la meme regle que le Wizard, appliquee a
+la source la moins verifiable de toutes.
+
+Il herite aussi des deux pieges de `grimoire/kwin-capturer-la-coquille.sh`, car
+il peut aller photographier lui-meme : la classe de fenetre de tout programme
+Windows est `steam_proton` et jamais son nom, et `spectacle` prive de
+`XDG_RUNTIME_DIR` ou de `WAYLAND_DISPLAY` n'ecrit rien en rendant 0.
+
+### Et le chargement d'un role vient d'etre observe pour la premiere fois
+
+Le 2026-08-25 au soir, ce carnet notait que **le chargement des quatre roles
+n'etait toujours pas observe** — les fichiers existaient, rien ne prouvait
+qu'ils entraient en session.
+
+Le fichier `voyeur/SKILL.md` a ete ecrit a 16 h ; **Claude Code a annonce
+`voyeur` parmi les competences disponibles dans la foulee, sans redemarrage de
+session.** Le lien symbolique `~/.claude/skills -> S/.claude/skills` suffit donc
+a rendre un role neuf invocable immediatement.
+
+**Ce que cela ne prouve pas :** que les quatre autres soient charges en ce
+moment. Un seul nom a ete annonce, celui qui venait d'apparaitre. La mesure qui
+trancherait pour les cinq reste a faire, et elle est simple — ouvrir une session
+neuve et regarder la liste complete.
+
+### Ce que la regle 0 dit encore
+
+Elle annonce « les quatre roles » et les nomme. Elle date, elle reste telle
+quelle, et cette entree la remplace sur le compte : **ils sont cinq**. L'ordre
+du travail, lui, ne change pas — on cherche avant de forger, on forge avant de
+contourner, on contourne avant de peindre. Le Voyeur ne s'y insere pas : il ne
+travaille pas, il regarde et il nomme.
+
+
 ## 2026-08-26, apres-midi — signer ne suffit pas a exiger, et Android mourait sur une redirection
 
 Trois chantiers menes avec l'utilisateur devant la machine. Le premier a fait
@@ -358,13 +431,65 @@ Etat final, releve par kwin et **valide a l'ecran par l'utilisateur** :
 waydroid.com.google.android.youtube | 86,0 1747x1028 | bas=1028
 ```
 
+### 5. PURPLE s'ouvre et peint — le carnet avait tort
+
+Le carnet portait, depuis le matin : *« PURPLE ne s'ouvre plus dans aucun des
+deux rendus, sans une ligne de journal. Non explique, et pas etabli comme
+regression. »* **Rien de cette phrase n'a survecu a l'essai.**
+
+| Ce que le carnet dit | Ce que la machine repond |
+|---|---|
+| ne s'ouvre plus | fenetre `steam_proton \| PURPLE \| 352x561` |
+| sans une ligne de journal | rien a journaliser : il ne plante pas |
+| aucun processus a trente secondes | vivant a 30 s, a 70 s, et apres |
+| fenetre noire (1 couleur) | **3198 couleurs**, logo et version 2.26.803.19 lisibles |
+
+`DisableHWAcceleration=1` est bien pose : PURPLE tourne dans le rendu logiciel
+que le carnet lui avait choisi le 25 aout, et **ce reglage tient**.
+
+**Ce qui reste vrai, et c'est plus etroit :** il ne depasse pas son ecran de
+demarrage. Il y stagne, passe de cinq processus a deux, sans erreur. Non
+explique — un lanceur NCSoft qui attend probablement quelque chose du reseau.
+
+**ET MES DEUX BANCS ONT MENTI, ENCORE.** C'est la sixieme et la septieme fois
+que ce carnet l'ecrit :
+
+- `pgrep -f '/wineserver$'` a declare le serveur resident **mort** alors qu'il
+  tournait depuis 1 h 24. Le motif exige une ligne de commande qui FINIT par
+  `/wineserver` ; le serveur porte `-f -p`. La regle du 26 aout au matin visait
+  les `.exe` tronques a quinze caracteres — **elle vaut aussi pour tout ce qui
+  prend des arguments.**
+- Mon premier lancement, en `( ... ) &` depuis un shell de banc, a **tue
+  PURPLE** avec le groupe de processus de son lanceur. Le carnet decrivait deja
+  ce piege pour `wineserver` le 26 aout a l'aube ; je l'ai refait sur un autre
+  programme. La forme sure est `setsid ... < /dev/null &`.
+
+*Un banc qui ne peut pas echouer ne mesure rien* — et un banc qui tue ce qu'il
+mesure mesure encore moins.
+
 ### Ce que cette passe ne prouve pas
 
-- **La signature par cle n'a jamais tourne.** L'etape est ecrite et se saute
-  tant que `SIGNING_SECRET` n'est pas pose. Rien ne prouve qu'elle signe.
-- **`policy.json` n'est pas touche** : `rpm-ostree status` dit toujours
-  `ostree-unverified-registry`, et la machine tire toujours `:latest` chaque
-  nuit par `uupd` sans rien exiger.
+- ~~**La signature par cle n'a jamais tourne.**~~ **Elle tourne.** L'utilisateur
+  a genere la paire dans son terminal — la moitie privee n'est jamais passee
+  par la session — et pose les deux secrets. Run sur `92754e2` : l'image
+  `a96c6a1a` verifie *« The signatures were verified against the specified
+  public key »*, code 0.
+- ~~**`policy.json` n'est pas touche.**~~ **Il l'est, par
+  `build_files/46-signature.sh`, et la chaine est eprouvee dans les deux sens
+  AVANT redemarrage** — avec la politique exacte de l'image en attente,
+  `keyPath` remappe sur le deploiement :
+
+  ```
+  1a85013d  signee par la cle   ->  « Copying blob »  = ACCEPTEE
+  3308822c  non signee par elle ->  REJETEE
+  ```
+
+  **Ce qui reste : le redemarrage.** Tant qu'il n'a pas eu lieu, la politique
+  active est l'ancienne, `rpm-ostree status` dit encore
+  `ostree-unverified-registry` sur les trois deploiements, et `uupd` tirerait
+  toujours sans rien exiger a 4 h. Le deploiement en attente porte la
+  politique, la cle et la declaration — verifies fichier par fichier, la cle
+  identique a celle du depot au bit pres.
 - **La fenetre Android perd 173 pixels de largeur**, et l'utilisateur l'accepte
   pour l'instant. Le rapport 1,70 est un choix de marge sous le seuil de 1,75 ;
   **la valeur exacte du seuil n'a pas ete mesuree**, elle est lue dans AOSP.
@@ -664,7 +789,10 @@ maintenant : c'est elle qu'il faut avoir vue passer avant de poser l'entrée dan
   `false`, et `waydroid_base.prop` (25 août, 10 h 44) ne porte **aucun** des
   réglages. La demande était juste ; c'est le blocage sans limite qui ne
   l'était pas, et il est réparé. Il faut quelqu'un devant la machine.
-- **PURPLE ne s'ouvre plus** dans aucun des deux rendus, sans une ligne de
+- ~~**PURPLE ne s'ouvre plus**~~ **FAUX, mesure le 2026-08-26 en fin de
+  journee : il s'ouvre, peint 3198 couleurs, et survit. Deux de mes bancs
+  mentaient — voir la section de l'apres-midi.** Le texte d'origine :
+  PURPLE ne s'ouvre plus dans aucun des deux rendus, sans une ligne de
   journal. Non expliqué, et pas établi comme régression.
 - **`ntsync`** présent, inutilisé. **RapidO**, contenu de page jamais observé.
 
