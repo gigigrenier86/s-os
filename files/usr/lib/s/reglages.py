@@ -152,6 +152,38 @@ def _regler_ddc(code_vcp, valeur):
 # Les radios
 # --------------------------------------------------------------------------
 
+def _autre_route_que_le_wifi():
+    """Existe-t-il une voie vers l'exterieur qui ne soit pas le Wi-Fi ?
+
+    ═══ POURQUOI CETTE QUESTION EXISTE ═══
+    Sur cette machine, mesure le 2026-08-26 : « eno1 » est la mais son
+    « carrier » vaut 0 — aucun cable — et la route par defaut passe par
+    « wlp2s0 ». LE WI-FI EST LA SEULE VOIE.
+
+    L'eteindre coupe donc Internet, Tailscale, et l'acces distant depuis le
+    telephone. Et si l'on est JUSTEMENT a distance au moment du clic, on se
+    coupe soi-meme sans aucun moyen de rallumer : il faut retourner devant la
+    machine. C'est la meme faute que la luminosite descendue a zero le meme
+    soir — un geste qui se rend irreversible.
+    """
+    try:
+        with open("/proc/net/route", "r", encoding="utf-8") as f:
+            lignes = f.read().splitlines()[1:]
+    except OSError:
+        return True   # on ne sait pas : on ne verrouille pas
+    for ligne in lignes:
+        champs = ligne.split()
+        if len(champs) < 3 or champs[1] != "00000000":
+            continue
+        nom = champs[0]
+        # tailscale0 n'est pas une voie INDEPENDANTE : il passe par-dessus le
+        # Wi-Fi. Le compter serait se mentir.
+        if nom.startswith(("wl", "wlan", "tailscale", "wg")):
+            continue
+        return True
+    return False
+
+
 def _wifi():
     if not _outil("nmcli"):
         return None
@@ -162,12 +194,34 @@ def _wifi():
     # nmcli parle la langue du systeme : « enabled » en anglais, « activé » en
     # francais. On teste les deux plutot que d'imposer LC_ALL, qui changerait
     # aussi les messages d'erreur qu'on affiche a l'utilisateur.
-    return {"actif": etat.startswith("enab") or etat.startswith("activ")}
+    actif = etat.startswith("enab") or etat.startswith("activ")
+
+    # Le nom du reseau vaut mieux que « allume » : il dit A QUOI on est
+    # connecte, ce qu'on cherche vraiment en regardant cette etoile.
+    reseau = ""
+    code2, sortie2 = _lire(["nmcli", "-t", "-f", "TYPE,STATE,CONNECTION",
+                            "device"])
+    if code2 == 0:
+        for ligne in sortie2.splitlines():
+            parts = ligne.split(":")
+            if len(parts) >= 3 and parts[0] == "wifi" and parts[1] == "connected":
+                reseau = parts[2]
+                break
+
+    return {"actif": actif, "reseau": reseau,
+            "seule_voie": actif and not _autre_route_que_le_wifi()}
 
 
 def _basculer_wifi(actif):
     if not _outil("nmcli"):
         return False, "aucun controle du reseau"
+    # LE REFUS EST DANS LE MOTEUR, PAS SEULEMENT DANS L'INTERFACE. Une garde
+    # posee uniquement cote QML ne protegerait pas un appel venu d'ailleurs —
+    # et c'est ici qu'on sait si le Wi-Fi est la seule voie.
+    if not actif:
+        etat = _wifi()
+        if etat and etat.get("seule_voie"):
+            return False, "seule voie vers le reseau — l'eteindre couperait tout"
     code, sortie = _lire(["nmcli", "radio", "wifi", "on" if actif else "off"], delai=12)
     _oublier("wifi")
     return (code == 0), (sortie.strip()[:120] or ("Wi-Fi allume" if actif else "Wi-Fi eteint"))
@@ -374,7 +428,13 @@ def rapides():
     if w is not None:
         sortie.append({"cle": "wifi", "nom": "Wi-Fi", "ico": "i-reseau",
                        "type": "bascule", "actif": w["actif"],
-                       "detail": "allume" if w["actif"] else "eteint"})
+                       # VERROUILLE QUAND C'EST LA SEULE VOIE. On ne retire pas
+                       # l'etoile — voir l'etat du reseau est utile, et une
+                       # etoile absente ne dit rien. On retire le pouvoir de
+                       # couper la branche sur laquelle on est assis.
+                       "verrouille": bool(w.get("seule_voie")),
+                       "detail": (w.get("reseau") or "allume") if w["actif"]
+                                 else "eteint"})
 
     bt = _cache("bluetooth", _bluetooth)
     if bt is not None:

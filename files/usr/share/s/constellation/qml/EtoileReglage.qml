@@ -75,7 +75,18 @@ Item {
     scale: survol.hovered ? 1.10 : 1.0
     Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
-    HoverHandler { id: survol; cursorShape: Qt.PointingHandCursor }
+    // UN REGLAGE PEUT ETRE VERROUILLE, et le curseur le dit avant le clic.
+    // Le Wi-Fi de cette machine est la seule voie vers le reseau : l'eteindre
+    // couperait Internet, le tailnet et l'acces distant — et si l'on est
+    // justement a distance, il faudrait revenir devant la machine pour le
+    // rallumer. Le clic reste possible et RAPPELLE POURQUOI : un geste refuse
+    // en silence est pire qu'un geste refuse.
+    readonly property bool verrouille: reglage.verrouille === true
+
+    HoverHandler {
+        id: survol
+        cursorShape: etoile.verrouille ? Qt.ArrowCursor : Qt.PointingHandCursor
+    }
 
     Rectangle {
         anchors.fill: parent

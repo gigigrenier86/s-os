@@ -444,7 +444,9 @@ rien. Le jour où la carte est resserrée, elle apparaît seule.
 - **Le survol réel du bord n'a été mesuré qu'en forçant la propriété depuis
   Python.** Les captures montrent le résultat ; le geste, c'est l'utilisateur
   qui l'exerce.
-- **La glissière au clic vient d'être écrite et n'a pas été essayée.**
+- ~~**La glissière au clic vient d'être écrite et n'a pas été essayée.**~~
+  **Essayée par l'utilisateur le 2026-08-26 au soir, elle fonctionne.**
+  C'était la dernière pièce de ce pan que personne n'avait exercée.
 - **`s-android` n'est pas appelé par la bascule Android** quand elle éteint :
   seul le démarrage passe par le geste de S, l'arrêt appelle `waydroid session
   stop` directement.

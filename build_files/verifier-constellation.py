@@ -91,8 +91,11 @@ FAUX_REGLAGES = [
     {"cle": "luminosite", "nom": "Luminosite", "ico": "i-ecran",
      "type": "glissiere", "valeur": 60, "max": 100, "actif": True,
      "detail": "60 %"},
+    # VERROUILLE DANS LE LEURRE, parce que c'est le cas REEL de cette machine :
+    # le Wi-Fi y est la seule voie vers le reseau. Un leurre qui ne montrerait
+    # que des reglages libres n'exercerait jamais cette branche.
     {"cle": "wifi", "nom": "Wi-Fi", "ico": "i-reseau", "type": "bascule",
-     "actif": True, "detail": "allume"},
+     "actif": True, "verrouille": True, "detail": "Net gigi"},
     {"cle": "energie", "nom": "Energie", "ico": "i-alim", "type": "choix",
      "valeur": "balanced", "actif": True, "detail": "Equilibre",
      "choix": [{"cle": "balanced", "nom": "Equilibre"},
