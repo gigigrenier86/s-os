@@ -70,11 +70,39 @@ jobs:
             head -c2 "$f" | grep -q '#!' || { echo "  SANS SHEBANG : $f"; manque=1; }
             bash -n "$f" || { echo "  SYNTAXE CASSEE : $f"; manque=1; }
           done
+          # LES CONTROLES PAR MOTIF, REJOUES CONTRE LES FICHIERS REELS.
+          #
+          # Un script de construction qui cherche une chaine dans un fichier de
+          # l'image se desynchronise des qu'on reecrit ce fichier — et la
+          # construction tombe NEUF MINUTES plus tard, sur une faute qui se lit
+          # ici en deux secondes.
+          #
+          # Vecu le 2026-08-26 : le geste appelait
+          # « "$S_GESTES/s-lien-windows" --recenser » quand le controle cherchait
+          # « s-lien-windows --recenser ». Un guillemet fermant au milieu, et la
+          # sous-chaine n'existait plus.
+          #
+          # La recette complete, avec ce qu'elle ne voit pas :
+          # grimoire/construction-eprouver-les-motifs.sh
+          while IFS= read -r ligne; do
+            motif=$(printf '%s' "$ligne" | sed -E "s/.*'([^']+)'.*/\1/")
+            cible=$(printf '%s' "$ligne" | grep -oE '/usr/(bin|lib|share|libexec)/[^ ;]+')
+            drapeaux=$(printf '%s' "$ligne" | grep -oE 'grep -q[a-zA-Z]*' | sed 's/grep -q//')
+            [ -f "files$cible" ] || continue
+            if grep -q${drapeaux} -- "$motif" "files$cible" 2>/dev/null; then
+              echo "  motif OK : $(basename "$cible")"
+            else
+              echo "  MOTIF PERIME : $cible ne contient plus « $motif »"
+              manque=1
+            fi
+          done < <(grep -hoE "grep -q[a-zA-Z]* (--)? *'[^']+' +/usr/(bin|lib|share|libexec)/[^ ;]+" \
+                       build_files/*.sh 2>/dev/null | sort -u)
+
           if [ "$manque" -ne 0 ]; then
             echo "Contexte incomplet — on n'engage pas le telechargement." >&2
             exit 1
           fi
-          echo "OK : contexte complet, scripts syntaxiquement valides."
+          echo "OK : contexte complet, scripts valides, motifs a jour."
 
       - name: Faire de la place
         # Bazzite est une image volumineuse et un runner GitHub est etroit.

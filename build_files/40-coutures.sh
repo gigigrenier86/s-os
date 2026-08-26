@@ -134,7 +134,21 @@ grep -q 's-session.target' /usr/bin/s-coquille \
     || { echo "ECHEC : la coquille ne leve pas la session graphique." >&2; exit 1; }
 echo "  session systemd : s-session.target -> graphical-session.target -> portail XDG"
 
-grep -q 's-lien-windows --recenser' /usr/bin/s-ouvrir-exe \
+# LE MOTIF A DU SUIVRE L'APPEL, ET NE PAS L'AVOIR FAIT A COUTE UNE CONSTRUCTION.
+#
+# Ce controle cherchait « s-lien-windows --recenser ». Le geste reecrit appelle
+# desormais « "$S_GESTES/s-lien-windows" --recenser » — avec un GUILLEMET
+# FERMANT entre le nom et l'option. La sous-chaine n'existe plus, et la
+# construction du 2026-08-26 a 03 h 56 est tombee la.
+#
+# J'avais raisonne que le motif matcherait quand meme. C'est une supposition,
+# pas une mesure, et c'est precisement ce que ce carnet interdit. Le rejeu qui
+# aurait du l'attraper ne rejouait que le bloc AJOUTE, jamais le fichier entier.
+#
+# D'ou grimoire/construction-eprouver-les-motifs.sh : il rejoue TOUS les
+# controles par motif de TOUS les scripts contre les fichiers que l'image
+# livrera vraiment. Deux secondes, au lieu de quarante minutes de construction.
+grep -qE '^\s*"\$S_GESTES/s-lien-windows" --recenser' /usr/bin/s-ouvrir-exe \
     || { echo "ECHEC : s-ouvrir-exe ne recense pas les protocoles." >&2; exit 1; }
 echo "  s-ouvrir-exe    : recense les protocoles apres chaque execution"
 

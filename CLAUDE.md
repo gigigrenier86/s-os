@@ -556,6 +556,53 @@ precedent tournait encore — que mes `pkill` rataient pour la meme raison.
 et le 0,01 s d'un lancement ou rien ne tournait.* Et la troisieme confirme la
 regle des deux premieres : **un banc qui ne peut pas echouer ne mesure rien**.
 
+#### La construction est tombee deux fois, et la seconde faute etait une supposition
+
+Le premier echec — les verifications vingt lignes trop tot — est raconte plus
+haut. Le second a resiste, et voici pourquoi.
+
+Le controle de `40-coutures.sh` cherchait :
+
+```
+grep -q 's-lien-windows --recenser' /usr/bin/s-ouvrir-exe
+```
+
+Le geste reecrit appelle :
+
+```
+"$S_GESTES/s-lien-windows" --recenser
+```
+
+**Un guillemet fermant entre le nom et l'option**, et la sous-chaine n'existe
+plus. J'avais RAISONNE que le motif matcherait quand meme — une supposition, pas
+une mesure, exactement ce que ce carnet interdit depuis le premier jour.
+
+**Et le rejeu qui aurait du l'attraper ne rejouait que le bloc AJOUTE**, jamais
+le fichier entier. *Un rejeu partiel ne prouve que la partie qu'il rejoue.*
+
+Le comparatif des durees a designe la zone avant meme de lire l'erreur :
+
+| | duree de « Construire l'image » |
+|---|---|
+| derniere construction verte | 7 min 20 |
+| premier echec | **6 min 09** — donc plus tot : `41-windows.sh`, ligne 63 |
+| second echec | **8 min 56** — donc plus tard qu'un succes : `40-coutures.sh`, ligne 198 |
+
+Ce qui en sort vaut mieux que le correctif : **un balayage qui rejoue TOUS les
+controles par motif de TOUS les scripts contre les fichiers que l'image livrera
+vraiment.** Onze controles, deux secondes, au lieu de quarante minutes de
+construction. Il a designe celui-la et lui seul.
+
+Il est au Grimoire (`construction-eprouver-les-motifs.sh`) **et dans le flux
+d'Actions**, a l'etape qui existait deja pour ca — celle qui dit « une faute qui
+se lit en une seconde ».
+
+Ce balayage attrape les deux pieges symetriques que ce depot a payes :
+le **faux negatif** (le motif ne matche plus alors que le code est juste) et le
+**faux positif** (le motif matche une phrase de commentaire alors que l'appel a
+disparu — le garde-fou de `plasma_waitforname`, et le controle sur `s-partage`
+qui a survecu au demenagement de l'appel qu'il surveillait).
+
 #### Ce que cette seconde moitie ne prouve toujours pas
 
 - **`PcBoostApp` en rendu logiciel n'a ete observe qu'une fois**, a cinq

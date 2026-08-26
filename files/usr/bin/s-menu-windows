@@ -75,7 +75,22 @@ poser_lanceur() {
     [ -f "$exe" ] || { IGNORES=$((IGNORES + 1)); return 1; }
     dossier="$(dirname "$exe")"
 
-    ident="s-windows-$(printf '%s' "$exe" | sha256sum | cut -c1-12)"
+    # L'EMPREINTE SE PREND SUR LE CHEMIN RESOLU, ET C'EST UN CORRECTIF.
+    #
+    # Les deux sources de cette moisson voient le meme programme par deux
+    # chemins differents : winemenubuilder ecrit « dosdevices/c:/Program
+    # Files/... », la lecture des .lnk rend « drive_c/Program Files/... ». Or
+    # « dosdevices/c: » EST un lien vers « drive_c ». Meme fichier, deux
+    # chaines, deux empreintes — donc DEUX lanceurs pour un seul programme.
+    #
+    # Vu sur la machine le 2026-08-26 : Cursor et PURPLE avaient chacun deux
+    # entrees de menu. « readlink -f » les ramene a une.
+    # « printf '%s' » ET NON UN TUBE DEPUIS readlink : « readlink -f x | sha256sum »
+    # fait entrer un SAUT DE LIGNE dans le hachage et rend une empreinte
+    # differente de « printf '%s' "$(readlink -f x)" | sha256sum ». Les deux
+    # existaient dans S le temps d'une heure, ce qui donnait deux identites au
+    # meme programme — celle du lanceur et celle de son reglage de rendu.
+    ident="s-windows-$(printf '%s' "$(readlink -f "$exe")" | sha256sum | cut -c1-12)"
     cible="$S_LANCEURS/$ident.desktop"
     [ -f "$cible" ] && deja=1
 
