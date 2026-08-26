@@ -1,0 +1,49 @@
+[Unit]
+Description=S - le Windows resident
+Documentation=man:wineserver(1)
+
+# POURQUOI CETTE UNITE EXISTE.
+#
+# Un wineserver lance depuis un script meurt avec le groupe de processus de ce
+# script. Mesure du 2026-08-26 : demarre a la main avec « -p », il a servi trois
+# lancements a 0,24 s puis a disparu entre deux commandes du meme banc. Il n'y a
+# pas de « detache-toi bien » qui tienne — c'est au gestionnaire de session de
+# porter un processus qui doit survivre a son lanceur.
+#
+# CE QU'ELLE CHANGE, MESURE SUR CETTE MACHINE :
+#   umu-run cmd /c exit                        5,06 s
+#   wine direct, serveur froid                 1,66 s
+#   wine direct, serveur resident              0,24 s
+#
+# Elle se leve avec la session et retombe avec elle : le Windows de S demarre
+# une fois, comme un vrai systeme, au lieu de renaitre a chaque double-clic.
+PartOf=s-session.target
+After=s-session.target
+
+[Service]
+Type=simple
+
+# SI LE WINDOWS DE S N'EXISTE PAS ENCORE, IL N'Y A RIEN A SERVIR.
+#
+# Une unite qui echoue a chaque ouverture de session sur une machine ou aucun
+# .exe n'a jamais ete ouvert serait du bruit, et le bruit finit par etre ignore
+# — y compris le jour ou il dit quelque chose. « ExecCondition » fait sauter
+# l'unite sans la marquer en echec : c'est exactement la nuance qu'il faut ici.
+# C'est s-ouvrir-exe qui construit le prefixe au premier usage, puis demarre
+# cette unite lui-meme.
+ExecCondition=/usr/bin/test -d %h/.local/share/S/windows/pfx/drive_c
+
+ExecStart=/usr/bin/s-windows --serveur
+
+# « -k » demande au serveur de sortir proprement : il previent les programmes
+# Windows encore ouverts au lieu de les faucher. Un programme qui n'a pas eu le
+# temps d'ecrire ses fichiers a la fermeture de session, c'est un document
+# perdu, et ce projet a deja paye assez cher les fins de course silencieuses.
+ExecStop=/usr/bin/s-windows --arreter-serveur
+TimeoutStopSec=20
+
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=s-session.target

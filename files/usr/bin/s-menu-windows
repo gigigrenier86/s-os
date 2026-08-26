@@ -25,6 +25,16 @@
 set -uo pipefail
 source /usr/bin/s-monde
 
+# L'EXTRACTEUR D'ICONES. Meme convention de decouverte que le reste : une copie
+# de travail a cote du fichier permet d'essayer sans reconstruire une image.
+_m_ici="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+for _m_lib in "${S_LIB:-}" /usr/lib/s "$_m_ici/../lib/s"; do
+    if [ -n "$_m_lib" ] && [ -f "$_m_lib/icone-exe.sh" ]; then
+        source "$_m_lib/icone-exe.sh"; break
+    fi
+done
+unset _m_ici _m_lib
+
 SILENCIEUX=0
 [ "${1:-}" = "--silencieux" ] && SILENCIEUX=1
 
@@ -61,13 +71,31 @@ echapper_exec() {
 # Poser un lanceur pour un .exe, une seule fois
 # --------------------------------------------------------------------------
 poser_lanceur() {
-    local exe="$1" nom="$2" icone="$3" dossier ident cible deja=0
+    local exe="$1" nom="$2" icone="$3" dossier ident cible deja=0 propre
     [ -f "$exe" ] || { IGNORES=$((IGNORES + 1)); return 1; }
     dossier="$(dirname "$exe")"
 
     ident="s-windows-$(printf '%s' "$exe" | sha256sum | cut -c1-12)"
     cible="$S_LANCEURS/$ident.desktop"
     [ -f "$cible" ] && deja=1
+
+    # L'ICONE DU PROGRAMME, SORTIE DU PROGRAMME LUI-MEME.
+    #
+    # Demande de l'utilisateur le 2026-08-26 : « j'aimerais ca si les programmes
+    # windows avaient eux aussi leur icones ». Avant, cette ligne valait
+    # « Icon=application-x-executable » pour tout le monde — le menu disait le
+    # genre et jamais lequel.
+    #
+    # L'ordre compte. Ce que winemenubuilder a ecrit passe en premier quand il
+    # existe : c'est Wine qui l'a choisi, avec le contexte du raccourci. Sinon
+    # on va chercher dans le binaire. Et si le binaire n'en contient pas — cas
+    # reel, mesure sur deux projets .NET sans <ApplicationIcon> — le repli
+    # generique reste juste.
+    if [ -z "$icone" ] || [ "$icone" = "application-x-executable" ]; then
+        if propre="$(s_icone_exe "$exe" "$ident" 2>/dev/null)" && [ -n "$propre" ]; then
+            icone="$propre"
+        fi
+    fi
 
     cat > "$cible" <<DESK
 [Desktop Entry]

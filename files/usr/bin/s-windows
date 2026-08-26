@@ -1,0 +1,324 @@
+#!/usr/bin/bash
+# LE WINDOWS DE S — l'etat, les fondations, et le serveur resident.
+#
+# Ce geste ne lance aucun programme : il s'occupe du SYSTEME sous les
+# programmes. s-ouvrir-exe l'appelle, systemd l'appelle, et l'utilisateur peut
+# l'appeler pour savoir ou il en est.
+#
+# LA THESE, ET ELLE VIENT DE MESURES DU 2026-08-26 SUR CETTE MACHINE :
+# « les .exe sont lents et brouillons » est deux pannes distinctes, pas une.
+#
+#   LENT      chaque double-clic reconstruisait un Windows entier — 5,06 s pour
+#             « cmd /c exit », et le 2e lancement coutait autant que le 1er.
+#             Corrige par le serveur resident : 0,24 s.
+#
+#   BROUILLON le prefixe ne contenait NI .NET, NI WebView2, NI aucune police
+#             Segoe. Un logiciel WPF s'ouvrait avec un carre vide a la place de
+#             chaque icone, et un logiciel non autonome ne s'ouvrait pas du tout.
+#             Wine fournit un Windows VIDE ; tout logiciel moderne suppose ces
+#             fondations deja posees. Personne ne les posait.
+set -uo pipefail
+
+# MEME CONVENTION QUE s-partage : on accepte une copie de travail a cote de ce
+# fichier, sinon un geste ne s'essaie qu'apres une image entiere.
+_w_ici="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+for _w_bin in "${S_BIN:-}" /usr/bin "$_w_ici"; do
+    if [ -n "$_w_bin" ] && [ -f "$_w_bin/s-monde" ]; then
+        S_GESTES="$_w_bin"; source "$_w_bin/s-monde"; break
+    fi
+done
+for _w_lib in "${S_LIB:-}" /usr/lib/s "$_w_ici/../lib/s"; do
+    if [ -n "$_w_lib" ] && [ -f "$_w_lib/windows.sh" ]; then source "$_w_lib/windows.sh"; break; fi
+done
+unset _w_ici _w_bin _w_lib
+[ -n "${S_WIN_PFX:-}" ] || { echo "S est incomplet : windows.sh introuvable" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# --serveur : ce que systemd execute
+# ---------------------------------------------------------------------------
+# « -f » garde le serveur au premier plan pour que systemd le suive ; « -p »
+# le rend persistant, sinon il sort des que le dernier programme Windows se
+# ferme et on retombe sur le demarrage a froid qu'on essaie justement d'eviter.
+if [ "${1:-}" = "--serveur" ]; then
+    s_windows_charger || { echo "s-windows : aucun environnement capture" >&2; exit 1; }
+    exec "$WINESERVER" -f -p
+fi
+
+if [ "${1:-}" = "--arreter-serveur" ]; then
+    s_windows_charger 2>/dev/null || true
+    # « -k » previent les programmes au lieu de les faucher : un traitement de
+    # texte doit avoir le temps d'ecrire son fichier.
+    "${WINESERVER:-$(s_windows_proton)/files/bin/wineserver}" -k 2>/dev/null || true
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# --polices : emprunter au Windows de CETTE machine
+# ---------------------------------------------------------------------------
+# CE QUE CA REPARE, VU A L'ECRAN LE 2026-08-26. PcBoostApp, un logiciel WPF,
+# s'ouvre correctement — degrades, coins arrondis, typographie juste — et
+# CHAQUE icone est un carre vide. Le theme demande
+# « Segoe Fluent Icons, Segoe MDL2 Assets » et pointe des caracteres de la zone
+# privee (, , ...). Le prefixe possede 18 polices ; aucune
+# Segoe. Tout logiciel Windows moderne suppose cette police presente.
+#
+# POURQUOI ELLE N'EST PAS DANS L'IMAGE, ET POURQUOI CE N'EST PAS UN
+# RENONCEMENT. Segoe appartient a Microsoft, et le depot de S est public : l'y
+# mettre serait une redistribution. Mais cette machine possede un vrai Windows
+# sous licence, monte en /var/mnt/windows. Ses polices sont licenciees AVEC
+# elle. Les copier de ce Windows-la vers le prefixe de la meme machine, pour le
+# meme utilisateur, ne redistribue rien.
+#
+# La doctrine du projet tient donc mot pour mot : « de Windows, on ne prend
+# aucun fichier » vaut pour L'IMAGE. Ici l'image ne transporte que le geste ;
+# les polices ne quittent jamais la machine ou elles sont licenciees.
+#
+# Et s'il n'y a pas de Windows sur la machine, on le DIT au lieu d'afficher des
+# carres vides sans explication.
+POLICES_UI="segoeui segoeuib segoeuii segoeuiz segoeuil segoeuisl seguisb seguibl seguili seguisli"
+POLICES_ICONES="SegoeIcons segmdl2 seguisym seguiemj"
+POLICES_TEXTE="consola consolab consolai consolaz calibri calibrib calibrii calibriz cambria cambriab georgia georgiab"
+
+emprunter_polices() {
+    local source dest n=0 deja=0 f ext
+    for source in /var/mnt/windows/Windows/Fonts "$HOME/Windows/Fonts"; do
+        [ -d "$source" ] && break
+        source=""
+    done
+    if [ -z "$source" ]; then
+        s_dire "Polices Windows" \
+"Aucun Windows monte sur cette machine. Les logiciels qui exigent Segoe \
+afficheront un carre a la place de leurs icones." dialog-warning
+        return 1
+    fi
+
+    dest="$S_WIN_PFX/drive_c/windows/Fonts"
+    mkdir -p "$dest"
+    for f in $POLICES_UI $POLICES_ICONES $POLICES_TEXTE; do
+        for ext in ttf ttc TTF TTC; do
+            [ -f "$source/$f.$ext" ] || continue
+            if [ -f "$dest/$f.$ext" ] && \
+               [ "$(stat -c%s "$dest/$f.$ext")" = "$(stat -c%s "$source/$f.$ext")" ]; then
+                deja=$((deja + 1)); break
+            fi
+            cp -f "$source/$f.$ext" "$dest/$f.$ext" 2>/dev/null && n=$((n + 1))
+            break
+        done
+    done
+
+    # COPIER LE FICHIER NE SUFFIT PAS, ET C'EST LA MESURE QUI L'A DIT.
+    #
+    # Le 2026-08-26, les 26 polices ont ete copiees dans C:\windows\Fonts, puis
+    # PcBoostApp relance : les icones sont restees des carres vides. « wineboot
+    # -u » n'y a rien change — 549 entrees de police au registre avant, 549
+    # apres. Un fichier pose dans le dossier des polices n'existe pas pour
+    # Windows tant qu'il n'est pas DECLARE.
+    #
+    # winetricks le fait depuis toujours, dans « w_register_font », et sur DEUX
+    # cles — celle de Windows NT et celle, historique, de Windows 9x. On suit sa
+    # forme exacte.
+    #
+    # ET LE NOM NE SE DEDUIT PAS DU FICHIER : « SegoeIcons.ttf » se declare
+    # « Segoe Fluent Icons », « segmdl2.ttf » se declare « Segoe MDL2 Assets »,
+    # « seguisb.ttf » se declare « Segoe UI Semibold ». Il faut lire la table
+    # « name » du fichier — c'est le role de /usr/lib/s/polices.py.
+    #
+    # On declare TOUT ce que le dossier contient, pas seulement les nouveautes :
+    # c'est idempotent, ca coute une lecture par fichier, et ca rattrape les
+    # polices qui etaient la avant que ce geste existe.
+    local lecteur=""
+    for _p in "${S_LIB:-}" /usr/lib/s "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/s"; do
+        [ -n "$_p" ] && [ -f "$_p/polices.py" ] && { lecteur="$_p/polices.py"; break; }
+    done
+
+    if [ -n "$lecteur" ]; then
+        local reg; reg="$(mktemp)"
+        {
+            printf 'REGEDIT4\n\n'
+            printf '[HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts]\n'
+            python3 "$lecteur" "$dest"/*.ttf "$dest"/*.ttc "$dest"/*.TTF 2>/dev/null \
+                | while IFS=$'\t' read -r nom fichier; do
+                      printf '"%s (TrueType)"="%s"\n' "$nom" "$fichier"
+                  done
+            printf '\n[HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Fonts]\n'
+            python3 "$lecteur" "$dest"/*.ttf "$dest"/*.ttc "$dest"/*.TTF 2>/dev/null \
+                | while IFS=$'\t' read -r nom fichier; do
+                      printf '"%s (TrueType)"="%s"\n' "$nom" "$fichier"
+                  done
+            # Les alias que Windows 11 emploie et que les logiciels demandent
+            # sans savoir qu'ils sont des alias.
+            printf '\n[HKEY_CURRENT_USER\\Software\\Wine\\Fonts\\Replacements]\n'
+            printf '"MS Shell Dlg"="Segoe UI"\n'
+            printf '"MS Shell Dlg 2"="Segoe UI"\n'
+            printf '"Segoe UI Variable"="Segoe UI"\n'
+            printf '"Segoe UI Variable Display"="Segoe UI"\n'
+            printf '"Segoe UI Variable Text"="Segoe UI"\n'
+            printf '"Segoe UI Variable Small"="Segoe UI"\n'
+        } > "$reg"
+        DECLAREES=$(grep -c '(TrueType)' "$reg")
+        DECLAREES=$((DECLAREES / 2))
+        WINEPREFIX="$S_WIN_PFX" WINEDEBUG=-all \
+            "$(s_windows_proton)/files/bin/wine64" regedit "$reg" >/dev/null 2>&1 || true
+        rm -f "$reg"
+    else
+        DECLAREES=0
+    fi
+
+    printf '%s %s %s\n' "$n" "$deja" "${DECLAREES:-0}"
+    return 0
+}
+
+if [ "${1:-}" = "--polices" ]; then
+    s_windows_pret || s_echec "Le Windows de S n'existe pas encore" \
+        "Ouvre un programme Windows une premiere fois, ou lance : s-windows --tout"
+    LU="$(emprunter_polices)" || exit 1
+    read -r NEUVES DEJA DECLAREES <<<"$LU"
+    s_dire "Polices Windows" \
+"${NEUVES:-0} empruntee(s), ${DEJA:-0} deja en place, ${DECLAREES:-0} declaree(s) au registre."
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# --fondations : ce que tout logiciel Windows suppose deja pose
+# ---------------------------------------------------------------------------
+# ON N'INVENTE RIEN ICI. winetricks est l'outil que l'amont maintient pour
+# exactement ca, il est deja sur la machine, et il connait les quatre verbes
+# dont on a besoin. Ecrire notre propre poseur de runtime serait la faute que
+# ce projet a payee cinq jours sur s-android.
+#
+# LE SERVEUR RESIDENT DOIT DESCENDRE PENDANT L'OPERATION. Un installateur qui
+# ecrit dans le registre pendant qu'un autre wineserver le lit produit un
+# prefixe a moitie ecrit — et « a moitie » est le mot que l'utilisateur a
+# employe pour decrire ce qui ne marchait pas.
+FONDATIONS="vcrun2022 dotnetdesktop8 webview2"
+
+if [ "${1:-}" = "--fondations" ]; then
+    s_windows_pret || s_echec "Le Windows de S n'existe pas encore" \
+        "Lance d'abord : s-windows --tout"
+    command -v winetricks >/dev/null 2>&1 || s_echec "winetricks est absent" \
+        "Il fournit les runtimes que les logiciels Windows exigent."
+    s_verrou windows
+
+    REPRISE="$(s_windows_pause)"
+    s_windows_charger
+
+    export WINE="$(s_windows_proton)/files/bin/wine64"
+    export WINESERVER="$(s_windows_proton)/files/bin/wineserver"
+    export WINEPREFIX="$S_WIN_PFX"
+    export WINETRICKS_LATEST_VERSION_CHECK=disabled
+    JOURNAL="$S_ETAT/windows-fondations.log"
+    : > "$JOURNAL"
+
+    POSEES=0; RATEES=""
+    for verbe in ${2:-$FONDATIONS}; do
+        s_dire "Fondations Windows" "Pose de $verbe…" system-software-install
+        echo "########## $verbe ##########" >> "$JOURNAL"
+        if winetricks -q -f "$verbe" >>"$JOURNAL" 2>&1; then
+            POSEES=$((POSEES + 1))
+        else
+            RATEES="$RATEES $verbe"
+        fi
+        "$WINESERVER" -w 2>/dev/null || true
+    done
+
+    if [ -n "$RATEES" ]; then
+        s_dire "Fondations Windows" \
+"$POSEES pose(s), et ceci a echoue :$RATEES. Detail dans $JOURNAL" dialog-warning
+    else
+        s_dire "Fondations Windows" "$POSEES fondation(s) en place."
+    fi
+    s_windows_reprendre "$REPRISE"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# --preparer : construire le Windows, et capturer ce que Proton decide
+# ---------------------------------------------------------------------------
+preparer() {
+    # umu-run ne peut pas travailler pendant que le serveur resident tient le
+    # prefixe — voir s_windows_pause.
+    local reprise; reprise="$(s_windows_pause)"
+    trap 's_windows_reprendre "$reprise"' RETURN
+    s_windows_deplier || s_echec "Proton n'a pas pu etre deplie" \
+        "L'archive $S_PROTON_ARCHIVE est absente ou illisible."
+
+    if [ ! -d "$S_WIN_PFX/drive_c" ]; then
+        s_dire "Premiere utilisation" "Preparation du Windows de S, une minute."
+        mkdir -p "$S_PREFIXE"
+        WINEPREFIX="$S_PREFIXE" GAMEID="${GAMEID:-umu-0}" UMU_LOG=warn \
+        PROTONPATH="$(s_windows_proton)" \
+            umu-run wineboot -u >"$S_ETAT/windows-init.log" 2>&1 \
+            || s_echec "Le Windows de S n'a pas pu etre prepare" \
+                       "Detail dans $S_ETAT/windows-init.log"
+        # LE PREFIXE VIENT DE NAITRE : c'est le seul moment ou la lettre P: du
+        # dossier partage peut etre posee. Voir s-partage.
+        "$S_GESTES/s-partage" >>"$S_ETAT/windows-init.log" 2>&1 || true
+    fi
+
+    s_dire "Windows de S" "Releve de la configuration de Proton…"
+    s_windows_capturer || s_echec "La capture de l'environnement a echoue" \
+        "Sans elle, le rendu 3D des programmes Windows serait desactive."
+    return 0
+}
+
+if [ "${1:-}" = "--preparer" ] || [ "${1:-}" = "--tout" ]; then
+    s_verrou windows
+    preparer
+    if [ "${1:-}" = "--tout" ]; then
+        emprunter_polices >/dev/null || true
+        s_dire "Windows de S" "Pose des fondations — quelques minutes."
+        exec "$S_GESTES/s-windows" --fondations
+    fi
+    s_dire "Windows de S" "Pret."
+    systemctl --user start s-windows.service 2>/dev/null || true
+    exit 0
+fi
+
+if [ "${1:-}" = "--arreter" ]; then
+    systemctl --user stop s-windows.service 2>/dev/null \
+        || "$(s_windows_proton)/files/bin/wineserver" -k 2>/dev/null || true
+    s_dire "Windows de S" "Session Windows arretee."
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Sans argument : dire ou on en est, en clair
+# ---------------------------------------------------------------------------
+etat_ligne() { printf '  %-34s %s\n' "$1" "$2"; }
+
+echo "LE WINDOWS DE S"
+echo
+etat_ligne "Proton" "$(s_windows_version)"
+# « du » ne suit pas un lien symbolique, et « pfx » en est un : sans readlink,
+# cette ligne annoncait « 0 » pour un prefixe de 2,5 Go.
+etat_ligne "Prefixe" "$([ -d "$S_WIN_PFX/drive_c" ] && du -sh "$(readlink -f "$S_WIN_PFX")" 2>/dev/null | cut -f1 || echo 'pas encore construit')"
+etat_ligne "Environnement capture" "$([ -s "$S_WIN_ENV" ] && echo "oui ($(wc -l < "$S_WIN_ENV") variables)" || echo 'NON — le rendu 3D serait desactive')"
+etat_ligne "Serveur resident" "$(s_windows_serveur_vivant && echo 'vivant — les lancements sont rapides' || echo 'arrete — le prochain lancement sera lent')"
+
+NB_POLICES=$(ls "$S_WIN_PFX/drive_c/windows/Fonts/" 2>/dev/null | wc -l)
+ICONES=$(ls "$S_WIN_PFX/drive_c/windows/Fonts/" 2>/dev/null | grep -ciE 'segoeicons|segmdl2')
+etat_ligne "Polices" "$NB_POLICES, dont $ICONES police(s) d'icones Windows"
+
+# ON DEMANDE A WINETRICKS, PAS AU HASARD D'UN FICHIER PRESENT.
+#
+# La premiere version de ce releve testait l'existence de vcruntime140.dll et
+# repondait « vcrun2022 : oui » sur un prefixe ou winetricks n'avait JAMAIS
+# tourne. Le fichier existe bel et bien — c'est celui que Proton livre, marque
+# « Wine builtin DLL ». Un faux positif de plus dans un carnet qui en compte
+# deja trop, et il aurait fait chercher ailleurs le jour ou un logiciel exige
+# le vrai runtime de Microsoft.
+#
+# winetricks tient sa propre comptabilite dans « winetricks.log » du prefixe :
+# une ligne par verbe pose. C'est la seule source qui dise ce qui a ete pose
+# ICI, par opposition a ce qui se trouve la.
+JOURNAL_TRICKS="$(readlink -f "$S_WIN_PFX")/winetricks.log"
+for f in $FONDATIONS; do
+    if grep -qxF "$f" "$JOURNAL_TRICKS" 2>/dev/null; then t=oui; else t=NON; fi
+    etat_ligne "  $f" "$t"
+done
+
+echo
+echo "  s-windows --tout          construire, emprunter les polices, poser les fondations"
+echo "  s-windows --polices       emprunter les polices au Windows de cette machine"
+echo "  s-windows --fondations    .NET 8, VC++ 2022, WebView2"
+echo "  s-windows --arreter       arreter la session Windows"

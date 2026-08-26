@@ -95,6 +95,7 @@ des tâches.
 |---|---|---|---|
 | **[constellation/](constellation/)** | Le bureau de S : un ciel, et les applications en étoiles | [constellation-2026-08-25.png](constellation/constellation-2026-08-25.png) | `s` — Intel UHD 630, pilote `i915` |
 | **[trois-mondes/](trois-mondes/)** | Les trois mondes servis ensemble — et une vidéo Android qui joue enfin | [android-video-2026-08-25.png](trois-mondes/android-video-2026-08-25.png) | `s` — Intel UHD 630, pilote `i915` |
+| **[windows/](windows/)** | Un logiciel WPF avant et après : douze carrés vides deviennent douze icônes | [pcboost-apres-2026-08-26.png](windows/pcboost-apres-2026-08-26.png) | `s` — Intel UHD 630, Mesa 26.2.1 |
 
 ### Constellation — la première pièce rendue par une vraie carte graphique
 
@@ -141,6 +142,34 @@ codecs, le réseau, le son et l'application.
 
 *Une capture qui montre un défaut a sa place ici autant qu'une capture qui
 montre une réussite — à condition qu'elle dise laquelle des deux elle est.*
+
+---
+
+### Le Windows de S — la pièce qui montre une panne qu'on ne voyait pas
+
+Deux captures du **même programme**, à trente-huit minutes d'écart, sans une
+ligne de son code modifiée. C'est la seule pièce de cette Galerie qui se lit en
+paire : isolée, l'image « avant » a l'air correcte.
+
+`PcBoostApp` est un logiciel WPF/.NET 8 écrit par l'utilisateur. Il s'ouvrait,
+il rendait ses dégradés, ses coins arrondis et sa mise en page — et **chaque
+icône était un carré vide**. Douze entrées de barre latérale, douze carrés. Le
+genre de défaut qu'on finit par ne plus voir.
+
+Son thème demande `Segoe Fluent Icons, Segoe MDL2 Assets`. Le prefixe possédait
+dix-huit polices et aucune Segoe : **Wine fournit un Windows vide**, et tout
+logiciel Windows moderne suppose ces polices déjà posées.
+
+Ce que la paire enseigne au-delà des icônes : **copier les fichiers de police
+n'a rien changé**, et `wineboot -u` non plus. Il fallait les *déclarer* au
+registre, sous leur vrai nom de famille — qui ne se déduit pas du nom du
+fichier. La recette est au Grimoire (`windows-declarer-police.sh`) ; la mesure
+qui l'a imposée est dans `CLAUDE.md`.
+
+**Les polices ne sont pas dans ce dépôt et ne doivent jamais y entrer.** Elles
+sont licenciées avec le Windows de cette machine, et c'est de là qu'elles
+viennent. L'image transporte le geste ; les glyphes rendus se publient, les
+fichiers non.
 
 ---
 

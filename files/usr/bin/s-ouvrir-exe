@@ -1,119 +1,177 @@
 #!/usr/bin/bash
 # Double-clic sur un .exe ou un .msi : ca s'installe, ou ca se lance.
-# Aucune fenetre de Lutris, de Bottles ou de Steam n'apparait : umu-run pose
-# Proton en dessous et rend la main au programme Windows lui-meme.
+# Aucune fenetre de Lutris, de Bottles ou de Steam n'apparait.
+#
+# CE FICHIER A ETE REECRIT LE 2026-08-26, ET VOICI CE QUI L'A IMPOSE.
+#
+# L'ancienne version passait TOUJOURS par umu-run, donc par le conteneur
+# pressure-vessel de Steam. Mesure sur cette machine :
+#
+#   umu-run cmd /c exit         1er 6,65 s   2e 5,06 s   3e 5,13 s
+#   umu-run wineserver -w       3,97 s, et il sortait en code 1
+#
+# Un programme qui ne fait RIEN coutait cinq secondes, le deuxieme lancement
+# coutait autant que le premier — il n'y avait aucun chemin chaud — et le geste
+# montait ensuite un SECOND conteneur complet pour attendre quelque chose qui
+# n'existait plus. Neuf secondes de rien, a chaque double-clic.
+#
+#   wine direct + serveur resident    0,24 s
+#
+# Le conteneur sert a CONSTRUIRE le prefixe, pas a l'executer : c'est le script
+# « proton » qui y copie DXVK et VKD3D. Une fois construit, le prefixe est
+# autonome. Voir /usr/lib/s/windows.sh pour le detail et les mesures.
 set -uo pipefail
-source /usr/bin/s-monde
+
+# MEME CONVENTION QUE s-partage : on accepte une copie de travail a cote de ce
+# fichier, sinon un geste ne s'essaie qu'apres une image entiere.
+_w_ici="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+for _w_bin in "${S_BIN:-}" /usr/bin "$_w_ici"; do
+    if [ -n "$_w_bin" ] && [ -f "$_w_bin/s-monde" ]; then
+        S_GESTES="$_w_bin"; source "$_w_bin/s-monde"; break
+    fi
+done
+for _w_lib in "${S_LIB:-}" /usr/lib/s "$_w_ici/../lib/s"; do
+    if [ -n "$_w_lib" ] && [ -f "$_w_lib/windows.sh" ]; then source "$_w_lib/windows.sh"; break; fi
+done
+unset _w_ici _w_bin _w_lib
+[ -n "${S_WIN_PFX:-}" ] || { echo "S est incomplet : windows.sh introuvable" >&2; exit 1; }
 
 CIBLE="${1:-}"
 [ -n "$CIBLE" ] || s_echec "Rien a ouvrir" "s-ouvrir-exe attend un chemin de fichier."
 CIBLE="$(readlink -f "$CIBLE")"
 [ -f "$CIBLE" ] || s_echec "Fichier introuvable" "$CIBLE"
-
-export WINEPREFIX="$S_PREFIXE"
-export GAMEID="${GAMEID:-umu-0}"
-export UMU_LOG="${UMU_LOG:-warn}"
 NOM="$(basename "$CIBLE")"
+DOSSIER="$(dirname "$CIBLE")"
 
 s_verrou windows
 
-# --- Premiere utilisation : le Windows de S n'existe pas encore -------------
-# L'archive de Proton est dans l'image : la deplier localement evite les
-# 468 Mo de telechargement qu'umu ferait sinon, et le reseau disparait du
-# chemin critique. La version deja depliee est reutilisee telle quelle.
-if [ -f "$S_PROTON_ARCHIVE" ]; then
-    VERSION="$(cat /usr/lib/s/windows/proton.version 2>/dev/null || echo inconnue)"
-    if [ ! -d "$S_PROTON_RACINE/$VERSION" ]; then
-        s_dire "Premiere utilisation" "Preparation de Proton depuis l'image, sans telechargement."
-        mkdir -p "$S_PROTON_RACINE"
-        tar xzf "$S_PROTON_ARCHIVE" -C "$S_PROTON_RACINE" || \
-            s_dire "Proton n'a pas pu etre deplie" "umu le telechargera lui-meme." dialog-warning
-    fi
-    [ -d "$S_PROTON_RACINE/$VERSION" ] && export PROTONPATH="$S_PROTON_RACINE/$VERSION"
+# ---------------------------------------------------------------------------
+# Le Windows de S existe-t-il, et est-il a jour ?
+# ---------------------------------------------------------------------------
+if ! s_windows_pret; then
+    "$S_GESTES/s-windows" --preparer || exit 1
+fi
+s_windows_charger || s_echec "Le Windows de S est incomplet" \
+    "L'environnement de Proton n'a pas ete releve. Lance : s-windows --preparer"
+
+# ---------------------------------------------------------------------------
+# CE QUI MANQUE SE DIT AVANT, PAS APRES
+# ---------------------------------------------------------------------------
+# LA REGLE DU PROJET APPLIQUEE A L'ECHEC : « le pire resultat n'est pas
+# l'echec, c'est le succes silencieux ». Son symetrique vaut autant — un echec
+# muet est presque aussi mauvais.
+#
+# Un logiciel .NET non autonome affiche, sous Windows, une boite « installez
+# .NET ». Sous Wine il se contente souvent de disparaitre. L'utilisateur voit
+# un double-clic qui ne fait rien, et n'a aucune piste.
+#
+# Or la reponse est ECRITE A COTE DU FICHIER : le SDK .NET depose un
+# « <programme>.runtimeconfig.json » aupres de tout binaire qui a besoin d'un
+# runtime installe. Sa presence, plus l'absence de dotnet dans le prefixe,
+# suffit a nommer le manque avant meme de lancer quoi que ce soit.
+RUNTIMECONFIG="${CIBLE%.*}.runtimeconfig.json"
+if [ -f "$RUNTIMECONFIG" ] && [ ! -d "$S_WIN_PFX/drive_c/Program Files/dotnet" ]; then
+    VERSION_NET="$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[0-9]+' "$RUNTIMECONFIG" \
+                   | grep -oE '[0-9]+$' | head -1)"
+    s_dire "$NOM a besoin de .NET ${VERSION_NET:-8}" \
+"Ce programme n'embarque pas son moteur : il faut le poser une fois dans le \
+Windows de S. Lance : s-windows --fondations" dialog-warning
+    s_echec "Il manque .NET ${VERSION_NET:-8}" \
+            "s-windows --fondations le pose, puis ce programme s'ouvrira."
 fi
 
-if [ ! -d "$WINEPREFIX/drive_c" ]; then
-    if [ -n "${PROTONPATH:-}" ]; then
-        s_dire "Premiere utilisation" "Preparation de l'environnement Windows, une minute."
-    else
-        s_dire "Premiere utilisation" "Telechargement de Proton, puis preparation. Quelques minutes."
-    fi
-    mkdir -p "$WINEPREFIX"
-    if ! umu-run wineboot -u >"$S_ETAT/windows-init.log" 2>&1; then
-        s_echec "L'environnement Windows n'a pas pu etre prepare" \
-                "Detail dans $S_ETAT/windows-init.log"
-    fi
+# ---------------------------------------------------------------------------
+# Le serveur resident
+# ---------------------------------------------------------------------------
+# S'il ne demarre pas, on continue quand meme : wine en lancera un a lui, et le
+# lancement sera lent au lieu d'etre impossible. Une degradation annoncee vaut
+# mieux qu'un refus.
+s_windows_serveur || s_dire "Windows de S" \
+    "La session Windows n'a pas pu rester ouverte — ce lancement sera plus lent." \
+    dialog-warning
 
-    # LE PREFIXE VIENT DE NAITRE : c'est le seul moment ou la lettre P: peut
-    # etre posee. Avant, dosdevices/ n'existe pas ; apres, plus personne ne
-    # repasse par ici. Sans cet appel, le dossier partage serait complet cote
-    # Linux et Android, et absent cote Windows — une couture a moitie faite,
-    # c'est-a-dire pire qu'aucune.
-    /usr/bin/s-partage >>"$S_ETAT/windows-init.log" 2>&1 || true
-
-fi
-
-# --- Lancer ----------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Lancer
+# ---------------------------------------------------------------------------
 s_dire "$NOM" "Ouverture…" application-x-executable
 
+# On se place DANS le dossier du programme. Beaucoup de logiciels Windows
+# cherchent leurs ressources en chemin relatif et ne trouvent rien ailleurs.
+cd "$DOSSIER" 2>/dev/null || true
+
+DEBUT=$(date +%s)
 case "${CIBLE,,}" in
-    *.msi) umu-run "$WINEPREFIX/drive_c/windows/system32/msiexec.exe" /i "$CIBLE" ;;
-    *)     umu-run "$CIBLE" ;;
+    *.msi) "$WINELOADER" "$S_WIN_PFX/drive_c/windows/system32/msiexec.exe" /i "$CIBLE" ;;
+    *)     "$WINELOADER" "$CIBLE" ;;
 esac
 CODE=$?
+DUREE=$(( $(date +%s) - DEBUT ))
 
-# --- Les protocoles enregistres pendant cette execution ---------------------
+# LE FILET, ET IL EST BORNE.
+#
+# Le chemin direct est mesure et il tient — mais il est neuf, et umu-run est le
+# chemin que l'amont eprouve tous les jours. Si le lancement direct echoue VITE
+# (moins de cinq secondes) avec un code non nul, ce n'est pas un programme qui
+# s'est ferme : c'est le lancement qui n'a pas pris. On rejoue alors une fois
+# par le conteneur, et on l'ECRIT — un filet qui se declenche en silence est un
+# filet qui cache la panne qu'il rattrape.
+if [ "$CODE" -ne 0 ] && [ "$DUREE" -lt 5 ]; then
+    echo "$(date -Is) chemin direct : code $CODE en ${DUREE}s pour $NOM — repli sur umu-run" \
+        >> "$S_ETAT/windows-repli.log"
+    s_dire "$NOM" "Nouvel essai par le chemin long…" dialog-warning
+    # LE SERVEUR RESIDENT DOIT DESCENDRE D'ABORD. Proton prend « pfx.lock » et
+    # abandonne EN SILENCE si un wineserver le tient deja — mesure du
+    # 2026-08-26 : soixante secondes, aucune fenetre, aucun message. Sans cette
+    # ligne, le filet ne rattraperait rien tout en ayant l'air de le faire.
+    REPRISE="$(s_windows_pause)"
+    WINEPREFIX="$S_PREFIXE" GAMEID="${GAMEID:-umu-0}" UMU_LOG=warn \
+    PROTONPATH="$(s_windows_proton)" \
+        umu-run "$CIBLE"
+    CODE=$?
+    s_windows_reprendre "$REPRISE"
+fi
+
+# ---------------------------------------------------------------------------
+# Les protocoles enregistres pendant cette execution
+# ---------------------------------------------------------------------------
 # UN PROGRAMME N'ENREGISTRE PAS SON PROTOCOLE A LA CREATION DU PREFIXE : il le
-# fait en S'INSTALLANT, donc pendant l'execution qu'on vient de terminer. Ce
-# recensement doit donc venir APRES, et a chaque fois — c'est le seul moment ou
-# le registre est a jour. Il est idempotent et ne coute qu'une lecture de
-# fichier.
-#
-# CE QUE CA REPARE, MESURE SUR CURSOR LE 2026-08-24. Un logiciel Windows
-# moderne se connecte en renvoyant vers « monappli://callback?token=... ». Il
-# inscrit ce protocole dans le registre DU PREFIXE, que Linux ne lit pas. Le
-# navigateur ouvrait donc la page de connexion, l'utilisateur s'identifiait, et
-# le retour tombait dans le vide. Cote programme, cela donnait exactement :
-# « Authorization omitted: no access token », toutes les trente secondes, sans
-# le moindre message a l'ecran. On clique sur « Login », il ne se passe rien.
-/usr/bin/s-lien-windows --recenser >>"$S_ETAT/windows-init.log" 2>&1 || true
+# fait en S'INSTALLANT, donc pendant l'execution qu'on vient de terminer.
+# Mesure sur Cursor le 2026-08-24 : sans ce recensement, la page de connexion
+# s'ouvrait, l'utilisateur s'identifiait, et le retour « monappli://callback »
+# tombait dans le vide — « Authorization omitted », toutes les trente secondes,
+# sans un mot a l'ecran.
+"$S_GESTES/s-lien-windows" --recenser >>"$S_ETAT/windows-init.log" 2>&1 || true
 
-# --- Attendre que Wine ait FINI d'ecrire ------------------------------------
-# CE QUI ETAIT FAUX AVANT, et que seul un vrai installateur pouvait montrer :
-# on photographiait le menu juste avant, puis juste apres le retour d'umu-run,
-# et on ne moissonnait que si la difference etait non nulle. Or umu-run rend la
-# main des que le PROCESSUS PRINCIPAL sort, tandis que winemenubuilder tourne a
-# cote et que l'installateur Windows ecrit ses raccourcis dans ses dernieres
-# secondes. La comparaison se faisait donc regulierement trop tot — et comme
-# elle conditionnait la moisson, il n'y avait aucun rattrapage : ni minuterie,
-# ni second passage, ni message. VLC installe le 2026-08-23 n'est apparu nulle
-# part pour cette raison, entre autres.
-#
-# « wineserver -w » attend que TOUS les processus du prefixe soient sortis.
-# C'est la primitive faite pour ca, et elle rend la main tout de suite quand il
-# n'y a plus rien a attendre.
-umu-run wineserver -w >/dev/null 2>&1 || true
+# ---------------------------------------------------------------------------
+# Attendre que Windows ait FINI d'ecrire
+# ---------------------------------------------------------------------------
+# ON N'APPELLE PLUS « wineserver -w » : il attend que le SERVEUR sorte, et le
+# notre est fait pour ne jamais sortir. L'appeler ici bloquerait pour toujours.
+# On compte donc les processus du prefixe qui ne sont pas des services
+# permanents — voir s_windows_attendre_calme. Meme role, question juste.
+s_windows_attendre_calme 25 || true
 
-# --- Moisonner, DANS TOUS LES CAS ------------------------------------------
+# ---------------------------------------------------------------------------
+# Moissonner, DANS TOUS LES CAS
+# ---------------------------------------------------------------------------
 # Sans cette etape, les icones de Wine existent mais ne lancent RIEN :
-# winemenubuilder les ecrit avec « Exec=… wine … », et « wine » n'est pas sur
-# ce systeme. Et on l'appelle meme quand rien n'a l'air d'avoir bouge : lui
-# seul sait lire les .lnk du prefixe, et le cas ou winemenubuilder n'a rien
-# ecrit du tout est precisement celui qui nous echappait.
-LU="$(s-menu-windows --silencieux 2>/dev/null | tail -n1)"
+# winemenubuilder les ecrit avec « Exec=... wine ... », et « wine » n'est pas
+# sur ce systeme. Et on l'appelle meme quand rien n'a l'air d'avoir bouge : le
+# cas ou winemenubuilder n'a rien ecrit du tout est precisement celui qui nous
+# echappait, et c'est ce qui a rendu VLC invisible le 2026-08-23.
+LU="$("$S_GESTES/s-menu-windows" --silencieux 2>/dev/null | tail -n1)"
 read -r _POSES NEUFS _IGNORES <<<"${LU:-0 0 0}"
 NEUFS="${NEUFS:-0}"
 
-# --- Dire ce qui s'est passe. Toujours. -------------------------------------
+# ---------------------------------------------------------------------------
+# Dire ce qui s'est passe. Toujours.
+# ---------------------------------------------------------------------------
 if [ "$CODE" -ne 0 ]; then
     s_dire "$NOM" "S'est termine sur une erreur (code $CODE)." dialog-warning
 elif [ "$NEUFS" -gt 0 ]; then
     s_dire "$NOM" "Installe. $NEUFS programme(s) ajoute(s) au menu et au ciel." \
            application-x-executable
 else
-    # Rien de neuf. Deux lectures possibles, et une seule merite un
-    # avertissement : relancer un programme deja installe est normal, une
-    # INSTALLATION qui ne produit aucun raccourci ne l'est pas.
     case "${NOM,,}" in
         *setup*|*install*|*.msi)
             s_dire "$NOM" \

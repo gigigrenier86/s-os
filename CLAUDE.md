@@ -183,6 +183,250 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-26, nuit — les .exe etaient lents ET brouillons, et c'etaient deux pannes
+
+*« Presentement, le roulement des .exe est lent et brouillon, ca marche pas a
+moitie. »* — l'utilisateur, en ouvrant le chantier.
+
+La phrase decrit deux defauts sans rapport l'un avec l'autre, et il a fallu les
+separer pour reparer l'un ou l'autre.
+
+| | Ce que c'etait vraiment |
+|---|---|
+| **Lent** | chaque double-clic reconstruisait un Windows entier |
+| **Brouillon** | le prefixe n'avait ni .NET, ni WebView2, ni **aucune police Segoe** |
+
+---
+
+### 1. Le cout, mesure avant de toucher a quoi que ce soit
+
+Premier relevé, avec un programme qui ne fait **rien** :
+
+```
+umu-run cmd /c exit     1er 6,65 s   2e 5,06 s   3e 5,13 s
+umu-run wineserver -w   3,97 s, et il sortait en code 1
+```
+
+Deux choses s'y lisent. Cinq secondes pour un programme vide — et surtout **le
+2e lancement coute autant que le 1er**. Il n'y avait aucun chemin chaud. Et
+`s-ouvrir-exe` montait ensuite un SECOND conteneur complet pour appeler
+`wineserver -w`, c'est-a-dire pour attendre quelque chose qui n'existait deja
+plus : quatre secondes de plus, et un code d'echec que personne ne lisait.
+
+**Neuf secondes de rien avant que le programme de l'utilisateur commence.**
+
+Une hypothese est morte la : je soupconnais la moisson du menu, appelee apres
+chaque lancement. Elle coute **0,45 s sur 9,5**. Ce n'etait pas elle.
+
+Une autre aussi : le gouverneur de frequence est `powersave`. Sous charge, les
+six coeurs montent a **3,0 GHz sur un maximum de 3,3**. Le nom du gouverneur
+alarmait, la mesure l'a innocente.
+
+### 2. Ce que le conteneur sert vraiment a faire
+
+`umu-run` monte `pressure-vessel`, le bac a sable de Steam, et son runtime
+`sniper` de 797 Mo. La question n'etait pas « comment l'accelerer » mais **« a
+quoi sert-il ici »**.
+
+Il sert a **construire** le prefixe, pas a l'executer. C'est le script `proton`
+qui, a la creation, copie DXVK et VKD3D-Proton dans `system32` et compose les
+surcharges de DLL. Verifie sur la machine :
+`drive_c/windows/system32/d3d11.dll` fait **3,9 Mo** et porte la signature
+DXVK — ce n'est pas un lien vers Proton, c'est un vrai fichier depose dans le
+prefixe.
+
+> **proton CONSTRUIT le Windows. wine le FAIT TOURNER.**
+>
+> S refaisait la construction a chaque double-clic.
+
+### 3. Le piege qui restait, et il aurait rendu le chemin rapide moche
+
+Les surcharges qui font PREFERER ce DXVK au `d3d11` interne de Wine ne sont
+**pas dans le registre**. Elles vivent dans `WINEDLLOVERRIDES`, une variable
+d'environnement que `proton` compose a chaque lancement. Sans elle, Wine ignore
+le DXVK pose a cote et retombe sur son rendu OpenGL.
+
+**On ne recopie pas cette liste** — c'est exactement la faute que ce projet a
+payee cinq jours sur `s-android`. On la lui demande :
+
+```bash
+umu-run cmd /c 'set > C:\capture-env.txt'
+```
+
+Proton compose son environnement, Wine le passe au processus Windows, et `cmd`
+l'ecrit **depuis l'interieur**. Aucun correctif applique a Proton, aucune liste
+devinee : sa propre decision, relue sur le disque, une fois par version.
+
+Pourquoi par un fichier et pas par la sortie standard : `umu-run /usr/bin/env`
+rend **zero ligne avec un code 0**. Le succes silencieux dans sa forme pure.
+
+**Deux pieges que le filtrage doit couvrir, et ils sont dans la capture reelle :**
+
+- Le `PATH` qu'on y lit vaut `C:\windows\system32;C:\windows;...` — c'est le
+  PATH **de Windows**. Le rejouer cote Linux remplacerait le PATH du systeme :
+  plus aucune commande ne repondrait.
+- `LD_LIBRARY_PATH` porte des chemins qui **n'existent que dans le conteneur**
+  (`/usr/lib/pressure-vessel/overrides/...`, `/ubuntu12_64/`). Dix chemins a la
+  capture, **trois** apres nettoyage.
+
+### 4. Le resultat, avec la preuve a chaque mesure
+
+Un wineserver resident, porte par une unite utilisateur — un serveur lance
+depuis un script meurt avec le groupe de processus de son lanceur, et celui-la
+avait disparu entre deux commandes du meme banc.
+
+```
+                                    duree      preuve
+umu-run cmd /c 'echo ok > C:\...'   4,72 s     fichier ecrit
+umu-run cmd /c 'echo ok > C:\...'   4,53 s     fichier ecrit
+wine direct, 1er apres la session   1,37 s     fichier ecrit
+wine direct, lancements 2 a 8       0,109 s    fichier ecrit   (ecart 0,004)
+```
+
+**46 fois plus rapide en regime etabli**, sur la meme machine, le meme Proton,
+le meme prefixe.
+
+*« Avec la preuve »* n'est pas decoratif. Une premiere serie annoncait
+**0,01 s** — et le fichier n'etait pas ecrit, et `dir C:\windows\system32`
+rendait **zero ligne**. `wine64` sans l'environnement capture **sort en silence
+sans rien faire**, en code 1. Toute mesure de cette section ecrit donc un
+fichier et le relit.
+
+### 5. Le brouillon : Wine fournit un Windows VIDE
+
+`PcBoostApp`, un logiciel WPF/.NET 8 ecrit par l'utilisateur, s'ouvre — et
+**chaque icone est un carre vide**. Douze entrees de barre laterale, douze
+carres.
+
+Son theme dit :
+
+```xml
+<FontFamily x:Key="IconFontFamily">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+```
+
+et pointe des caracteres de la zone privee Unicode. Le prefixe possedait
+**dix-huit polices, aucune Segoe**. Wine donne un Windows vide ; tout logiciel
+Windows moderne suppose ces fondations posees, et personne ne les posait — ni
+.NET, ni WebView2, ni les polices.
+
+**Copier les vingt-six polices n'a RIEN change.** Ni `wineboot -u` : 549 entrees
+de police au registre avant, 549 apres. Un fichier depose dans le dossier des
+polices n'existe pas pour Windows tant qu'il n'est pas **declare** :
+
+```
+HKLM\Software\Microsoft\Windows NT\CurrentVersion\Fonts
+HKLM\Software\Microsoft\Windows\CurrentVersion\Fonts
+    "Segoe Fluent Icons (TrueType)" = "SegoeIcons.ttf"
+```
+
+Deux cles, pas une — c'est ce que fait winetricks dans `w_register_font`, et
+c'est de la qu'on l'a pris.
+
+**Et le nom ne se deduit pas du fichier.** `SegoeIcons.ttf` se declare
+« Segoe Fluent Icons », `segmdl2.ttf` se declare « Segoe MDL2 Assets »,
+`seguisb.ttf` se declare « Segoe UI Semibold ». Aucune regle ne relie les deux :
+il faut lire la table `name` du fichier. C'est `/usr/lib/s/polices.py`, trente
+lignes, sans dependance.
+
+Quarante-sept polices declarees. **Toutes les icones apparaissent**, et la
+typographie change avec — voir `galerie/windows/`.
+
+### 6. Ou les polices ont ete prises, et pourquoi c'est licite
+
+Segoe appartient a Microsoft et ce depot est **public** : l'y deposer serait une
+redistribution. Mais cette machine porte un vrai Windows sous licence, monte en
+`/var/mnt/windows`, et ses polices sont licenciees **avec elle**.
+
+> La doctrine du projet tient mot pour mot. *« De Windows, on ne prend aucun
+> fichier »* vaut pour **l'image**. L'image ne transporte que le geste ; les
+> polices ne quittent jamais la machine ou elles sont licenciees.
+
+Et quand il n'y a pas de Windows sur la machine, `s-windows --polices` **le
+dit** au lieu d'afficher des carres sans explication.
+
+**Ce qu'on n'emprunte PAS, et c'est delibere :** aucune DLL. Les DLL internes de
+Wine sont ecrites pour s'emboiter entre elles ; y substituer celles d'un vrai
+Windows casse plus souvent que ca ne repare. Les polices sont l'exception parce
+que ce sont des **donnees**, pas du code. Pour les runtimes, winetricks
+telecharge les redistribuables officiels de Microsoft — plus propre qu'une copie,
+et maintenu par quelqu'un d'autre que nous.
+
+### 7. Les icones des programmes Windows
+
+Demande de l'utilisateur en cours de chantier. Tout lanceur pose par
+`s-menu-windows` portait `Icon=application-x-executable` : la meme icone grise
+pour PURPLE, pour Cursor, pour n'importe quoi. Le menu disait le **genre** et
+jamais **lequel** — le defaut deja corrige pour les etoiles le 2026-08-23,
+reste entier du cote Windows.
+
+L'icone est **dans le fichier** : tout binaire Windows la porte dans sa section
+de ressources. `icoutils` sait l'en sortir depuis vingt ans, et **il etait deja
+sur la machine — par accident.** Aucun paquet ne le demandait, aucune ligne de
+ce depot ne le nommait. Il est desormais installe explicitement, sinon il aurait
+disparu un jour et les icones seraient redevenues grises sans que personne
+comprenne pourquoi.
+
+Releve : PURPLE rend **neuf tailles jusqu'a 256**, Cursor **deux jusqu'a 512**,
+et les deux projets .NET de l'utilisateur en rendent **zero** — leur `.csproj`
+ne porte pas `<ApplicationIcon>`. Ce n'est pas un defaut de S, et le repli
+generique reste juste dans ce cas-la.
+
+### 8. Le defaut que j'ai introduit, et que la mesure a rattrape
+
+`PcBoostApp` lance par `umu-run` **pendant que le serveur resident tournait** :
+aucune fenetre apres soixante secondes, aucun message, un code qui ne dit rien.
+Le meme lancement, serveur arrete, ouvre sa fenetre en cinq secondes. La cause
+est le verrou : Proton prend `pfx.lock` et suppose qu'il possede le prefixe.
+
+**Ce que ca aurait coute sans cette mesure :** le filet de secours de
+`s-ouvrir-exe` — celui qui rejoue par `umu-run` quand le chemin direct echoue —
+aurait echoue lui aussi, **en silence**, exactement dans le cas ou l'utilisateur
+compte dessus. *Un filet qui ne rattrape rien est pire qu'aucun filet : il donne
+l'illusion d'un recours.* D'ou `s_windows_pause` / `s_windows_reprendre`, et
+tout ce qui passe par `umu-run` les encadre.
+
+### 9. Mon banc a menti deux fois cette nuit
+
+Il faut l'ecrire, parce que c'est la deuxieme fois en trois jours.
+
+- Le premier banc photographiait les fenetres avant, lancait, et prenait la
+  premiere **nouvelle**. Une fenetre restee d'un essai precedent tombait dans le
+  lot : il a rendu **0,28 s** pour une application WPF, et **1,33 s** pour un
+  chemin qui en coute cinq. Le banc refait EXIGE une table rase verifiee et
+  **refuse de rendre un chiffre** s'il ne l'obtient pas.
+- La serie a 0,01 s, deja racontee plus haut, ou rien ne tournait.
+
+*Un banc qui ne peut pas echouer ne mesure rien.* Et le carnet notait deja la
+meme faute le 2026-08-25 sur le clic de la barre des taches.
+
+**Et `pgrep -f` a fauche mon propre shell une quatrieme fois** — le motif matche
+la ligne de commande du banc lui-meme. Tout ce chantier n'emploie plus que
+`-x`.
+
+### 10. Ce que cette nuit ne prouve pas
+
+- **Rien n'est encore dans l'image.** Tout a ete eprouve sur la copie de travail
+  par `S_BIN` / `S_LIB`. La construction a ete **rejouee localement**, pas lue
+  dans les journaux d'Actions — ils repondent 403 sans droits admin, et `gh`
+  n'est pas sur cette machine.
+- **Le premier lancement apres ouverture de session coute 1,37 s**, pas 0,109.
+  Le serveur resident initialise la session Windows a son premier client. Il est
+  tire par `s-session.target`, donc ce cout est paye pendant l'ouverture de
+  session et non au premier double-clic — **mais ca n'a pas ete chronometre sur
+  un vrai demarrage.**
+- **`ntsync` est la et n'est pas utilise.** Le noyau `7.2.0-ogc6.1` porte
+  `/dev/ntsync` en `crw-rw-rw-`, le pilote d'Elizabeth Figura. `UMU-Proton-10.0-4`
+  n'en contient **aucune trace** (`grep -rl ntsync` sur tout son arbre : rien) —
+  il tourne en `fsync`. Fedora 44 propose `wine-11.0 Staging`, plus recent que
+  le `wine-10.0` de Proton. Piste ouverte, **rien n'a ete change pour ca**.
+- **Aucun `winewayland.drv`** dans ce Proton : les programmes Windows passent
+  par XWayland. Non mesure comme un defaut, juste constate.
+- **Le repli sur `umu-run` n'a jamais servi pour de vrai.** Il est ecrit, sa
+  condition est bornee, mais aucun lancement ne l'a declenche.
+- **RapidO n'a pas encore ouvert.** Il demande WebView2 en plus de .NET 8.
+
+---
+
 ## 2026-08-25, 22 h 30 — le telephone tient S, et la preuve s'ecrivait elle-meme
 
 L'entree de 21 h se terminait ainsi : *« Rien de l'acces distant n'est donc

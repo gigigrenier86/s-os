@@ -78,13 +78,17 @@ systemctl is-enabled s-partage.service >/dev/null \
     || { echo "ECHEC : s-partage.service n'est pas active." >&2; exit 1; }
 echo "  s-partage     : service active (apres le conteneur Android)"
 
-# La lettre de lecteur cote Windows ne se pose qu'une fois le prefixe cree.
-# s-ouvrir-exe rappelle s-partage juste apres l'avoir fabrique : on verifie ici
-# que l'appel y est vraiment, sinon la couture serait a moitie posee et
-# personne ne le saurait avant d'ouvrir un programme Windows.
-grep -q 's-partage' /usr/bin/s-ouvrir-exe \
-    || { echo "ECHEC : s-ouvrir-exe ne rappelle pas s-partage — P: ne serait jamais posee." >&2; exit 1; }
-echo "  s-ouvrir-exe  : pose la lettre P: apres creation du prefixe"
+# LA LETTRE P: A DEMENAGE, ET CETTE VERIFICATION AVEC ELLE — 2026-08-26.
+#
+# La creation du prefixe est passee de s-ouvrir-exe a « s-windows --preparer »
+# quand le Windows de S est devenu une session residente. Le controle qui vivait
+# ici cherchait « s-partage » dans s-ouvrir-exe ; il aurait CONTINUE DE PASSER,
+# parce qu'il reste une phrase de commentaire qui nomme s-partage dans ce
+# fichier — sans qu'aucun appel n'y soit plus.
+#
+# C'est le meme piege que le garde-fou de plasma_waitforname, ecrit la veille :
+# une verification qui lit de la documentation et croit lire du code. Elle est
+# donc reecrite dans 41-windows.sh, ancree sur l'APPEL et non sur le mot.
 
 
 # --- LES LIENS QUE WINDOWS ENREGISTRE ---------------------------------------
