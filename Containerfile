@@ -180,6 +180,17 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/43-amorcage.sh
 
+# Le telephone — Tailscale active, mosh pose
+#
+# Place juste avant les coutures, et pas ailleurs : « 40-coutures.sh » se
+# termine par « ostree container commit », donc rien ne peut venir apres lui.
+# Ce script-ci ne bougera presque jamais ; le jour ou il bougera, il ne fera
+# reconstruire que la couche des coutures — 9,6 Mo, mesures le 2026-08-20.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/45-telephone.sh
+
 # Les coutures — la partie qui bouge le plus
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \

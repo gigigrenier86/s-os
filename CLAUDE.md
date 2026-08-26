@@ -178,6 +178,99 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-25, 21 h — travailler sur S depuis le telephone
+
+Demande de l'utilisateur : *« je veux pouvoir travailler sur le projet depuis
+mon telephone »*. Trois voies existaient et elles ne se valent pas ; celle
+retenue est la seule compatible avec la methode de ce carnet.
+
+### Pourquoi pas le nuage, et pourquoi pas une redirection de port
+
+| Voie | Ce qu'elle donne | Pourquoi ecartee |
+|---|---|---|
+| Claude Code sur le web | confortable au doigt, rien a installer | **aveugle a la machine** — aucune mesure, aucun journal, aucun `bootc`. Or ce carnet ne vaut que par ce qu'il mesure |
+| Ouvrir le port 22 sur la box | direct | exposer un `sshd` a l'Internet entier pour joindre une machine personnelle |
+| **Tailscale + SSH** | **le vrai terminal de S, de n'importe ou** | **retenue** |
+
+Ce qui a decide : `tailscale` **est deja dans l'image de base** — 1.102.3, mesure,
+pas suppose — mais livre `disabled` et jamais demarre. Il ne manquait pas un
+outil, il manquait une activation.
+
+### Ce que la machine a repondu
+
+| | |
+|---|---|
+| `sshd.socket` | **actif**, port 22 en ecoute — le travail de `10-base.sh` tient |
+| Adresse | `192.168.40.149/24` en Wi-Fi — **privee**, injoignable de l'exterieur |
+| Pare-feu | `firewalld` actif, zone `FedoraWorkstation`, **service `ssh` ouvert** |
+| `tailscaled` | present, `disabled`, `inactive`, **aucun etat dans `/var/lib`** |
+| `authorized_keys` de `RyuRex` | **aucune** — seul `root` a la cle posee a l'installation |
+| `tmux` | present. `mosh` : **absent** |
+
+### La mesure qui aurait fait echouer tout le reste en silence
+
+Une machine qui s'endort ne repond plus au telephone, et rien ne le dit : on
+croit que l'acces distant est casse. Releve :
+
+```
+powerdevil                    ne tourne pas
+logind IdleAction             "ignore"
+veilles depuis l'allumage     0
+```
+
+**La machine ne s'endort donc jamais — mais rien ne le decide.** C'est
+l'absence de PowerDevil, elle-meme consequence du remplacement de Plasma par
+Constellation, qui le produit. **Ca tient par accident**, exactement comme
+`s-session.target` tenait par accident jusqu'au 2026-08-25 apres-midi.
+
+**Et le garde evident serait un faux garde.** Un fragment `logind.conf.d` avec
+`IdleAction=ignore` ne protegerait de rien : PowerDevil n'endort pas la machine
+par `IdleAction`, il appelle `Suspend()` directement, que ce reglage ne
+gouverne pas. Poser ce fichier donnerait le sentiment d'une protection sans en
+etre une — le faux temoin que ce carnet collectionne. **C'est donc ecrit ici et
+non « corrige ».**
+
+### Ce qui entre dans l'image, et ce qui n'y entrera jamais
+
+`build_files/45-telephone.sh`, branche avant `40-coutures.sh` — le seul creneau
+disponible, puisque les coutures se terminent par `ostree container commit`.
+
+- **`tailscaled` active dans l'image.** Un `systemctl enable` tape sur la
+  machine ne survivrait pas a un `bootc upgrade` ; c'est la regle du carnet.
+  Meme geste que `sshd.socket` dans `10-base.sh`, meme raison.
+- **`mosh` pose.** Ce n'est pas un confort : un telephone change de reseau sans
+  arret, et **chaque changement d'adresse IP tue une session SSH**. Mosh y
+  survit parce qu'il ne tient aucune connexion TCP. C'est la difference entre
+  « je peux travailler depuis mon telephone » et « tant que je ne bouge pas ».
+- **Aucune cle, aucun identifiant, aucun jeton d'authentification.** Le depot
+  est public. L'etat de Tailscale vit dans `/var/lib/tailscale`, qui est propre
+  a la machine et survit aux mises a jour — la bonne moitie de la regle 1.
+- **Un garde-fou**, meme patron que celui de `20-android.sh` sur
+  `waydroid-launcher` : si l'amont retire Tailscale, **la construction echoue**
+  au lieu de livrer une image dont l'acces distant s'est evapore.
+
+### Ce que cette passe ne prouve pas — et c'est presque tout le cote machine
+
+- **`tailscale up` n'a jamais tourne.** `sudo` exige un mot de passe dans cette
+  session, et l'appairage demande de toute facon un humain connecte a son
+  compte. Rien de l'acces distant n'est donc **exerce** a cette heure.
+- **Le script de construction n'a jamais ete construit.** Il est ecrit, sa
+  syntaxe validee, son mode `100755` et ses fins de ligne LF verifies — les
+  deux pieges du carnet — mais aucune CI ne l'a passe.
+- **Tailscale SSH n'est pas prouve ici.** La politique par defaut d'un tailnet
+  personnel comporte une regle `ssh` en `action: check`, donc une
+  reauthentification par navigateur de temps en temps. Si le tailnet n'en a
+  pas, la connexion sera refusee et il faudra une cle SSH classique. **Le repli
+  est prevu, il n'est pas mesure.**
+- **Mosh au-dessus de Tailscale SSH n'est pas prouve** : mosh amorce sa session
+  par un `ssh` qui execute `mosh-server`, puis passe en UDP direct. Ca devrait
+  passer ; ca sera mesure au premier essai, et le repli sur `ssh` + `tmux`
+  fonctionne de toute facon.
+- **Le confort reel d'un TUI sur un ecran de telephone n'est pas juge.** C'est
+  l'utilisateur qui l'exercera le premier.
+
+---
+
 ## 2026-08-25, 19 h 55 — le filet a servi, et il tient
 
 **`bootc rollback` a ete exerce pour la premiere fois du projet.** C'etait la
