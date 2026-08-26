@@ -7,9 +7,11 @@
 # sert qu'a une chose — INSTALLER S sur une machine neuve — et ce geste-la est
 # rare.
 #
-# POURQUOI PAS SUR LA MACHINE. Elle n'a ni podman ni WSL, et bootc-image-builder
-# exige un conteneur privilegie sur un noyau Linux. Meme raison que pour l'image
-# elle-meme, et meme reponse : le CI construit, la machine ne fait que recevoir.
+# POURQUOI PAS SUR LA MACHINE. bootc-image-builder exige un conteneur
+# PRIVILEGIE sur un noyau Linux — c'est la vraie raison, et elle tient toujours.
+# La phrase precedente ajoutait « elle n'a ni podman ni WSL » : faux depuis le
+# 2026-08-26, podman y est et y a construit l'image entiere. Le privilege, lui,
+# ne se contourne pas d'un « podman build » ordinaire.
 #
 # CE QUE CETTE ISO EST, ET CE QU'ELLE N'EST PAS. C'est un installateur Anaconda
 # qui porte l'image de S EN ENTIER — donc il installe SANS RESEAU. Ce n'est pas

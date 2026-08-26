@@ -1,7 +1,16 @@
 # Construit l'image de S et la publie sur ghcr.io.
 #
-# Pourquoi le CI et pas la machine : elle n'a ni podman ni WSL, et il ne lui
-# reste que ~61 Go libres. Faire construire ailleurs regle les deux d'un coup.
+# POURQUOI LE CI ET PAS LA MACHINE — et ce commentaire a ete corrige le
+# 2026-08-26, parce qu'il disait deux choses fausses. Il annoncait « elle n'a ni
+# podman ni WSL, et il ne lui reste que ~61 Go libres ». Releve ce jour-la :
+# podman est installe, et /var a 130 Go libres. La machine a d'ailleurs
+# construit l'image ENTIERE ce matin-la, en vingt et une couches, pour lire un
+# message d'erreur qu'Actions refusait de rendre (403 sans droits admin).
+#
+# Le CI reste le chemin normal : il construit sur du materiel qui ne sert qu'a
+# ca, il publie, et il signe. La construction locale est devenue l'outil de
+# DIAGNOSTIC — celui qui rend le journal complet quand la construction distante
+# tombe et qu'on n'a pas les droits pour le lire.
 
 name: Construire S
 
@@ -243,7 +252,29 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           REG="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+
+          # PODMAN ET COSIGN NE LISENT PAS LE MEME FICHIER D'IDENTIFIANTS.
+          #
+          # MESURE DU 2026-08-26, run #71 : l'image s'est construite (472 s),
+          # publiee (443 s), et la signature a echoue en CINQ SECONDES — le
+          # temps qu'il faut pour se voir refuser, pas pour travailler.
+          # « podman login » ecrit dans $XDG_RUNTIME_DIR/containers/auth.json ;
+          # cosign passe par le trousseau de go-containerregistry, qui lit la
+          # configuration Docker. Deux etapes qui ont l'air de se suivre et qui
+          # ne se parlent pas.
+          cosign login ghcr.io \
+            -u "${{ github.actor }}" \
+            -p "${{ secrets.GITHUB_TOKEN }}"
+
+          # LE CONDENSAT SE CONTROLE AVANT DE S'EN SERVIR : un fichier absent
+          # ferait mourir « cat » sur une ligne qui ne dit pas ce qui manque —
+          # le meme faux verdict que celui paye le matin meme sur la cle de
+          # F-Droid.
+          test -s "${RUNNER_TEMP}/condensat" \
+            || { echo "Aucun condensat releve a la poussee : rien a signer." >&2; exit 1; }
           CONDENSAT="$(cat "${RUNNER_TEMP}/condensat")"
+          echo "A signer : ${REG}/${IMAGE_NAME}@${CONDENSAT}"
+
           # On signe le CONDENSAT, jamais l'etiquette : « latest » designera
           # autre chose demain, le condensat designe cette image-la pour
           # toujours.

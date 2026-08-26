@@ -392,6 +392,33 @@ dépendre d'Actions ni de droits qu'on n'a pas. Toute panne de construction se
 diagnostique ici maintenant, en une passe, au lieu de neuf minutes par
 hypothèse.
 
+### La signature a demandé deux passes de plus, et la seconde était une jointure invisible
+
+**Run #71** : image construite (472 s), publiée (443 s) — le correctif de F-Droid
+tient, et la construction locale l'a confirmé de son côté. Les étiquettes sont
+enfin justes sur l'image publiée :
+
+```
+revision = 30a85d38b73a71cc18f74d72336cfd05236336e7   <- un commit de S, enfin
+version  = 44.20260826.30a85d3                        <- elle bouge
+created  = 2026-08-26T12:28:50Z
+```
+
+Mais la **signature a échoué en cinq secondes** — le temps qu'il faut pour se
+faire refuser, pas pour travailler.
+
+**`podman login` et `cosign` ne lisent pas le même fichier d'identifiants.**
+Le premier écrit dans `$XDG_RUNTIME_DIR/containers/auth.json` ; le second passe
+par le trousseau de `go-containerregistry`, qui lit la configuration Docker.
+Deux étapes qui se suivent dans le fichier et qui ne se parlent pas. `cosign
+login` fait la jointure.
+
+Et le relevé du condensat est désormais **contrôlé avant d'être utilisé** : un
+fichier absent aurait fait mourir `cat` sur une ligne qui ne nomme pas ce qui
+manque — exactement le faux verdict payé le matin même sur la clé de F-Droid.
+Deux fois la même faute dans la même journée : **une branche d'échec doit
+montrer ce qui s'est passé avant de dire ce qu'elle en conclut.**
+
 ### Ce qui reste, et qui demande une décision ou une présence
 
 - **Exiger la signature** (`policy.json`) — à faire après que `cosign verify`
