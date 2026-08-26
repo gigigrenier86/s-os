@@ -45,6 +45,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # « id-token » sert UNIQUEMENT a la signature sans cle : GitHub delivre au
+      # job un jeton OIDC que Sigstore echange contre un certificat ephemere.
+      # Aucun secret de depot n'est requis, donc rien a poser a la main.
+      id-token: write
 
     steps:
       - name: Recuperer le depot
@@ -70,6 +74,16 @@ jobs:
             head -c2 "$f" | grep -q '#!' || { echo "  SANS SHEBANG : $f"; manque=1; }
             bash -n "$f" || { echo "  SYNTAXE CASSEE : $f"; manque=1; }
           done
+          # LE TROUSSEAU DE F-DROID N'EST PAS UN COPY : 40-coutures.sh le lit
+          # dans /ctx. Son absence ne se verrait donc pas dans la boucle
+          # ci-dessus — elle se verrait neuf minutes plus tard, au moment ou la
+          # verification de signature en a besoin.
+          if [ -s build_files/cles/f-droid.asc ]; then
+            echo "  present : build_files/cles/f-droid.asc"
+          else
+            echo "  ABSENT DU CONTEXTE : build_files/cles/f-droid.asc"
+            manque=1
+          fi
           # LES CONTROLES PAR MOTIF, REJOUES CONTRE LES FICHIERS REELS.
           #
           # Un script de construction qui cherche une chaine dans un fichier de
@@ -148,9 +162,68 @@ jobs:
           REG="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
           for tag in latest "${GITHUB_SHA}"; do
             podman tag "${IMAGE_NAME}:${GITHUB_SHA}" "${REG}/${IMAGE_NAME}:${tag}"
-            podman push "${REG}/${IMAGE_NAME}:${tag}"
+            # Le condensat est releve A LA POUSSEE, pas redemande apres coup :
+            # c'est celui du manifeste qui vient d'etre accepte par le registre,
+            # et c'est lui que la signature doit designer. Les deux etiquettes
+            # portent la meme image, donc le meme condensat.
+            podman push --digestfile "${RUNNER_TEMP}/condensat" "${REG}/${IMAGE_NAME}:${tag}"
           done
-          echo "Publie : ${REG}/${IMAGE_NAME}:latest"
+          echo "Publie : ${REG}/${IMAGE_NAME}:latest @ $(cat "${RUNNER_TEMP}/condensat")"
           echo ""
           echo "Pour basculer une installation Bazzite sur cette image :"
           echo "  sudo bootc switch --enforce-container-sigpolicy=false ${REG}/${IMAGE_NAME}:latest"
+
+      # ======================================================================
+      # SIGNER — et pourquoi c'est ici que ca se repare
+      # ======================================================================
+      # LE CONSTAT, MESURE LE 2026-08-25 PUIS REPRIS LE 2026-08-26 :
+      #
+      #   rpm-ostree status  ->  ostree-unverified-registry:ghcr.io/.../s-os
+      #
+      # et /etc/containers/policy.json, herite de Bazzite, verifie par sigstore
+      # « ghcr.io/ublue-os » mais retombe sur « insecureAcceptAnything » pour
+      # tout le reste — donc pour S. L'ironie etait mesurable : S verifiait son
+      # amont plus severement que lui-meme.
+      #
+      # CE QUI L'A REND URGENT, RELEVE LE 2026-08-26 : « uupd.timer » est ACTIF
+      # sur la machine et tire « ghcr.io/gigigrenier86/s-os:latest » toutes les
+      # nuits vers 04 h 06, sans que personne decide. Une garantie absente sur
+      # une image qu'on installe a la main est une dette ; sur une image qui
+      # s'installe toute seule pendant qu'on dort, c'en est une autre.
+      #
+      # SANS CLE, ET CE N'EST PAS UN RACCOURCI. La signature « keyless » de
+      # Sigstore echange le jeton OIDC du job contre un certificat de courte
+      # duree qui porte l'identite du workflow, et journalise le tout dans
+      # Rekor. Il n'y a donc aucune cle privee a garder, a poser en secret de
+      # depot, ni a faire tourner — et l'identite prouvee (« ce depot, ce
+      # workflow, cette branche ») est plus precise qu'une cle partagee.
+      #
+      # CE QUE CETTE ETAPE NE FAIT PAS, ET C'EST VOULU : elle ne touche pas a
+      # policy.json de la machine. Signer et EXIGER la signature sont deux
+      # decisions ; la seconde peut empecher un demarrage ou une mise a jour et
+      # se prend en connaissance de cause. Elle est ecrite dans CLAUDE.md avec
+      # la commande qui la verifierait d'abord.
+      #
+      # ET SI CETTE ETAPE ECHOUE : l'image est DEJA publiee — la construction
+      # rougit, la machine garde son image. On perd la signature, pas le
+      # systeme.
+      - name: Installer cosign
+        if: github.event_name != 'pull_request'
+        # L'outil de l'amont Sigstore, celui que le gabarit ublue-os emploie.
+        uses: sigstore/cosign-installer@v3
+
+      - name: Signer l'image publiee
+        if: github.event_name != 'pull_request'
+        run: |
+          REG="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          CONDENSAT="$(cat "${RUNNER_TEMP}/condensat")"
+          # On signe le CONDENSAT, jamais l'etiquette : « latest » designera
+          # autre chose demain, le condensat designe cette image-la pour
+          # toujours.
+          cosign sign --yes "${REG}/${IMAGE_NAME}@${CONDENSAT}"
+          echo "Signe : ${REG}/${IMAGE_NAME}@${CONDENSAT}"
+          echo ""
+          echo "Pour verifier depuis n'importe quelle machine :"
+          echo "  cosign verify ${REG}/${IMAGE_NAME}:latest \\"
+          echo "    --certificate-identity-regexp '^https://github.com/${{ github.repository }}/' \\"
+          echo "    --certificate-oidc-issuer https://token.actions.githubusercontent.com"

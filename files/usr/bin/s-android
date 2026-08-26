@@ -32,7 +32,10 @@ if [ ! -f /var/lib/waydroid/waydroid.cfg ]; then
     # l'appel en laissant tomber ses deux arguments. La regle du carnet — on ne
     # reimplemente pas ce que l'amont maintient — vaut aussi pour une ligne de
     # commande.
-    if ! pkexec waydroid init -s GAPPS \
+    # 3600 s : ce n'est pas l'authentification qui est longue, c'est le
+    # gigaoctet d'image Android qui se telecharge derriere. Une limite courte
+    # couperait un travail legitime au milieu.
+    if ! s_root --limite 3600 waydroid init -s GAPPS \
             -c 'https://ota.waydro.id/system' \
             -v 'https://ota.waydro.id/vendor' >"$S_ETAT/android-init.log" 2>&1; then
         s_echec "Android n'a pas pu etre prepare" "Detail dans $S_ETAT/android-init.log"
@@ -179,7 +182,7 @@ fi
 grep -q '^ro.sf.lcd_density=140' /var/lib/waydroid/waydroid_base.prop 2>/dev/null || manque=1
 if [ "$manque" = 1 ]; then
     s_dire "Android" "Reglage de l'affichage — un mot de passe va etre demande, une seule fois." phone
-    pkexec /usr/bin/python3 - <<'PY' >/dev/null 2>&1 || true
+    s_root /usr/bin/python3 - <<'PY' >/dev/null 2>&1 || true
 import configparser, io
 p = "/var/lib/waydroid/waydroid.cfg"
 c = configparser.ConfigParser(interpolation=None, strict=False)
@@ -205,14 +208,14 @@ PY
     # waydroid_base.prop, puis le conteneur repart s'il tournait. On ne
     # reimplemente donc rien : on appelle ce que l'amont maintient.
     s_dire "Android" "Application des reglages a Android…" phone
-    pkexec /usr/bin/waydroid upgrade -o >>"$S_ETAT/android-init.log" 2>&1 || true
+    s_root --limite 900 /usr/bin/waydroid upgrade -o >>"$S_ETAT/android-init.log" 2>&1 || true
 fi
 
 # --- Demarrer la session, si elle ne tourne pas -----------------------------
 if ! waydroid status 2>/dev/null | grep -qi 'RUNNING'; then
     s_dire "Android" "Demarrage…" phone
     systemctl start waydroid-container 2>/dev/null || \
-        pkexec systemctl start waydroid-container >/dev/null 2>&1 || true
+        s_root systemctl start waydroid-container >/dev/null 2>&1 || true
     waydroid session start >"$S_ETAT/android-session.log" 2>&1 &
     for _ in $(seq 1 60); do
         waydroid status 2>/dev/null | grep -qi 'RUNNING' && break
@@ -282,7 +285,7 @@ VEILLE_VOULUE=2147483647
 VEILLE_VUE="$(cat "$S_ETAT/android-veille" 2>/dev/null || true)"
 if [ "$VEILLE_VUE" != "$VEILLE_VOULUE" ]; then
     s_dire "Android" "Reglage de la mise en veille — un mot de passe va etre demande." phone
-    if pkexec /usr/bin/sh -c "
+    if s_root /usr/bin/sh -c "
         waydroid shell -- settings put system screen_off_timeout ${VEILLE_VOULUE} &&
         waydroid shell -- settings put global stay_on_while_plugged_in 7
     " >>"$S_ETAT/android-init.log" 2>&1; then
@@ -356,7 +359,7 @@ if [ ! -f "$MARQUE" ]; then
     # cette application ? », dessinee par le meme composant. Le chemin qui
     # n'ouvre aucune boite du tout est « Magasin Android » (s-magasin-android),
     # qui installe depuis l'hote.
-    pkexec waydroid shell -- cmd appops set org.fdroid.fdroid \
+    s_root waydroid shell -- cmd appops set org.fdroid.fdroid \
         REQUEST_INSTALL_PACKAGES allow >>"$S_ETAT/android-init.log" 2>&1 || \
         s_dire "Android" \
 "F-Droid n'a pas pu recevoir l'autorisation d'installer. Utiliser plutot \

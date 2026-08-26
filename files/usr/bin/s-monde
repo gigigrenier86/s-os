@@ -55,6 +55,49 @@ s_echec() {
     exit 1
 }
 
+# ---------------------------------------------------------------------------
+# s_root — une elevation qui ne peut pas figer le geste
+# ---------------------------------------------------------------------------
+# CE QUE CA REPARE, MESURE LE 2026-08-26 AU MATIN.
+#
+# s-android a ete lance pendant que l'utilisateur etait AILLEURS. Il s'est
+# arrete sur « pkexec /usr/bin/python3 » — le reglage de l'affichage Android —
+# et il y est reste TROIS MINUTES, jusqu'a ce qu'on le tue. Sans limite, il y
+# serait encore : pkexec attend une authentification qui ne viendra pas, et
+# l'agent polkit garde une fenetre ouverte sur un ecran que personne ne
+# regarde. Le geste ne rend jamais la main, le verrou du monde reste pris, et
+# rien ne le dit.
+#
+# Ce n'est pas propre a Android : NEUF appels a pkexec dans quatre gestes
+# avaient exactement la meme faille. C'est donc ici qu'on la ferme, une fois.
+#
+# « --foreground » N'EST PAS DECORATIF. Sans lui, timeout place le programme
+# dans un autre groupe de processus ; le jour ou pkexec n'a pas d'agent
+# graphique et retombe sur sa demande en clair dans un terminal, la lecture du
+# terminal leverait SIGTTIN et l'arreterait. On garde le premier plan.
+#
+# ET ON NE REMPLACE PAS L'ECHEC PAR UN SILENCE : un depassement se dit, avec le
+# nom de ce qui n'a pas ete fait. L'appelant decide s'il continue degrade ou
+# s'il s'arrete — les deux sont legitimes, se taire ne l'est pas.
+#
+#   s_root <commande...>                    limite par defaut : 120 s
+#   s_root --limite 900 <commande...>       pour un travail legitimement long
+#
+# Rend le code de la commande, ou 124 si la limite a ete atteinte.
+s_root() {
+    local limite=120
+    if [ "${1:-}" = "--limite" ]; then limite="$2"; shift 2; fi
+    local quoi="$1"
+    timeout --foreground "$limite" pkexec "$@"
+    local code=$?
+    if [ "$code" = 124 ]; then
+        s_dire "Autorisation non donnee" \
+"« $quoi » demandait un mot de passe et personne n'a repondu en ${limite} s. \
+Le geste continue sans cette etape." dialog-warning
+    fi
+    return $code
+}
+
 # Un verrou par monde : deux double-clics rapides ne doivent pas provisionner
 # deux fois le meme environnement.
 s_verrou() {

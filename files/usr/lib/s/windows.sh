@@ -248,12 +248,25 @@ s_windows_charger() {
 #
 #                        materiel    logiciel
 #   PURPLE (CefSharp)     1 couleur   3133 couleurs
-#   PcBoostApp (WPF)      6426        17 couleurs
+#   PcBoostApp (WPF)      6426        17 couleurs   <-- POSE TROP COURTE, voir plus bas
 #
-# CHACUN MARCHE DANS LE MODE OU L'AUTRE ECHOUE. Il n'existe donc pas de bon
-# reglage global : celui qui reparerait PURPLE casserait PcBoostApp, et
-# reciproquement. Ce n'est pas un compromis a trancher, c'est un reglage a
-# porter PAR PROGRAMME.
+# LA LIGNE DE PcBoostApp A ETE REPRISE LE 2026-08-26 AU MATIN, ET ELLE NE DIT
+# PLUS CA. Meme programme, meme prefixe, capture a TRENTE secondes au lieu de
+# cinq, fenetre de 1028x733 :
+#
+#                        total       zone centrale
+#   rendu logiciel        8888        3308 couleurs
+#   rendu materiel        9735        3492 couleurs
+#
+# La zone centrale PEINT en rendu logiciel. Le « 17 » etait une fenetre qui
+# n'avait pas fini de se dessiner, pas un rendu qui echoue.
+#
+# CE QUI RESTE VRAI : PURPLE ne peint qu'en rendu logiciel, et ca n'a pas ete
+# repris. Le reglage par programme garde donc son utilite pour lui. CE QUI
+# N'EST PLUS ETABLI : qu'un reglage global casserait PcBoostApp. Les deux
+# series n'ont pas ete prises sur la meme fenetre, leurs totaux ne se comparent
+# pas ligne a ligne — la mesure qui trancherait est les deux modes a 5 s puis a
+# 30 s dans une seule serie.
 #
 # Ce n'est pas DXVK non plus : force en WineD3D, PURPLE reste noir. C'est bien
 # le chemin materiel de WPF lui-meme.

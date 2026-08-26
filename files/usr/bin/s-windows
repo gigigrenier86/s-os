@@ -306,9 +306,15 @@ fi
 #
 #                        materiel    logiciel
 #   PURPLE (CefSharp)     1 couleur   3133 couleurs
-#   PcBoostApp (WPF)      6426        17 couleurs
+#   PcBoostApp (WPF)      6426        17 couleurs   <-- pose trop courte
 #
-# Chacun marche la ou l'autre echoue. Il n'y a donc rien a trancher globalement.
+# LE 17 EST TOMBE LE 2026-08-26 AU MATIN. Repris a trente secondes au lieu de
+# cinq, PcBoostApp rend 8888 couleurs en rendu logiciel, dont 3308 sur le seul
+# carre central : sa zone centrale peint. Le detail et ce que ca n'etablit pas
+# sont dans /usr/lib/s/windows.sh, au meme endroit.
+#
+# PURPLE, lui, n'a pas ete repris : le reglage par programme reste justifie
+# pour lui.
 if [ "${1:-}" = "--fenetre-noire" ]; then
     CIBLE="${2:-}"
     [ -n "$CIBLE" ] || s_echec "Quel programme ?" \

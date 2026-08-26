@@ -119,7 +119,9 @@ dossier personnel. Seul part ce qui a ete ajoute par-dessus." || {
 s_dire "Nettoyage de S" "Retrait en cours. Cela peut prendre une minute." system-run
 
 JOURNAL="$S_ETAT/nettoyage.log"
-if pkexec rpm-ostree reset >"$JOURNAL" 2>&1; then
+# 900 s : « rpm-ostree reset » travaille sur le systeme de fichiers, pas sur
+# le mot de passe — il a le droit d'etre long.
+if s_root --limite 900 rpm-ostree reset >"$JOURNAL" 2>&1; then
     informer "S est nettoye" \
 "Les ${NB} element(s) superpose(s) ont ete retires.
 

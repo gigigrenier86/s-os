@@ -203,7 +203,7 @@ elif ! media="$(s_android_media)" || [ -z "$media" ]; then
     fi
 else
     if systemctl start s-partage.service >/dev/null 2>&1 || \
-       pkexec systemctl start s-partage.service >/dev/null 2>&1; then
+       s_root systemctl start s-partage.service >/dev/null 2>&1; then
         dire "Android  : /sdcard/Partage"
     else
         dire "Android  : le lien n'a pas pu etre pose — 'sudo systemctl start s-partage'"

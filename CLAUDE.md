@@ -183,6 +183,159 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-26, 07 h — la revue des quatre rôles : six défauts prouvés, cinq alertes tuées
+
+Relecture complète du dépôt et de la machine avec les quatre rôles chargés,
+consigne explicite : **des erreurs réelles ou des incohérences prouvées**, pas
+des impressions. Ce qui suit est ce qui a survécu à sa propre vérification.
+
+### 1. La machine tire toute seule, chaque nuit, une image que rien ne signe
+
+Le carnet écrivait que l'absence de signature était *« une garantie absente,
+pas un incident »*, et décrivait la mise à jour comme un geste. **Le geste est
+automatique, et il n'était écrit nulle part.**
+
+```
+uupd.timer   actif   dernier passage 2026-08-26 04 h 09   prochain 04 h 06
+journal      Fetching ostree-unverified-registry:ghcr.io/gigigrenier86/s-os:latest
+```
+
+`bootc-fetch-apply-updates.timer` est bien désactivé — c'est probablement ce
+qui avait rassuré. Mais **`uupd`** d'Universal Blue fait le même travail, il est
+actif, et `/etc/uupd/config.json` ne désactive que `distrobox` : le module
+`system` tourne. Et `build.yml` republie `:latest` à **chaque poussée sur
+`main`** plus une reconstruction quotidienne. La chaîne complète — je pousse,
+`:latest` bouge, la machine l'installe pendant la nuit — n'était décrite dans
+aucun fichier de ce dépôt.
+
+**Ce qui est fait :** la construction **signe** désormais l'image, sans clé, par
+l'identité OIDC du workflow (Sigstore/Rekor). Aucun secret à poser à la main —
+c'est ce qui la rendait faisable sans intervention. On signe le **condensat**,
+jamais l'étiquette.
+
+**Ce qui n'est PAS fait, et c'est délibéré :** `policy.json` de la machine n'a
+pas été touché. Signer et **exiger** la signature sont deux décisions ; la
+seconde peut empêcher une mise à jour ou un démarrage. La vérification se fait
+d'abord, à froid, sans rien engager :
+
+```bash
+cosign verify ghcr.io/gigigrenier86/s-os:latest \
+  --certificate-identity-regexp '^https://github.com/gigigrenier86/s-os/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Le jour où elle répond, l'entrée `ghcr.io/gigigrenier86` se pose dans
+`policy.json` sur le patron exact de celle d'ublue-os, et
+`rpm-ostree status | grep -c ostree-unverified` doit tomber à **0**.
+
+### 2. F-Droid entrait dans l'image sans vérification, et sa signature était publiée
+
+`40-coutures.sh` faisait `curl` puis `test -s` — non vide, c'est tout. Vingt
+lignes plus loin, `41-windows.sh` vérifie le sha512 de Proton et **sort en
+échec**. Deux téléchargements, deux poids et mesures — et le commentaire du
+premier affirmait que l'URL était *« vérifiable »* alors que rien ne la
+vérifiait. **La provenance n'est pas la signature.**
+
+F-Droid publie `F-Droid.apk.asc` (répond **200**) et documente ses empreintes.
+La signature relue paquet par paquet porte l'émetteur
+`802A9799016112346E1FEFF47A029E54DD5DCE7A` — **la sous-clé que F-Droid
+documente**, sous la clé primaire `37D2C987…`. Deux sources indépendantes
+concordent : sa page de documentation, et `keys.openpgp.org`.
+
+La clé publique est **posée dans le dépôt** (`build_files/cles/f-droid.asc`),
+pas téléchargée : une clé prise sur le même hôte que le fichier qu'elle valide
+ne prouve rien de plus que l'hôte. `gpgv` fait la vérification — il ne fait que
+ça, ne crée aucun trousseau, et vient de l'image de base.
+
+**Éprouvé dans les deux sens** : signature valide → code 0 ; **un seul octet
+changé dans l'APK** → code 1. Un contrôle qui ne sait pas échouer n'est pas un
+contrôle.
+
+### 3. Neuf `pkexec` pouvaient figer un geste pour toujours — `s_root`
+
+Ce n'est pas une hypothèse : `s-android` est resté **trois minutes** sur sa
+demande de mot de passe ce matin, pendant que l'utilisateur était ailleurs, et
+il y serait encore. Le geste ne rend jamais la main, le verrou du monde reste
+pris, une fenêtre polkit reste ouverte sur un écran que personne ne regarde, et
+**rien ne le dit**.
+
+La faille était dans **neuf appels, quatre gestes** — `s-android`,
+`s-play-store`, `s-nettoyer`, `s-partage`. Elle se ferme donc une fois, dans
+`s-monde` :
+
+```bash
+s_root <commande...>                 # 120 s par défaut
+s_root --limite 900 <commande...>    # pour un travail légitimement long
+```
+
+`timeout --foreground`, et le premier plan n'est pas décoratif : sans lui, le
+jour où `pkexec` n'a pas d'agent graphique et retombe sur une demande en clair,
+lire le terminal depuis un autre groupe de processus lèverait `SIGTTIN`.
+
+Un dépassement **se dit**, avec le nom de ce qui n'a pas été fait, et
+l'appelant continue dégradé. **Mesuré** : `s_root --limite 3 /usr/bin/true` →
+3 s, code **124**, notification, écran rendu.
+
+Les limites ne sont pas uniformes, et c'est le point délicat : `waydroid init`
+télécharge un gigaoctet, `rpm-ostree reset` travaille sur le disque. Une limite
+courte y couperait un travail légitime. Elles sont donc à 3600 s et 900 s —
+**ce qui borne le blocage sans le supprimer** pour ces deux-là.
+
+### 4. Le code livré affirmait une mesure que la machine dément
+
+`s-windows` et `windows.sh` portaient en commentaire *« PcBoostApp : matériel
+6426, logiciel **17** »* comme justification du réglage par programme. Repris à
+trente secondes, le rendu logiciel donne **8888 couleurs**, dont 3308 sur le
+seul carré central. Les deux commentaires disent maintenant ce que la machine
+dit, **et ce qu'ils n'établissent plus** : PURPLE garde sa justification, elle
+n'a pas été réexaminée ; PcBoostApp l'a perdue.
+
+### 5. La recette de capture ne marchait que depuis une session graphique
+
+Trois défauts, tous vus en la faisant échouer, tous corrigés dans
+`grimoire/kwin-capturer-la-coquille.sh` :
+
+- **`XDG_RUNTIME_DIR` vide** → spectacle attend sans erreur et sans fichier.
+  Trente secondes de silence.
+- **`WAYLAND_DISPLAY` vide** → spectacle **avorte**. Et `DISPLAY=:0` ne le
+  remplace pas : mesuré, il échoue quand même.
+- **La classe de tous les programmes Windows est `steam_proton`** — c'est
+  Proton qui la pose. Chercher par nom de programme ne rendait jamais rien.
+
+Les deux variables **se déduisent** de `/run/user/<uid>` : la recette les
+déduit au lieu de les exiger. Et elle accepte désormais le **titre** comme
+second critère — `steam_proton` désigne le monde Windows, le titre désigne le
+programme dedans. **Éprouvé depuis un shell nu**, sans affichage ni bus : la
+coquille en 1920×1080, la barre en 1920×52, par son titre.
+
+### 6. Les cinq alertes que la revue a tuées
+
+Une alerte réfutée proprement ferme une piste. Elles valent d'être écrites :
+
+| Ce que j'ai cru voir | Ce qui l'a tué |
+|---|---|
+| `set -e` absent de 11 scripts de construction | les 17 portent `set -euo pipefail` — je ne lisais que les 5 premières lignes |
+| `s-logo` introuvable | c'est un **nom d'icône**, pas un binaire, et le PNG est dans l'image |
+| `__pycache__` versionné | ignoré par `.gitignore` — présent dans l'arbre, absent du dépôt |
+| Proton téléchargé sans contrôle | sha512 vérifié, avec sortie en échec |
+| Liens morts dans le carnet | aucun, sur tous les liens de fichiers |
+
+Et la dérive dépôt/image se limitait aux deux fichiers corrigés le matin même.
+
+### Ce qui reste, et qui demande une décision ou une présence
+
+- **Exiger la signature** (`policy.json`) — à faire après que `cosign verify`
+  ait répondu, jamais avant.
+- **Android n'a toujours pas tourné** : `s-android` demande un mot de passe
+  légitimement — `waydroid.cfg` porte `multi_windows = true` là où S veut
+  `false`, et `waydroid_base.prop` (25 août, 10 h 44) ne porte **aucun** des
+  réglages. La demande était juste ; c'est le blocage sans limite qui ne
+  l'était pas, et il est réparé. Il faut quelqu'un devant la machine.
+- **PURPLE ne s'ouvre plus** dans aucun des deux rendus, sans une ligne de
+  journal. Non expliqué, et pas établi comme régression.
+- **`ntsync`** présent, inutilisé. **RapidO**, contenu de page jamais observé.
+
+
 ## 2026-08-26, matin — le serveur gardait le préfixe, pas la session, et c'est l'utilisateur qui payait la différence
 
 L'entrée précédente se terminait sur une réserve honnête : *« le coût de la

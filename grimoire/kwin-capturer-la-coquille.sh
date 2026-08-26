@@ -5,6 +5,10 @@
 #          Constellation a été photographiée en 1920 × 1080 alors qu'une konsole
 #          et un éditeur la recouvraient. Aucune fenêtre n'a été réduite, aucune
 #          n'a bougé. L'image est entrée à la Galerie le jour même.
+#          2026-08-26, 07 h 20, même machine : la fenêtre d'un programme Windows
+#          (PcBoostApp, 1028 × 733) capturée depuis un shell SANS session
+#          graphique — ni `XDG_RUNTIME_DIR`, ni `WAYLAND_DISPLAY`. C'est ce que
+#          les trois correctifs datés de ce jour ont rendu possible.
 # POUR   : photographier le bureau, une coquille, ou n'importe quelle fenêtre,
 #          depuis un script, sur une session Wayland tenue par kwin.
 #
@@ -86,15 +90,30 @@
 # installer, rien à faire tourner en permanence, et l'information manquante
 # traverse.
 
-# Photographie une fenêtre choisie par sa classe de ressource.
+# Photographie une fenêtre choisie par sa classe de ressource OU par son titre.
 #
-#   capturer_fenetre <motif-de-classe> <fichier.png> [secondes-de-pose]
+#   capturer_fenetre <motif> <fichier.png> [secondes-de-pose]
 #
 #   capturer_fenetre constellation /tmp/bureau.png
 #   capturer_fenetre konsole       /tmp/terminal.png 2
+#   capturer_fenetre "PC Boost"    /tmp/windows.png     <-- par le titre
 #
 # Rend 0 et écrit le chemin. Rend 1 — SANS créer de fichier — si aucune fenêtre
 # ne porte ce motif, plutôt que de photographier celle qui passait par là.
+#
+# ============================================================================
+# PIÈGE 5 — TOUS LES PROGRAMMES WINDOWS DE S PORTENT LA MÊME CLASSE
+# ============================================================================
+# MESURÉ LE 2026-08-26. La fenêtre de PcBoostApp ne s'appelle pas
+# « PcBoostApp » : sa classe de ressource est **steam_proton**, et c'est celle
+# de TOUS les programmes lancés dans le préfixe — c'est Proton qui la pose, pas
+# le programme. Chercher par le nom du programme ne rendait donc jamais rien,
+# et la clause de garde ci-dessus faisait correctement son travail : elle
+# refusait de photographier au hasard. Elle ne disait simplement pas pourquoi.
+#
+# D'où le titre comme second critère. `steam_proton` désigne le monde Windows ;
+# le titre (« PC Boost ») désigne le programme dedans. Sans lui, deux programmes
+# Windows ouverts ensemble ne sont pas distinguables.
 capturer_fenetre() {
     local motif="$1" sortie="$2" pose="${3:-1}"
     local nom="s-capture-$$"
@@ -110,6 +129,48 @@ capturer_fenetre() {
         fi
     done
 
+    # ========================================================================
+    # PIÈGE 4 — UN SHELL SANS SESSION GRAPHIQUE FAIT TAIRE SPECTACLE
+    # ========================================================================
+    # MESURÉ LE 2026-08-26, et ça a coûté une nuit à quelqu'un d'autre : la
+    # capture à trente secondes de PcBoostApp n'aboutissait pas, et le carnet
+    # avait conclu « elle n'a pas abouti » sans savoir pourquoi.
+    #
+    # Les deux manques ne se ressemblent pas, et aucun ne se nomme :
+    #
+    #   XDG_RUNTIME_DIR vide   spectacle attend, SANS ERREUR, SANS FICHIER.
+    #                          Trente secondes de silence. Succès silencieux.
+    #   WAYLAND_DISPLAY vide   spectacle AVORTE (SIGABRT), sans un mot utile.
+    #
+    # Et `DISPLAY=:0` ne remplace pas le second : mesuré, spectacle échoue
+    # quand même — sous cette session il parle wayland, pas X.
+    #
+    # Un shell de banc — tmux, unité systemd, `ssh`, un agent — n'a
+    # généralement ni l'un ni l'autre. Mais LES DEUX SE DÉDUISENT de
+    # /run/user/<uid>, qui est là de toute façon. On déduit plutôt que
+    # d'exiger : la recette doit marcher d'où on l'appelle.
+    if [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
+        if [[ -d "/run/user/$(id -u)" ]]; then
+            export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+        else
+            echo "capturer_fenetre : XDG_RUNTIME_DIR est vide et" \
+                 "/run/user/$(id -u) n'existe pas — aucune session à photographier." >&2
+            return 1
+        fi
+    fi
+    if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+        local _socle
+        _socle="$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -name 'wayland-*' \
+                    ! -name '*.lock' -printf '%f\n' 2>/dev/null | sort | head -1)"
+        if [[ -n "$_socle" ]]; then
+            export WAYLAND_DISPLAY="$_socle"
+        else
+            echo "capturer_fenetre : aucun socle wayland dans $XDG_RUNTIME_DIR" \
+                 "— il n'y a pas de session graphique ici." >&2
+            return 1
+        fi
+    fi
+
     local script temoin
     script="$(mktemp --suffix=.js)" || return 1
     temoin="$(mktemp)" || { rm -f "$script"; return 1; }
@@ -121,10 +182,12 @@ capturer_fenetre() {
 var liste = workspace.windowList();
 for (var i = 0; i < liste.length; i++) {
     var f = liste[i];
-    if (f.resourceClass && String(f.resourceClass).indexOf("$motif") !== -1) {
+    var classe = f.resourceClass ? String(f.resourceClass) : "";
+    var titre  = f.caption       ? String(f.caption)       : "";
+    if (classe.indexOf("$motif") !== -1 || titre.indexOf("$motif") !== -1) {
         workspace.activeWindow = f;
         callDBus("org.s.temoin", "/temoin", "org.s.temoin", "trouve",
-                 String(f.resourceClass));
+                 classe + " / " + titre);
         break;
     }
 }
@@ -149,12 +212,16 @@ JS
 
     if ! grep -q "member=trouve" "$temoin"; then
         rm -f "$temoin"
-        echo "capturer_fenetre : aucune fenêtre dont la classe contient" \
-             "« $motif ». Rien n'a été capturé." >&2
+        echo "capturer_fenetre : aucune fenêtre dont la classe ou le titre" \
+             "contient « $motif ». Rien n'a été capturé." >&2
         return 1
     fi
+    # « tr -d ' "' » rendait « stringsteam_proton » : dbus-monitor préfixe la
+    # valeur par son type, et le nettoyage collait le type au contenu. Un nom
+    # faux dans un message d'échec envoie chercher au mauvais endroit.
     local classe
-    classe="$(grep -A1 "member=trouve" "$temoin" | tail -1 | tr -d ' "')"
+    classe="$(grep -A1 "member=trouve" "$temoin" \
+              | sed -n 's/^[[:space:]]*string "\(.*\)"$/\1/p' | tail -1)"
     rm -f "$temoin"
 
     rm -f "$sortie"

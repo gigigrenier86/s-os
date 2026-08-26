@@ -20,8 +20,53 @@ chmod 0755 /usr/bin/s-monde /usr/bin/s-ouvrir-* /usr/bin/s-menu-windows \
 # ait une URL stable et verifiable, et elle sert si Google refuse l'appareil.
 install -d /usr/share/s/apk
 curl -fsSL --retry 3 -o /usr/share/s/apk/fdroid.apk https://f-droid.org/F-Droid.apk
-test -s /usr/share/s/apk/fdroid.apk
-echo "  F-Droid : $(stat -c%s /usr/share/s/apk/fdroid.apk) octets"
+
+# ET ON VERIFIE LA SIGNATURE, PARCE QUE « TEST -S » N'EN EST PAS UNE.
+#
+# CE QUE CETTE LIGNE REPARE, RELEVE LE 2026-08-26. Jusqu'ici ce fichier se
+# contentait de « test -s » — non vide. Vingt lignes plus loin, dans le meme
+# depot, 41-windows.sh verifie le sha512 de Proton et SORT EN ECHEC s'il
+# differe. Deux telechargements, deux poids et mesures, et le commentaire de
+# celui-ci affirmait que l'URL etait « verifiable » alors que rien ne la
+# verifiait. La provenance n'est pas la signature.
+#
+# CE QU'ON VERIFIE, ET AVEC QUOI. F-Droid publie une signature PGP detachee a
+# cote de son APK, et documente ses empreintes :
+#
+#   https://f-droid.org/en/docs/Release_Channels_and_Signing_Keys/
+#     cle primaire  37D2 C987 89D8 3119 4839 4E3E 41E7 044E 1DBA 2E89
+#     sous-cle      802A 9799 0161 1234 6E1F EFF4 7A02 9E54 DD5D CE7A
+#
+# C'est la SOUS-CLE qui signe l'APK — verifie le 2026-08-26 en lisant les
+# paquets de la signature elle-meme. La cle publique est POSEE DANS LE DEPOT
+# (build_files/cles/f-droid.asc), pas telechargee : une cle prise sur le meme
+# hote que le fichier qu'elle valide ne prouve rien de plus que l'hote.
+# Recuperee de keys.openpgp.org et confrontee aux empreintes ci-dessus.
+#
+# gpgv plutot que gpg : il ne fait QUE verifier, ne cree aucun trousseau, et
+# n'a aucune notion de confiance a configurer. Il vient de « gnupg2-verify »,
+# present dans l'image de base — S ne l'installe pas.
+#
+# EPROUVE DANS LES DEUX SENS le 2026-08-26 : signature valide -> code 0 ; un
+# seul octet change dans l'APK -> code 1. Un controle qui ne sait pas echouer
+# n'est pas un controle.
+CLE_FDROID_ATTENDUE=802A9799016112346E1FEFF47A029E54DD5DCE7A
+curl -fsSL --retry 3 -o /tmp/fdroid.apk.asc https://f-droid.org/F-Droid.apk.asc
+gpg --dearmor < /ctx/build_files/cles/f-droid.asc > /tmp/fdroid.gpg
+
+# L'empreinte du trousseau pose dans le depot est confrontee a celle qu'on
+# attend AVANT de s'en servir : un remplacement de ce fichier au fil des
+# commits se verrait ici, et pas seulement le jour ou quelqu'un le relirait.
+gpg --show-keys --with-colons /ctx/build_files/cles/f-droid.asc \
+    | grep -q "^fpr:::::::::${CLE_FDROID_ATTENDUE}:" \
+    || { echo "ECHEC : build_files/cles/f-droid.asc ne porte pas la sous-cle attendue." >&2; exit 1; }
+
+if ! gpgv --keyring /tmp/fdroid.gpg /tmp/fdroid.apk.asc /usr/share/s/apk/fdroid.apk; then
+    echo "ECHEC : la signature de F-Droid.apk ne verifie pas." >&2
+    exit 1
+fi
+rm -f /tmp/fdroid.apk.asc /tmp/fdroid.gpg
+echo "  F-Droid : $(stat -c%s /usr/share/s/apk/fdroid.apk) octets, signature verifiee"
 
 # --- Les types que Windows connait et que Linux ignore ----------------------
 # .AppImage et .msi n'ont pas de type declare sur une Fedora nue : sans cela,
