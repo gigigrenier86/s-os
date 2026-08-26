@@ -35,6 +35,19 @@ ExecCondition=/usr/bin/test -d %h/.local/share/S/windows/pfx/drive_c
 
 ExecStart=/usr/bin/s-windows --serveur
 
+# LE SERVEUR GARDE LE PREFIXE, IL N'OUVRE PAS LA SESSION WINDOWS — et sans cette
+# ligne c'est l'utilisateur qui l'ouvre, sur son premier double-clic.
+#
+# Chronometre sur un vrai demarrage le 2026-08-26, serveur debout depuis une
+# heure et quart, aucun programme Windows lance depuis l'ouverture de session :
+#
+#   1er lancement    2565 ms     services.exe et rpcss.exe avaient 4 s d'age
+#   suivants          215 ms
+#
+# « - » en tete : une amorce ratee ne doit pas emporter le serveur resident. Le
+# pire cas sans amorce est le comportement d'avant, pas une panne.
+ExecStartPost=-/usr/bin/s-windows --amorcer
+
 # « -k » demande au serveur de sortir proprement : il previent les programmes
 # Windows encore ouverts au lieu de les faucher. Un programme qui n'a pas eu le
 # temps d'ecrire ses fichiers a la fermeture de session, c'est un document

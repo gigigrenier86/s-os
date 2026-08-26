@@ -53,6 +53,53 @@ if [ "${1:-}" = "--arreter-serveur" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# --amorcer : payer la session Windows au demarrage, pas au premier double-clic
+# ---------------------------------------------------------------------------
+# CE QUE LA MESURE DU 2026-08-26 A DIT, ET ELLE CONTREDIT LE CARNET.
+#
+# Chronometre pour la premiere fois sur un VRAI demarrage — machine relevee a
+# 02 h 15, session ouverte a 05 h 21, serveur resident debout depuis, et aucun
+# programme Windows lance entre les deux :
+#
+#   1er lancement apres la session    2565 ms   fichier ecrit
+#   lancements 2 a 8                   215 ms   fichier ecrit  (ecart 8 ms)
+#
+# Douze fois. Et « ps » dit pourquoi : au moment de cette premiere mesure,
+# services.exe, rpcss.exe, plugplay.exe et les deux winedevice.exe avaient
+# QUATRE SECONDES d'age. Ils venaient de naitre — une heure et quart apres
+# l'ouverture de session.
+#
+# « wineserver -f -p » garde le PREFIXE ouvert ; il n'ouvre pas la SESSION
+# Windows. C'est le premier client qui la monte, et c'est donc l'utilisateur qui
+# la paie, sur son premier double-clic, en le regardant ne rien faire.
+#
+# Le carnet supposait l'inverse : « ce cout est paye pendant l'ouverture de
+# session et non au premier double-clic — mais ca n'a pas ete chronometre sur un
+# vrai demarrage ». La phrase portait sa propre reserve, et la reserve avait
+# raison. Un client jetable au demarrage de l'unite rend la phrase vraie.
+#
+# ET L'AMORCE SE CHRONOMETRE ELLE-MEME, dans le journal de la session : c'est la
+# seule mesure de ce chantier qui se reprend a chaque demarrage, donc la seule
+# qui dira toute seule le jour ou elle cesse d'etre vraie.
+if [ "${1:-}" = "--amorcer" ]; then
+    s_windows_charger || { echo "s-windows : rien a amorcer, aucun environnement capture" >&2; exit 0; }
+
+    # ON ATTEND LE SERVEUR AVANT DE LUI PARLER. « ExecStartPost » part des que
+    # ExecStart est LANCE, pas des qu'il ecoute : un client arrive trop tot
+    # monterait son propre wineserver, non persistant, et l'amorce aurait
+    # produit exactement la panne qu'elle vient reparer. On verifie au lieu de
+    # dormir un temps fixe en esperant — meme forme que s_windows_serveur.
+    for _i in $(seq 40); do s_windows_serveur_vivant && break; sleep 0.25; done
+    s_windows_serveur_vivant || { echo "s-windows : le serveur resident n'a pas repondu, amorce abandonnee" >&2; exit 0; }
+
+    _debut=$(date +%s%N)
+    "$WINELOADER" cmd /c exit >/dev/null 2>&1
+    _code=$?
+    echo "session Windows amorcee en $(( ($(date +%s%N) - _debut) / 1000000 )) ms (code $_code)"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # --polices : emprunter au Windows de CETTE machine
 # ---------------------------------------------------------------------------
 # CE QUE CA REPARE, VU A L'ECRAN LE 2026-08-26. PcBoostApp, un logiciel WPF,

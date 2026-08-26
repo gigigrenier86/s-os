@@ -183,6 +183,164 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-26, matin — le serveur gardait le préfixe, pas la session, et c'est l'utilisateur qui payait la différence
+
+L'entrée précédente se terminait sur une réserve honnête : *« le coût de la
+première ouverture de session avec le serveur résident n'a pas été chronométré
+sur un vrai démarrage »*. Elle a été chronométrée ce matin, et **la réserve
+avait raison contre la thèse qu'elle accompagnait**.
+
+### Les conditions, parce qu'elles ne se retrouvent qu'une fois
+
+La machine a démarré à 02 h 15 sur `sha256:9d022ebc…`, la session s'est ouverte
+à 05 h 21, `s-windows.service` s'est levé dans la seconde (`fsync: up and
+running` à 05:21:06.980, **47 ms** après la cible de session) — et **aucun
+programme Windows n'a été lancé pendant l'heure et quart suivante**. C'est
+exactement l'état qu'il fallait, et il ne se reproduit pas sur commande : une
+seule mesure était possible.
+
+```
+                                    duree      preuve
+1er lancement apres la session     2565 ms     fichier ecrit
+lancements 2 a 8                    215 ms     fichier ecrit  (ecart 8 ms)
+```
+
+**Douze fois.** Et `ps` a dit pourquoi, dans la seconde qui a suivi :
+`services.exe`, `rpcss.exe`, `plugplay.exe` et les deux `winedevice.exe`
+avaient **quatre secondes d'âge**. Ils venaient de naître — une heure et quart
+après l'ouverture de session, au moment précis de ma première commande.
+
+> `wineserver -f -p` garde le **préfixe** ouvert. Il n'ouvre pas la **session**
+> Windows. C'est le premier client qui la monte.
+
+Le carnet écrivait : *« ce coût est payé pendant l'ouverture de session et non
+au premier double-clic »*. **C'était faux.** Il était payé par l'utilisateur, en
+regardant son premier double-clic ne rien faire pendant deux secondes et demie —
+soit *plus* que le 1,37 s mesuré au banc la nuit précédente, parce qu'au banc
+une session Windows traînait déjà.
+
+### Le correctif, et il tient en une ligne d'unité
+
+`s-windows --amorcer` : un client jetable (`cmd /c exit`), lancé par
+`ExecStartPost` juste après le serveur résident.
+
+Deux détails qui ne sont pas de la décoration :
+
+- **Il attend le serveur avant de lui parler.** `ExecStartPost` part dès
+  qu'`ExecStart` est *lancé*, pas dès qu'il *écoute*. Un client arrivé trop tôt
+  monterait son propre `wineserver`, non persistant — l'amorce aurait produit
+  exactement la panne qu'elle répare. On vérifie, on ne dort pas un temps fixe.
+- **`ExecStartPost=-`**, avec le tiret. Une amorce ratée ne doit pas emporter le
+  serveur résident : le pire cas sans amorce est le comportement d'avant, pas
+  une panne.
+
+Éprouvé en démontant la session Windows pour retrouver l'état froid, puis en
+remesurant :
+
+```
+journal de la session   « session Windows amorcee en 1866 ms (code 0) »
+1er lancement ensuite     224 ms     fichier ecrit
+lancements 2 a 8          215 ms     fichier ecrit
+```
+
+**2565 ms → 224 ms.** Le coût n'a pas disparu : il a changé de payeur. Il est
+maintenant sur `systemctl start`, qui rend la main en 1944 ms — et personne ne
+regarde `systemctl start`. `s-session.target` n'attend pas cette unité
+(`After=`, pas `Before=`), donc l'ouverture de session n'est pas rallongée.
+
+**Et l'amorce se chronomètre elle-même, à chaque démarrage, dans le journal.**
+C'est la seule mesure de ce chantier qui se reprend toute seule — donc la seule
+qui dira toute seule le jour où elle cesse d'être vraie.
+
+### Quatre lignes de ce carnet étaient fausses ce matin
+
+| Ce qui était écrit | Ce que la machine a répondu |
+|---|---|
+| « Rien n'est encore dans l'image » | l'image `9d022ebc…` tourne depuis 02 h 15, et ses 75 fichiers de `files/usr` sont identiques au dépôt |
+| « la construction a été rejouée localement, pas lue dans les journaux d'Actions » | le digest publié sur `ghcr.io` **est** celui qui a démarré |
+| « le repli sur `umu-run` n'a jamais servi pour de vrai » | il a servi le 2026-08-26 à 00 h 07 — `code 82 en 1s pour PcBoostApp.exe` |
+| « ce coût est payé pendant l'ouverture de session » | non : par le premier double-clic, 2565 ms |
+
+### Le filet, déclenché volontairement pour la première fois
+
+Un fichier texte renommé `.exe`, passé à `s-ouvrir-exe`. Le chemin direct
+échoue en 0 s, la condition (`code ≠ 0` **et** `durée < 5 s`) mord, et la suite
+se déroule en entier : ligne écrite dans `windows-repli.log`, serveur résident
+descendu, `umu-run` rejoué, serveur **repris** (`active`, `wineserver` vivant).
+Dix secondes en tout. `umu-run` refuse le faux binaire lui aussi — c'est le bon
+résultat pour un fichier qui n'est pas un PE. **Le filet fait ce qu'il promet,
+y compris rendre la machine comme il l'a trouvée.**
+
+### PcBoostApp : la capture à trente secondes aboutit enfin, et elle contredit la table des rendus
+
+La nuit précédente laissait ceci ouvert : *« sa zone centrale était vide alors
+que le reste peignait — je n'ai pas établi si elle se remplit plus tard, la
+mesure qui trancherait est une capture à trente secondes, et elle n'a pas
+abouti »*.
+
+Elle aboutit. **Elle n'aboutissait pas pour deux raisons, et aucune des deux
+n'était PcBoostApp :**
+
+1. **La classe de fenêtre d'un programme Windows de S est `steam_proton`**, pas
+   le nom du programme. Tous la partagent — c'est Proton qui la pose. Un
+   `capturer_fenetre PcBoostApp` ne trouvera jamais rien. Sa clause de garde
+   (« rend 1 sans créer de fichier plutôt que photographier celle qui passait
+   par là ») a évité une fausse preuve ; elle n'a pas dit pourquoi.
+2. **`XDG_RUNTIME_DIR` vide fait taire `spectacle`** : il ne rend pas d'erreur,
+   il ne rend pas la main — 30 s de silence, aucun fichier. Le succès silencieux
+   dans sa forme pure, une fois de plus.
+
+Une fois les deux levés, à trente secondes, fenêtre de 1028×733 :
+
+```
+                  total       zone centrale
+rendu logiciel    8888 coul.   3308 coul.
+rendu materiel    9735 coul.   3492 coul.
+```
+
+**La zone centrale se remplit, dans les deux rendus.** La table de
+`s-windows --fenetre-noire` annonce « PcBoostApp : matériel 6426, logiciel
+**17** ». Le 17 était une photo prise à cinq secondes d'un programme qui n'avait
+pas fini de peindre. **La différence mesurée entre les deux rendus n'était pas
+le rendu, c'était le temps de pose.** Le geste `--fenetre-noire` reste utile —
+mais sa justification pour PcBoostApp ne tient plus, et celle de PURPLE n'a pas
+été réexaminée.
+
+### Trois pièges de banc, dont deux déjà écrits ici
+
+- **`DISPLAY` vide tue WPF, et le message ne le dit pas.** Un shell sans
+  affichage lance `PcBoostApp.exe`, et il meurt sur
+  `System.ComponentModel.Win32Exception (0x80004005): Success.` à
+  `HwndWrapper..ctor`, **code 82**. Ni le mot « display », ni le mot « X11 ».
+  J'ai cru dix minutes à une régression de l'image. Le `wineserver` résident,
+  lui, a bien `DISPLAY=:0` — il le tient de `systemd --user`.
+- **`pkill -f 'Purple'` a fauché mon propre shell.** Cinquième fois dans ce
+  dépôt, et la règle « ce chantier n'emploie plus que `-x` » était déjà écrite
+  vingt lignes plus haut dans ce fichier.
+- **Et `-x` ment au-delà de quinze caractères.** `pgrep -x PurpleLauncher.exe`
+  rend **zéro**, toujours : `comm` est tronqué à 15. Il le dit sur `stderr`, que
+  personne ne lit dans un banc. La forme sûre est `pgrep -f '/nom\.exe$'`.
+
+### Ce que ce matin ne prouve pas
+
+- **Le régime établi a doublé** : 215 ms là où la nuit mesurait 109 ms, sur la
+  même machine et le même geste. Écart de 8 ms sur sept lancements, donc ce
+  n'est pas du bruit. Hypothèse : le préfixe porte maintenant .NET 4.8,
+  WebView2 et 227 polices déclarées, que `cmd.exe` n'avait pas à lire cette
+  nuit-là. **Ce qui la tuerait :** la même série sur un préfixe neuf, avant les
+  fondations. Non fait.
+- **PURPLE n'ouvre plus**, dans aucun des deux rendus : il sort sans une ligne
+  de journal, sans fenêtre, et sans processus survivant à trente secondes. Non
+  expliqué. Ce n'est pas une régression établie — mon shell de banc a déjà
+  menti une fois ce matin.
+- **Android n'a pas tourné.** `s-android` s'arrête sur un `pkexec` (« Réglage de
+  l'affichage ») qui attend un mot de passe. L'utilisateur n'était pas devant la
+  machine ; la demande a été annulée et l'écran rendu. **Un monde de S qui ne
+  peut pas démarrer sans quelqu'un devant le clavier est un défaut en soi**, et
+  il n'est pas traité.
+- **L'image reste `ostree-unverified-registry`** — ni signée, ni vérifiée.
+
+
 ## 2026-08-26, nuit — les .exe etaient lents ET brouillons, et c'etaient deux pannes
 
 *« Presentement, le roulement des .exe est lent et brouillon, ca marche pas a
