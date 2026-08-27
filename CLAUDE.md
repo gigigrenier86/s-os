@@ -166,15 +166,37 @@ c'est la première fois qu'elle tient debout.
 
 ### Ce qui n'est toujours pas éprouvé
 
-- **La veille des fenêtres n'a jamais tourné dans une vraie session.** Le gel
-  lui-même est mesuré de bout en bout sur cette machine — onze contrôles verts,
-  `grimoire/veille-eprouver-le-gel.sh`, garde-fous compris — mais toujours
-  contre une portée jetable, jamais contre une fenêtre. Deux choses attendent
-  donc le prochain redémarrage : **le menu du clic droit s'ouvre-t-il au-dessus
-  de la barre** (elle porte `Qt.WindowDoesNotAcceptFocus`, et un menu Qt Quick a
-  besoin d'une prise sur le pointeur), et **le gel tient-il sur de vrais
-  programmes** — un navigateur, un jeu, une fenêtre Android. Voir la section de
-  23 h.
+- ~~**La veille des fenêtres n'a jamais tourné dans une vraie session.**~~
+  **Elle tourne depuis six heures et demie, et le gel tient sur une vraie
+  fenêtre.** Le gel était déjà mesuré de bout en bout, mais contre une portée
+  jetable — onze contrôles verts, `grimoire/veille-eprouver-le-gel.sh`,
+  garde-fous compris. Le 27 août à 5 h 24, sur la machine, contre une fenêtre :
+  Vivaldi, laissé de côté depuis 22 h 59, portait `cgroup.freeze = 1` et
+  `cgroup.events: frozen 1` ; son `cpu.stat` affichait `usage_usec 7294535`,
+  puis exactement `7294535` deux secondes plus tard — **pas une microseconde de
+  processeur**, pendant que ses 276 Mo restaient en mémoire, ce qui est
+  précisément le petit cache demandé. Au même instant les deux portées en
+  service, `app-code-2613.scope` et `app-org.kde.konsole-6103.scope`, étaient à
+  `freeze = 0` : la garde ne gèle que ce qu'elle doit, sur la vraie machine et
+  plus seulement au banc. Et `coquille.log`, où va toute la sortie de
+  Constellation, n'a pas reçu une ligne depuis le démarrage — aucun
+  avertissement QML, aucune trace Python en six heures et demie de service.
+
+  Une réserve, parce qu'elle change la portée de la preuve : ce Vivaldi-là ne
+  portait plus qu'**un seul processus vivant**, sans moteur de rendu, et quatre
+  zombies. C'est donc un vrai programme, pas un programme lourd. Le gel d'un
+  navigateur à vingt onglets, d'un jeu ou d'une fenêtre Android reste à voir.
+  Les zombies méritent d'ailleurs leur propre ligne : **un parent gelé ne peut
+  pas récolter ses enfants**, donc chaque enfant qui meurt pendant le sommeil
+  occupe un numéro de processus jusqu'au réveil. Sans conséquence ici, à
+  surveiller sur un programme bavard laissé gelé des jours.
+
+- **Le menu du clic droit n'a toujours pas été ouvert.** C'est la moitié de
+  l'hypothèse d'hier qui tient encore, et elle tient à un seul clic : la barre
+  porte `Qt.WindowDoesNotAcceptFocus`, et un menu Qt Quick a besoin d'une prise
+  sur le pointeur. Si le menu refuse de s'ouvrir, le repli est déjà en tête —
+  faire grandir la fenêtre de la barre vers le haut plutôt qu'ouvrir une
+  fenêtre surgissante. Voir la section de 23 h.
 - ~~Aucun de ces six correctifs n'est dans l'image.~~ **Ils y sont depuis
   15 h 47, et la machine a redémarré dessus à 11 h 55** — image `44.20260824`,
   `sha256:c73f90ed…` *(dépassé : depuis 15 h 50 la machine tourne sur
