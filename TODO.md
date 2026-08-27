@@ -118,10 +118,26 @@ de reprise, tel que confirmé dans la conversation :
    page Matériel seulement**. Détection Wine par deux sources (registre +
    export `ntdll.dll`), les deux d'accord. Éprouvé de bout en bout : le
    journal de PC Boost lui-même confirme « Environnement : Wine détecté ».
-   Voir CLAUDE.md, 2026-08-27, 16 h 20. **Ne couvre pas encore**
-   `MemoryTopologyService`, `MachineContextService`, ni les services de
-   pilotes — tous interrogent toujours WMI directement. Aucun écran n'a été
-   regardé, seul le journal confirme le bon fonctionnement.
+   Voir CLAUDE.md, 2026-08-27, 16 h 20.
+2ter. [x] **Extension au maximum, avec verdict tranché** — fait le 2026-08-27
+   à 16 h 33, demande de l'utilisateur (« on étend au max pour que TOUT
+   fonctionne »), via le rôle Wizard. Les sept fichiers touchant WMI ont été
+   lus un par un. **Trois étendus** : `MachineContextService` (châssis via
+   `/sys/class/dmi/id/chassis_type`, lisible sans root ; mémoire via
+   `/proc/meminfo`), `MemoryTopologyService` (dégrade proprement — le détail
+   par barrette exige `dmidecode`, qui exige root, jamais demandé sans
+   consentement), `WmiServiceManager` (les services Windows n'existent pas
+   sous Wine, le dit clairement au lieu d'un WMI en échec). **Quatre laissés
+   intacts, et c'est un verdict, pas un oubli** : `DeviceDriverProbe`,
+   `DeviceHealth` (installation de pilotes Windows — n'a pas de sens sur du
+   matériel piloté par le noyau Linux), `PowerShellRunner` (aucun
+   `powershell.exe` dans le préfixe). Éprouvé en direct dans le vrai
+   processus, journal à l'appui : `MachineContextService.Traits =
+   DoubleAmorcage` (pas `Autonomie` — juste, la M720q Tiny n'est pas un
+   portable), `MemoryTopologyService` rend `null` proprement,
+   `WmiServiceManager` rend 11 entrées dont 0 présente. Voir CLAUDE.md,
+   2026-08-27, 16 h 33. **Aucun écran de PC Boost n'a été regardé** — tout
+   passe par le journal.
 3. **Après le redémarrage, revérifier ce qui a été touché ce soir** — RapidO
    (`StartupWMClass` corrigé), PC Boost (lanceur et étoile posés), et la barre
    latérale, tous corrigés dans le dépôt mais mesurés au mieux une fois avant

@@ -288,6 +288,100 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-27, 16 h 33 — l'extension du pont, et le verdict sur ce qui ne se porte pas
+
+Demande de l'utilisateur : « on étend au max pour que TOUT fonctionne ! ».
+Rôle du Wizard invoqué explicitement — lire chaque service avant d'y toucher,
+plutôt que de deviner depuis les noms de fichiers.
+
+### Sept fichiers touchent WMI. Trois valaient une extension, quatre non — et ce n'est pas un renoncement
+
+Balayage complet : `HardwareInventoryService` (fait à 16 h 20),
+`MachineContextService`, `MemoryTopologyService`, `WmiServiceManager`,
+`DeviceDriverProbe`, `DeviceHealth`, `Shell/PowerShellRunner`. Chacun lu en
+entier avant de décider — pas de correctif sur un nom de méthode deviné.
+
+**Trois se portent, et se portent bien, parce qu'ils lisent un fait du
+matériel :**
+
+- **`MachineContextService`** — le type de châssis SMBIOS décide si la
+  batterie compte. `/sys/class/dmi/id/chassis_type` porte le **même code**
+  que `Win32_SystemEnclosure.ChassisTypes`, et se lit **sans droits root** —
+  vérifié en même temps que le reste du DMI, qui lui les exige. La mémoire
+  installée bascule sur `/proc/meminfo`, la même source que
+  `materiel-linux.py` utilise déjà pour `SystemProfile` — une seule vérité,
+  pas deux lectures qui pourraient un jour diverger.
+- **`MemoryTopologyService`** — le détail par barrette (fabricant, vitesse,
+  emplacement) vient de `Win32_PhysicalMemory`, dont l'équivalent Linux est
+  `dmidecode`. **Mesuré sur cette machine : `dmidecode` échoue sans
+  élévation** (`/sys/firmware/dmi/tables/smbios_entry_point: Permission
+  denied`). Ce service **ne demande pas de mot de passe pour un relevé de
+  diagnostic** — il rend `null`, proprement, avec une ligne de journal qui
+  dit pourquoi, là où il jetait une `ManagementException` avant.
+- **`WmiServiceManager`** — gère des services Windows (DiagTrack, SysMain,
+  WSearch...) qui **n'existent tout simplement pas** sous Wine. Rien à
+  ponter : le geste correct est de le dire clairement, une fois, plutôt que
+  de laisser WMI échouer en silence à chaque appel.
+
+**Quatre ne se portent pas, et il fallait le trancher plutôt que le
+supposer :**
+
+- **`DeviceDriverProbe` / `DeviceHealth`** — vérifient un pilote Windows
+  avant/après une **installation** de pilote Windows. « Installer un pilote
+  Windows » n'a pas de sens sur du matériel dont le vrai pilote est un module
+  du noyau Linux (`i915`, `xhci_hcd`...). Ces deux fichiers restent
+  inchangés : ils ne sont jamais atteints sous Wine, puisque rien n'y
+  déclenche le flux d'installation qui les appelle — pas un défaut à
+  corriger, une branche qui ne s'exécute pas parce que sa raison d'être ne
+  s'applique pas ici.
+- **`PowerShellRunner`** — cherché `powershell.exe` et `pwsh.exe` dans tout
+  le préfixe Windows de S : **aucun des deux n'y est**. Un script PowerShell
+  peut faire n'importe quoi ; il n'y a pas de « traduction Linux »
+  générique à écrire pour un langage entier. Laissé tel quel.
+
+### Le principe qui les sépare, dit en une phrase
+
+Ce qui se porte est ce qui décrit un **fait du matériel ou du système**
+(la mémoire installée, le type de châssis). Ce qui ne se porte pas est ce
+qui décrit une **fonctionnalité de Windows lui-même** (ses services, ses
+pilotes signés, PowerShell) — la faire « marcher sous Wine » reviendrait à
+prétendre qu'elle existe là où elle n'existe pas.
+
+### Éprouvé en direct, dans le vrai processus — pas seulement compilé
+
+Un appel temporaire posé dans `App.xaml.cs` au démarrage, retiré aussitôt
+après lecture du journal :
+
+```
+16:31:54  Traits de la machine : DoubleAmorcage
+16:31:54  Peuplement mémoire : indisponible sous Wine sans élévation
+          (dmidecode exige root) — non demandé automatiquement.
+16:31:54  Services Windows (DiagTrack, SysMain...) : sans objet sous Wine
+16:31:54  VERIF : MachineContextService.Traits = DoubleAmorcage
+16:31:54  VERIF : MemoryTopologyService.ReadAsync = null
+16:31:54  VERIF : WmiServiceManager.GetServicesAsync = 11 entree(s), presentes=0
+```
+
+**`DoubleAmorcage` sans `Autonomie`** : la M720q Tiny n'est pas classée
+portable — juste, puisque c'est un mini-PC de bureau (châssis SMBIOS type
+35, « Embedded PC »). Aucune exception dans le journal, les trois chemins de
+code se comportent exactement comme prévu, en conditions réelles.
+
+### Ce que cette passe ne prouve pas
+
+- **Aucune interface n'a été regardée** — les trois vérifications passent
+  par le journal, pas par un écran cliqué. Les pages Matériel, Réparation et
+  Entretien de PC Boost n'ont pas été ouvertes à l'œil.
+- **Le retrait du code de vérification n'a été revérifié que par une
+  recompilation propre**, pas par un second lancement après coup.
+- **Rien de tout ceci n'entre dans une construction de S**, comme le reste
+  de PC Boost — projet personnel, hors dépôt.
+- **Le dépôt PC Boost n'a reçu aucun commit** — l'utilisateur a dit attendre
+  que le travail de l'autre session Claude soit terminé avant de tout
+  pousser ensemble.
+
+---
+
 ## 2026-08-27, 16 h 20 — PC Boost voit le vrai matériel, par un pont plutôt qu'un WMI muet
 
 Demande de l'utilisateur : « ajoute à PC Boost les informations nécessaires à
