@@ -348,6 +348,91 @@ appel manuel du script : fenêtre `steam_proton | PC Boost` vivante.
 
 ---
 
+## 2026-08-27, 16 h — le Wizard passe après la forge, et trouve les deux choses qu'on croyait savoir
+
+Le correctif de 15 h 30 était posé et poussé. Le Wizard aurait dû passer avant ;
+il est passé après. Il n'a pas remplacé la forge — **il l'a validée, et il a
+retiré deux affirmations fausses du carnet.**
+
+### Première affirmation fausse : la mienne, écrite il y a une heure
+
+J'ai écrit à 15 h 30 qu'un menu à qui l'on donne sa propre fenêtre ne peut pas
+être placé, et j'ai cité quatre mesures. Les quatre partageaient une variable
+que je n'avais pas contrôlée : **la même intégration de shell Wayland**. Le banc
+la fait varier, six valeurs, trois passages chacune, résultat identique :
+
+```
+(aucune variable)  ->  QRect(0, 0, 200, 360)       perdu
+xdg-shell          ->  QRect(0, 0, 200, 360)       perdu
+qt-shell           ->  QRect(600, 171, 200, 360)   placé
+wl-shell           ->  QRect(600, 171, 200, 360)   placé
+layer-shell        ->  QRect(0, 0, 1920, 1028)     perdu, et menu détruit
+(nom inexistant)   ->  QRect(600, 171, 200, 360)   placé
+```
+
+Trois valeurs placent le popup exactement où on le demande. **Et ce sont
+exactement les trois que kwin ne parle pas** — `qt-shell` est un protocole privé
+de Qt, `wl-shell` est mort, et le nom inexistant ne charge rien du tout. La
+capture le dit sans discussion : la fenêtre s'affiche alors **avec une barre de
+titre dessinée côté client**. Elle « marche » parce qu'elle a cessé d'être une
+fenêtre gérée par le compositeur.
+
+Un banc qui n'aurait lu que le nombre aurait conclu l'inverse de la vérité et
+fait remplacer un correctif juste par une variable d'environnement toxique.
+C'est pourquoi le banc finit par une capture d'écran :
+`grimoire/wayland-ou-se-pose-un-popup.sh`.
+
+**Le correctif de 15 h 30 reste donc le bon**, et il est maintenant le meilleur
+mesuré, pas seulement le seul essayé.
+
+### Seconde affirmation fausse : celle du carnet, depuis le 2026-08-25
+
+Le tableau des protocoles dit depuis trois jours que `zwlr_layer_shell_v1` est
+présent « mais qu'aucune liaison Python de cette image ne sait le parler ».
+C'est faux, et la faute est dans la question : **la route n'est pas Python,
+elle est QML.**
+
+```
+layer-shell-qt-6.7.4-1.fc44.x86_64          installé, Fedora Project
+/usr/lib64/qt6/qml/org/kde/layershell/      module QML, importable
+/usr/lib64/qt6/plugins/wayland-shell-integration/liblayer-shell.so
+kwin annonce zwlr_layer_shell_v1 v5, org_kde_plasma_shell v8
+```
+
+Le module expose un type **attaché** — `anchors`, `layer`, `margins`,
+`exclusionZone`, `keyboardInteractivity`, `scope` — qui s'écrit directement sur
+un `Window` QML. Aucune liaison à forger. La scène charge, l'import passe, et
+avec `QT_WAYLAND_SHELL_INTEGRATION=layer-shell` la sonde **s'ancre bien en bas
+de l'écran**.
+
+### Et pourtant on ne l'adopte pas aujourd'hui — voilà la mesure qui le dit
+
+Dans cette même configuration, le menu du clic droit est **détruit** : il rend
+`QRect(0, 0, 1920, 1028)`, et la capture montre une dalle blanche qui couvre
+presque tout l'écran. Échanger un menu qui marche contre de l'espace réservé
+n'est pas un marché acceptable.
+
+### L'hypothèse, nommée, avec ce qui la tuerait
+
+**`org.kde.layershell` peut donner à la barre de S son espace réservé — une
+fenêtre maximisée s'arrêterait enfin au-dessus d'elle — à condition de trouver
+comment ses popups cohabitent avec une surface de couche.**
+
+Ce que ça vaudrait : la barre n'aurait plus besoin de règle kwin pour se poser,
+la barre latérale non plus, et la limitation écrite au sommet de `Barre.qml`
+depuis le premier jour — « une fenêtre maximisée passe SOUS la barre » —
+tomberait.
+
+**La mesure qui tranche**, et elle tient en trois lignes : ouvrir la sonde
+layer-shell avec `exclusionZone: 52`, puis lancer une fenêtre `showMaximized()`
+et lire sa hauteur. Si elle vaut 1028 au lieu de 1080, l'espace est réservé. Le
+relevé du 2026-08-27 donne **722**, un nombre qui ne correspond ni à l'un ni à
+l'autre — donc la sonde ne mesurait pas ce qu'elle croyait, et c'est par là
+qu'il faut reprendre.
+
+Tant que ce n'est pas fait, `popupType` reste absent du dépôt et la barre garde
+sa fenêtre haute et son masque.
+
 ## 2026-08-27, 15 h 30 — le menu s'ouvrait tout à gauche, et la réponse était déjà écrite dans ce dépôt
 
 Correctif poussé ce matin : `popupType: Popup.Window`, pour que le menu du clic
@@ -4023,7 +4108,7 @@ une. Relevé sur la machine, dans les soixante-dix protocoles annoncés par
 |---|---|
 | `org_kde_plasma_window_management` | **absent** |
 | `zwlr_foreign_toplevel_manager_v1` | **absent** |
-| `zwlr_layer_shell_v1` | présent — mais aucune liaison Python de cette image ne sait le parler |
+| `zwlr_layer_shell_v1` | présent — ~~mais aucune liaison Python de cette image ne sait le parler~~ **faux : la route n'est pas Python, elle est QML.** `layer-shell-qt-6.7.4` est installé et livre `/usr/lib64/qt6/qml/org/kde/layershell/`, importable depuis PySide6. Mesuré le 2026-08-27 — et il casse le menu du clic droit. Voir la section de 16 h. |
 
 Les deux qui auraient servi ne sont pas là, et **c'est une décision de sécurité
 juste** : une application qui énumère les fenêtres des autres peut les espionner.
