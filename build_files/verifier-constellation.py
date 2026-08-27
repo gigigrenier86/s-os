@@ -200,6 +200,11 @@ class PontLeurre(QObject):
     def reglerRapide(self, cle, valeur):
         return cle
 
+    @Slot(QWindow, int, int, int, int, int)
+    def bornerBarre(self, fenetre, bande, mx, my, mw, mh):
+        # Meme raison que bornerLaterale : le leurre ne masque rien, il DECLARE.
+        pass
+
     @Slot(QWindow, bool)
     def bornerLaterale(self, fenetre, deploye):
         # Le leurre ne borne rien : le controle n'a pas de compositeur a qui

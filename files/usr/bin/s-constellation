@@ -302,6 +302,52 @@ class Pont(QObject):
         else:
             fenetre.setMask(QRegion(QRect(largeur - ligne, 0, ligne, hauteur)))
 
+    @Slot(QWindow, int, int, int, int, int)
+    def bornerBarre(self, fenetre, bande, mx, my, mw, mh):
+        """Ne rend sensible que la bande du bas, plus le menu s'il est ouvert.
+
+        POURQUOI LA FENETRE EST PLUS HAUTE QUE LA BARRE. Le menu du clic droit
+        est un Popup : il est borne a la fenetre qui le contient. Tant que
+        celle-ci ne faisait que cinquante-deux pixels, un menu de 222 s'ouvrait
+        a 52 — un article visible sur neuf.
+
+        LUI DONNER SA PROPRE FENETRE NE MARCHE PAS ICI, ET C'EST MESURE le
+        2026-08-27 sur cette machine. « popupType: Popup.Window » lui rend bien
+        sa hauteur, mais il se pose tout a gauche de l'ecran. Les quatre facons
+        de lui donner une abscisse — popup(x, y), poser m.x avant open(),
+        popup(parent, x, y), un objet d'ancrage place a la bonne abscisse —
+        rendent exactement la meme chose :
+
+            demande x = 600   ->   fenetre du popup a QRect(0, 0, 200, 360)
+
+        C'est la loi que bornerLaterale documente deja : un client Wayland ne
+        se positionne pas lui-meme. On applique donc le meme remede — une
+        fenetre qui ne bouge jamais, et un masque qui decide de ce qui prend
+        les clics.
+
+        LE MENU DOIT ENTRER DANS LE MASQUE, sinon il s'affiche sans se laisser
+        cliquer : il est dessine au-dessus de la bande, dans la partie que le
+        masque exclut. QML repasse donc son rectangle a chaque ouverture, et
+        des zeros quand il est ferme.
+        """
+        if fenetre is None:
+            return
+        try:
+            largeur = int(fenetre.width())
+            hauteur = int(fenetre.height())
+        except (RuntimeError, TypeError, ValueError) as err:
+            print("s-constellation : zone sensible de la barre non bornee : %s"
+                  % err, file=sys.stderr)
+            return
+        if largeur <= 0 or hauteur <= 0:
+            return
+        bande = max(1, min(int(bande), hauteur))
+        region = QRegion(QRect(0, hauteur - bande, largeur, bande))
+        if int(mw) > 0 and int(mh) > 0:
+            region = region.united(
+                QRegion(QRect(int(mx), int(my), int(mw), int(mh))))
+        fenetre.setMask(region)
+
     @Slot(result=str)
     def dossierBureau(self):
         """Ou vivent les etoiles jaunes.

@@ -43,6 +43,15 @@ TITRE_LATERALE = "S - barre laterale"
 LARGEUR_BULLE = 380
 MARGE_BULLE = 24
 HAUTEUR_BARRE = 52
+# LA FENETRE DE LA BARRE EST PLUS HAUTE QUE LA BARRE, ET LA REGLE DOIT POSER LA
+# FENETRE. Le menu du clic droit est un Popup borne a sa fenetre : il lui faut
+# de la place au-dessus de la bande visible. Donner au menu sa propre fenetre
+# ne marche pas — mesure du 2026-08-27, il se pose tout a gauche de l'ecran,
+# parce qu'un client Wayland ne se positionne pas lui-meme. La fenetre monte
+# donc, et son masque ne laisse sensible que la bande du bas.
+# CE NOMBRE DOIT VALOIR « hauteur + placeMenu » DE Barre.qml. Deux fichiers qui
+# doivent rester d'accord finissent par diverger, d'ou ce rappel.
+HAUTEUR_FENETRE_BARRE = HAUTEUR_BARRE + 420
 # LA LARGEUR EST CELLE DU PANNEAU DEPLOYE, ET LA FENETRE LA GARDE TOUJOURS.
 # Elle ne bouge donc jamais : c'est sa zone SENSIBLE qui retrecit quand elle est
 # repliee, pas sa geometrie. Un client Wayland ne se positionne pas lui-meme
@@ -118,12 +127,12 @@ def regles(largeur, hauteur):
     barre.update({
         "Description": "S - la barre des taches, en bas",
         "title": TITRE_BARRE,
-        "position": "0,%d" % max(0, hauteur - HAUTEUR_BARRE),
+        "position": "0,%d" % max(0, hauteur - HAUTEUR_FENETRE_BARRE),
         # LA TAILLE EST FORCEE, ET C'EST NECESSAIRE : la barre demande la
         # largeur de l'ecran, mais kwin peut la retailler a l'ouverture si une
         # autre regle ou un souvenir de geometrie traine. Une barre des taches
         # de 800 pixels de large collee a gauche a l'air d'un bogue.
-        "size": "%d,%d" % (largeur, HAUTEUR_BARRE),
+        "size": "%d,%d" % (largeur, HAUTEUR_FENETRE_BARRE),
         "sizerule": "2",
     })
     laterale = dict(COMMUN)

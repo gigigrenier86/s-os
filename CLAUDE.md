@@ -196,16 +196,11 @@ c'est la première fois qu'elle tient debout.
   avant qu'un seul clic ne soit donné : le menu portait bien ses neuf articles
   et en demandait 360 pixels, mais s'ouvrait à 52 — la hauteur de la fenêtre de
   la barre, qui borne tout `Popup` mis en page en elle. Un article visible sur
-  neuf. `popupType: Popup.Window` lui rend sa fenêtre à lui et sa vraie
-  hauteur, mesuré dans les deux sens sur la même scène. Corrigé, et le
-  vérificateur mesure désormais la hauteur en plus du compte — il échoue sur la
-  scène installée et passe sur celle du dépôt, ce qui est la preuve qu'il sait
-  échouer. Voir la section de 5 h 40.
-
-  **Ce qui reste vrai :** aucun de ces gestes n'a encore été fait à la souris.
-  Le menu s'ouvre à la bonne taille dans un moteur QML hors écran ; qu'il se
-  pose au bon endroit au-dessus d'une barre posée en bas d'un vrai écran est
-  une autre affaire, et `Qt.WindowDoesNotAcceptFocus` reste sur la barre.
+  neuf. ~~`popupType: Popup.Window` lui rend sa fenêtre à lui et sa vraie
+  hauteur~~ — **c'était vrai et insuffisant, et c'est l'utilisateur qui l'a vu
+  le premier : « elle apparaît totalement à gauche de l'écran ».** La hauteur
+  était bonne, l'abscisse perdue. Corrigé autrement, et mesuré cette fois avant
+  d'être poussé : voir la section de 15 h 30.
 - ~~Aucun de ces six correctifs n'est dans l'image.~~ **Ils y sont depuis
   15 h 47, et la machine a redémarré dessus à 11 h 55** — image `44.20260824`,
   `sha256:c73f90ed…` *(dépassé : depuis 15 h 50 la machine tourne sur
@@ -292,6 +287,75 @@ c'est la première fois qu'elle tient debout.
   mosh a besoin. **Rien de tout cela n'a été exercé depuis le téléphone.**
 
 ---
+
+## 2026-08-27, 15 h 30 — le menu s'ouvrait tout à gauche, et la réponse était déjà écrite dans ce dépôt
+
+Correctif poussé ce matin : `popupType: Popup.Window`, pour que le menu du clic
+droit cesse d'être écrasé à cinquante-deux pixels. **Il l'a essayé et il a
+dit :** « la fenêtre apparaît à la bonne hauteur, mais pas en haut de l'onglet,
+elle apparaît totalement à gauche de l'écran ».
+
+La hauteur était réparée. L'abscisse ne l'était pas — elle était simplement
+perdue.
+
+### Ce que la mesure dit
+
+Sonde lancée sur la session vivante, quatre façons de donner une abscisse à un
+menu qui a sa propre fenêtre :
+
+```
+popup(x, y)                      ->  popup à QRect(0, 0, 200, 360)
+m.x / m.y puis open()            ->  popup à QRect(0, 0, 200, 360)
+popup(parent, x, y)              ->  popup à QRect(0, 0, 200, 360)
+objet d'ancrage posé à x, open() ->  popup à QRect(0, 0, 200, 360)
+```
+
+On demande 600, on obtient 0, quatre fois sur quatre.
+
+**C'est une loi que ce dépôt avait déjà rencontrée et déjà écrite**, dans
+`bornerLaterale`, le 2026-08-25 : *un client Wayland ne se positionne pas
+lui-même* — une fenêtre demandant `x=1516` s'était affichée au centre. La barre
+latérale y a répondu en gardant une fenêtre qui ne bouge jamais et en
+rétrécissant sa **zone sensible** avec `setMask`, qui part en
+`wl_surface.set_input_region`. J'avais lu ce commentaire ; je ne l'avais pas
+appliqué au menu.
+
+### Le remède, qui est le même
+
+La fenêtre de la barre monte maintenant à `52 + 420` pixels. La bande visible
+s'ancre en bas ; le reste est du vide que le masque exclut, et le menu redevient
+un `Popup` ordinaire dessiné **dans** cette fenêtre — là où nos coordonnées sont
+exactes et où personne ne le replace. `pont.bornerBarre` pose la zone sensible :
+la bande, plus le rectangle du menu quand il est ouvert, parce qu'un menu
+dessiné hors du masque s'affiche sans se laisser cliquer.
+
+Mesure sur la session, même montage :
+
+```
+demande x = 600     ->  menuX 600     exact
+implicitHeight 360  ->  menuH 360     entier
+```
+
+Et vu à l'écran, capture à l'appui : les neuf articles au complet, posés juste
+au-dessus de la bande, à l'abscisse demandée.
+
+### Un garde-fou, parce que le remède a un tranchant
+
+Sans masque, une fenêtre haute de 472 pixels posée au-dessus de tout avalerait
+les clics sur tout le bas de l'écran — bien pire que le défaut réparé. Si le
+pont manque, la fenêtre **reste** haute de cinquante-deux pixels : le menu s'y
+trouve borné, ce qui est visible et réparable, au lieu d'un bureau qui ne répond
+plus, qui ne l'est pas.
+
+### Ce que j'aurais dû faire
+
+Ce défaut-là n'a pas été trouvé par une revue ni par un banc : il a été trouvé
+par l'utilisateur, à l'écran, après un redémarrage. Le vérificateur mesurait
+bien la hauteur du menu depuis ce matin — **il ne mesurait pas son abscisse**,
+et rien dans une scène hors écran ne l'aurait révélée, puisque le défaut naît
+du compositeur. La leçon est la même que celle du 2026-08-25, et le dépôt
+l'avait déjà écrite : quand une fenêtre doit se placer, il faut le mesurer sur
+la machine avant de le pousser. Cette fois, ça l'a été.
 
 ## 2026-08-27, 5 h 40 — la revue trouve quatorze choses, dont une qui rendait le menu inutilisable
 

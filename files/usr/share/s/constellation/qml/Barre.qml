@@ -28,6 +28,25 @@ Window {
 
     property int hauteur: 52
 
+    // LA FENETRE EST PLUS HAUTE QUE LA BARRE, ET C'EST LE MENU QUI L'EXIGE.
+    // Mesure du 2026-08-27, sur cette machine : un menu ouvert dans sa PROPRE
+    // fenetre (popupType: Popup.Window) reprend bien sa vraie hauteur, mais il
+    // se pose tout a gauche de l'ecran. Les quatre facons de lui donner une
+    // abscisse — popup(x, y), m.x avant open(), popup(parent, x, y), un objet
+    // d'ancrage pose a la bonne place — rendent exactement la meme chose :
+    //
+    //     demande x = 600   ->   fenetre du popup a QRect(0, 0, 200, 360)
+    //
+    // C'est la meme loi que la barre laterale a rencontree le 2026-08-25 et
+    // que « bornerLaterale » documente : UN CLIENT WAYLAND NE SE POSITIONNE
+    // PAS LUI-MEME. La reponse est donc la meme : la fenetre garde une taille
+    // qui contient tout ce qu'elle peut avoir a montrer, et c'est sa zone
+    // SENSIBLE qui retrecit — « pont.bornerBarre », plus bas.
+    //
+    // Le menu redevient alors un Popup ordinaire, dessine DANS cette fenetre,
+    // ou nos coordonnees sont exactes et ou personne ne le replace.
+    property int placeMenu: 420
+
     // ELLE S'APPELAIT « fenetres », ET C'ETAIT UN PIEGE PARFAIT. La propriete
     // de contexte qui porte le pont vers kwin s'appelle « fenetres » elle
     // aussi : dans ce fichier, le nom nu designait donc LA LISTE, et
@@ -49,7 +68,14 @@ Window {
     property real centreSurvole: 0
 
     width: Screen.width
-    height: hauteur
+    // ELLE NE MONTE QUE SI QUELQU'UN PEUT LA MASQUER. Sans masque, une fenetre
+    // haute de 472 pixels posee au-dessus de tout avalerait les clics sur tout
+    // le bas de l'ecran — bien pire que le defaut qu'on repare. Si le pont
+    // manque, elle reste une barre de cinquante-deux pixels : le menu s'y
+    // trouvera borne, ce qui est visible et reparable, au lieu d'un bureau qui
+    // ne repond plus, qui ne l'est pas.
+    height: (typeof pont !== "undefined" && pont && pont.bornerBarre)
+            ? hauteur + placeMenu : hauteur
     visible: true
     color: "transparent"
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
@@ -85,8 +111,35 @@ Window {
     // montrer a l'utilisateur — c'est cette verite-la qu'il a cliquee.
     signal activation(string ident, bool estActive)
 
+    // ── La zone sensible ──────────────────────────────────────────────────
+    // Meme mecanisme que la barre laterale, meme raison : la fenetre est plus
+    // grande que ce qu'elle montre, et sans masque elle avalerait les clics du
+    // bas de l'ecran sur toute sa hauteur. « setMask » part en
+    // « wl_surface.set_input_region » — voir pont.bornerBarre.
+    function borner() {
+        if (typeof pont === "undefined" || !pont || !pont.bornerBarre)
+            return;
+        var ouvert = menuFenetre.visible;
+        pont.bornerBarre(barre, barre.hauteur,
+                         ouvert ? Math.round(menuFenetre.x) : 0,
+                         ouvert ? Math.round(bande.y + menuFenetre.y) : 0,
+                         ouvert ? Math.round(menuFenetre.width) : 0,
+                         ouvert ? Math.round(menuFenetre.height) : 0);
+    }
+
+    onWidthChanged: borner()
+    onHeightChanged: borner()
+    Component.onCompleted: borner()
+
+    // LA BANDE VISIBLE EST EN BAS, LE RESTE DE LA FENETRE EST DU VIDE. Ce vide
+    // n'avale aucun clic : la zone sensible est posee par « pont.bornerBarre »
+    // et ne couvre que cette bande — plus le menu quand il est ouvert.
     Rectangle {
-        anchors.fill: parent
+        id: bande
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: barre.hauteur
         // PLUS OPAQUE QUE LE VERRE DES PANNEAUX, ET C'EST MESURE : a 86 %, le
         // texte du bureau transparaissait a travers la barre et se melangeait
         // aux titres des fenetres. Un panneau qu'on regarde de temps en temps
@@ -366,14 +419,13 @@ Window {
             id: menuFenetre
             objectName: "menuFenetre"
 
-            // IL A SA PROPRE FENETRE, ET C'EST MESURE. Un Popup ordinaire est
-            // mis en page DANS sa fenetre hote et s'y trouve borne : neuf
-            // articles hauts de 360 pixels rendaient « height 52 », la hauteur
-            // de la barre, soit une ligne visible sur neuf. Mesure hors ecran,
-            // meme scene, Qt 6.11 :
-            //     defaut        implicitHeight 360 -> height  52
-            //     Popup.Window  implicitHeight 360 -> height 360
-            popupType: Popup.Window
+            // IL EST DESSINE DANS LA FENETRE DE LA BARRE, ET IL LUI FAUT DONC
+            // DE LA PLACE. Un Popup est borne a sa fenetre hote : tant que
+            // celle-ci ne faisait que cinquante-deux pixels, neuf articles
+            // hauts de 360 rendaient « height 52 » — une ligne visible sur
+            // neuf. La fenetre monte maintenant plus haut que la barre (voir
+            // « placeMenu »), et il reprend sa taille sans rien demander au
+            // compositeur.
 
             // L'IDENTIFIANT PLUTOT QUE L'OBJET, PARCE QUE LA LISTE EST
             // REMPLACEE EN ENTIER. « ouvertures » est refait par JSON.parse a
@@ -393,6 +445,15 @@ Window {
             // Une fenetre qui disparait pendant que son menu est ouvert
             // laisserait un menu qui ne vise plus rien.
             onCibleChanged: if (cible === null && visible) close()
+
+            // LA ZONE SENSIBLE SUIT LE MENU, SINON IL S'AFFICHE SANS SE
+            // LAISSER CLIQUER. Il est dessine au-dessus de la bande, c'est-a-
+            // dire dans la partie de la fenetre que le masque exclut.
+            onVisibleChanged: barre.borner()
+            onXChanged: barre.borner()
+            onYChanged: barre.borner()
+            onHeightChanged: barre.borner()
+            onWidthChanged: barre.borner()
 
             // ON SE POSE SUR LES TAILLES IMPLICITES, JAMAIS SUR LES EFFECTIVES.
             // « height » vaut l'implicite avant la premiere ouverture et la
