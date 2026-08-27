@@ -552,11 +552,33 @@ et c'était juste.
    première preuve, pas de sa portée).
 3. Le lanceur posé par `poser_lanceur`, la même fonction que `s-menu-windows`
    utilise pour tout le reste — pas une réécriture à côté. Identifiant
-   `s-windows-a9a1f2f55131`, calculé par le même hash SHA-256 du chemin résolu
-   que porte chaque logiciel Windows de S.
-4. L'étoile posée dans le ciel par `s_placer_etoile`, à la position stable que
-   son identifiant lui donne — exactement ce qui se serait passé si PC Boost
-   avait été « installé » par un vrai geste plutôt que compilé à la main.
+   **`s-windows-cafb8de64966`**, calculé par le même hash SHA-256 du chemin
+   résolu que porte chaque logiciel Windows de S.
+4. ~~L'étoile posée dans le ciel par `s_placer_etoile`~~ **FAUX au moment
+   d'écrire ces lignes — voir la correction ci-dessous.** L'étoile n'a été
+   posée pour de vrai qu'après le redémarrage.
+
+### UNE ERREUR À MOI, TROUVÉE APRÈS LE REDÉMARRAGE — ET C'EST LE MÊME PIÈGE QUE CE CARNET NOMME AILLEURS
+
+`s_placer_etoile` a été appelée avec `s-windows-a9a1f2f55131` — **l'identifiant
+de Cursor, pas celui de PC Boost.** La vérification qui a produit ce chiffre
+était fausse : un `grep -B6 "Name=PC Boost"` sur plusieurs fichiers concaténés
+par `cat` a fait déborder les six lignes de contexte du fichier *précédent*
+dans le résultat, et j'ai lu la fin d'un autre lanceur comme si elle
+appartenait à PC Boost. **Un contrôle qui mélange plusieurs fichiers sans dire
+lequel ment.**
+
+Conséquence, silencieuse jusqu'au redémarrage : `s_placer_etoile` a
+simplement réécrit la position de Cursor sur elle-même — sans dégât, puisque
+la position est déterministe pour un identifiant donné, mais **l'étoile de PC
+Boost n'a jamais existé**. `placees.json` le confirmait : `None` pour
+`s-windows-cafb8de64966`, une vraie position pour `s-windows-a9a1f2f55131`.
+
+Trouvé en revérifiant CHAQUE affirmation après le redémarrage plutôt qu'en la
+tenant pour acquise — exactement la règle 7 de ce carnet, appliquée à mon
+propre travail de la soirée. Corrigé avec le bon identifiant, relu :
+`{'x': 0.74, 'y': 0.69}` pour `s-windows-cafb8de64966`. **Ni le lanceur ni le
+lancement du 2026-08-26 n'étaient faux** — seule l'étoile manquait.
 
 **Icône : repli générique, et c'est attendu.** Le carnet le savait déjà depuis
 le 2026-08-20 — le `.csproj` de PC Boost ne porte pas `<ApplicationIcon>`. Rien
