@@ -109,6 +109,19 @@ de reprise, tel que confirmé dans la conversation :
    fichier source (revérifié identique à sa sauvegarde).
    **C'est un fichier personnel, hors du dépôt S** — rien à construire, il
    sert déjà.
+2bis. [x] **PC Boost voit le vrai matériel sous Wine** — fait le 2026-08-27 à
+   16 h 20, demande explicite de l'utilisateur. WMI ne rend rien de fiable
+   sous Wine (mesuré : `MemoryTopologyService` jette une `ManagementException`
+   au démarrage). Un pont par fichier — `outils-linux/materiel-linux.py`
+   (dans le dépôt PC Boost) écrit le vrai matériel Linux (`lspci`, `dmi`) en
+   JSON, `LinuxHardwareInventoryService.cs` le lit — remplace WMI **pour la
+   page Matériel seulement**. Détection Wine par deux sources (registre +
+   export `ntdll.dll`), les deux d'accord. Éprouvé de bout en bout : le
+   journal de PC Boost lui-même confirme « Environnement : Wine détecté ».
+   Voir CLAUDE.md, 2026-08-27, 16 h 20. **Ne couvre pas encore**
+   `MemoryTopologyService`, `MachineContextService`, ni les services de
+   pilotes — tous interrogent toujours WMI directement. Aucun écran n'a été
+   regardé, seul le journal confirme le bon fonctionnement.
 3. **Après le redémarrage, revérifier ce qui a été touché ce soir** — RapidO
    (`StartupWMClass` corrigé), PC Boost (lanceur et étoile posés), et la barre
    latérale, tous corrigés dans le dépôt mais mesurés au mieux une fois avant

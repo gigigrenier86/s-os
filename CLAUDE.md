@@ -288,6 +288,136 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-27, 16 h 20 — PC Boost voit le vrai matériel, par un pont plutôt qu'un WMI muet
+
+Demande de l'utilisateur : « ajoute à PC Boost les informations nécessaires à
+la détection de drivers, matériel etc. de Linux, Wine etc. ».
+
+### Ce que WMI vaut sous Wine, mesuré et non supposé
+
+`HardwareInventoryService` (176 fichiers, une vraie application MVVM —
+`Services/Hardware`, `Services/Drivers`, `Services/Health`...) interroge
+`Win32_ComputerSystem`, `Win32_PnPEntity`, `Win32_PnPSignedDriver` par WMI.
+**La preuve que ça ne suffit pas sous Wine était déjà dans le journal de
+PC Boost avant que j'écrive une ligne** : `MemoryTopologyService`, un service
+voisin qui n'a pas encore été touché, y jette
+`ManagementException: Error code: 0x80041002` à chaque démarrage. WMI sous
+Wine n'est pas un mensonge silencieux partout — parfois il échoue bruyamment,
+et le reste du temps il répond des classes vides, ce qui est pire.
+
+### Deux architectures essayées, une seule retenue — et la première a coûté une vraie mesure
+
+**Essayée d'abord : demander à Wine de lancer un binaire Linux natif depuis
+`Process.Start`.** Un petit programme de test, publié pour `win-x64` et lancé
+dans le vrai préfixe de S, a montré que `/usr/bin/uname` **démarre bel et
+bien** sous Wine — mais que `Process.WaitForExit()` échoue sur le descripteur
+retourné (`COMException 0x80070006 E_HANDLE`), et que la sortie standard
+redirigée reste **vide**. Wine sait lancer un exécutable Unix ; il ne rend pas
+un objet processus .NET utilisable pour autant. Piste fermée par la mesure,
+pas par supposition.
+
+**Retenue : un pont à sens unique par fichier**, exactement le patron déjà
+prouvé par `s-partage` et par `proton-capturer-environnement.sh` du Grimoire —
+demander la vérité à sa vraie source plutôt que de la deviner depuis l'autre
+côté de la frontière. Linux écrit un JSON avant que Windows démarre ; Windows
+ne fait que le lire.
+
+### La détection de Wine, deux sources indépendantes, les deux d'accord
+
+```csharp
+HKEY_LOCAL_MACHINE\Software\Wine        présente
+ntdll.dll -> export "wine_get_version"  présent
+```
+
+Éprouvé dans un binaire de test dédié, dans le vrai préfixe : les deux
+répondent oui en même temps. Aucun des deux n'a de raison d'être vrai sur un
+Windows authentique — pas de garde-fou à moitié fiable ici.
+
+### Le pont ne réinvente aucun type — il nourrit ceux qui existent déjà
+
+`SystemProfile`, `HardwareDevice`, `HardwareInventory` sont déjà des
+`record` sérialisables en JSON, et `PnpHardwareId.TryParse()` sait déjà lire
+un Hardware ID au format Windows (`PCI\VEN_8086&DEV_3E92`). Le script Linux
+**écrit dans ce format-là**, pas dans un format inventé :
+
+```
+lspci -vmmnnk   -> Slot, Class, Vendor [hex], Device [hex], Driver, Module
+/sys/class/dmi/id/*  -> sys_vendor, product_name, board_*, bios_*
+/sys/class/net/*/wireless  -> distingue Wi-Fi d'Ethernet, sans deviner sur le nom
+```
+
+Résultat mesuré sur cette machine (M720q) : **21 périphériques réels**, dont
+« CoffeeLake-S GT2 [UHD Graphics 630] », pilote `i915`, catégorie `Gpu` —
+plus précis que ce que WMI aurait jamais rendu ici, puisqu'il n'aurait rien
+rendu du tout.
+
+`outils-linux/materiel-linux.py`, dans le dépôt PC Boost lui-même (pas dans
+S) : c'est la moitié Linux d'une fonctionnalité de PC Boost, elle voyage avec
+lui.
+
+### Côté C#, trois pièces neuves, une modifiée
+
+- `Services/Platform/IEnvironmentDetectionService.cs` /
+  `EnvironmentDetectionService.cs` — la détection Wine, un singleton, deux
+  sources.
+- `Services/Hardware/LinuxHardwareInventoryService.cs` — lit le JSON,
+  désérialise dans les types existants
+  (`Converters = { new JsonStringEnumConverter() }`, la même convention déjà
+  posée dans `JsonSnapshotStore` et `JsonHardwareProfileStore` — pas une
+  nouvelle inventée à côté). Un fichier absent ou illisible rend un
+  inventaire vide et **journalisé**, jamais une exception qui remonterait
+  jusqu'à l'interface.
+- `App.xaml.cs` : `IHardwareInventoryService` se choisit maintenant à
+  l'exécution — `LinuxHardwareInventoryService` si Wine est détecté,
+  `HardwareInventoryService` (WMI) sinon. Une seule ligne de composition
+  root à comprendre, aucune des deux ne sait que l'autre existe.
+
+### `s-pcboost-lancer` gagne un troisième étage
+
+Le pont se régénère à **chaque lancement**, juste avant de copier le build
+dans le préfixe — dans `C:\users\steamuser\AppData\Local\PcBoost\hardware\`,
+l'emplacement que `IAppPaths.HardwareDirectory` déclarait déjà, pas un chemin
+inventé pour l'occasion. `steamuser` et non `RyuRex` : c'est umu/Proton qui
+impose ce compte dans tout préfixe qu'il construit, pas un choix de S — vérifié
+sur le disque avant d'écrire quoi que ce soit.
+
+### Éprouvé de bout en bout, pas juste compilé
+
+```
+16:19:08  Démarrage — journal : ...\PcBoost\logs\pcboost-20260827.log
+16:19:08  Environnement : Wine détecté — inventaire matériel via le pont Linux.
+16:19:09  Historique : un relevé de moins de 24 h existe déjà, rien à archiver.
+```
+
+**La ligne qui compte est la deuxième** — écrite par PC Boost lui-même, dans
+son propre journal, pas déduite de l'extérieur. Aucune exception de
+désérialisation derrière elle : le JSON produit par le script Linux est bien
+celui que `LinuxHardwareInventoryService` attendait.
+
+### Ce que cette passe ne prouve pas
+
+- **`MemoryTopologyService`, `MachineContextService`, et les services de
+  pilotes** (`DeviceDriverProbe`, `DeviceHealth`, `WmiServiceManager`,
+  `PnpUtilDriverStore`...) **interrogent toujours WMI directement**, sans
+  passer par ce pont. Seul `HardwareInventoryService` — la page Matériel — en
+  bénéficie pour l'instant. `MemoryTopologyService` jette d'ailleurs
+  toujours son exception au démarrage, prouvée plus haut, non corrigée.
+- **Aucun écran de PC Boost n'a été regardé** avec les données du pont
+  affichées — seul le journal confirme que le service a été choisi et n'a
+  pas planté. Ce que l'utilisateur verrait à l'écran (la page Matériel, la
+  liste des 21 périphériques) n'a pas été capturé.
+- **La recherche de pilotes via le Microsoft Update Catalog n'a pas été
+  essayée** avec des Hardware IDs venus du pont — rien ne dit encore si
+  `MicrosoftUpdateCatalogProvider` trouve des correspondances pour du
+  matériel décrit depuis Linux plutôt que depuis un vrai Windows.
+- **Rien de ceci n'entre dans une construction de S** — comme le reste de
+  PC Boost, c'est un projet personnel hors dépôt.
+- **Le dépôt PC Boost n'a reçu aucun commit** — les nouveaux fichiers
+  s'ajoutent aux quatorze déjà modifiés, non commités, tels que l'utilisateur
+  les avait laissés.
+
+---
+
 ## 2026-08-27, 15 h 56 — le vrai PC Boost entre dans S, compilé depuis Linux
 
 Demande de l'utilisateur, mot pour mot : « le dossier de PC Boost doit être
