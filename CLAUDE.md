@@ -288,6 +288,66 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-27, 15 h 37 — PC Boost se resynchronise tout seul avant chaque lancement
+
+Dernière pièce de l'entretien du 2026-08-26 : « ben oui ça vaut la peine, je
+veux que tout fonctionne bien ». La copie de PC Boost posée dans le Windows de
+S se périmait à chaque recompilation, sans que rien ne le signale — l'exact
+défaut nommé la veille en clôturant le premier chantier.
+
+**Ce n'est pas une pièce de S : c'est un outil personnel, hors du dépôt.**
+PC Boost n'a pas d'installateur et sa copie posée vit dans le prefixe d'un
+seul utilisateur — ni le mécanisme ni son besoin ne concernent une machine
+neuve. Il vit donc dans `~/.local/bin/s-pcboost-lancer`, jamais dans
+`files/`.
+
+### Le mécanisme, et pourquoi une comparaison de dates suffit
+
+`s-pcboost-lancer` compare la date de `PcBoostApp.dll` — l'assembly compilé
+depuis le C#, pas l'hôte natif `.exe` qui ne change presque jamais — entre le
+dossier de build (`~/Downloads/PcBoostApp/bin/Release/net8.0-windows/win-x64`)
+et la copie posée. Si la source est plus récente, il recopie l'arborescence
+entière avant de lancer.
+
+**`cp` ne préserve pas la date source, et c'est ce qui rend la comparaison
+fiable plutôt que fragile.** La copie posée porte toujours la date de sa
+DERNIÈRE synchronisation, jamais celle d'un ancien build. Un nouveau build est
+donc toujours plus récent que la dernière synchronisation — sauf le jour où
+rien n'a changé, exactement le cas qu'on veut détecter sans agir.
+
+### UNE ERREUR TROUVÉE EN TESTANT, PAS EN RELISANT
+
+Le premier essai a donné **l'inverse de ce qui était attendu** : sans aucun
+changement source, le script annonçait quand même un resynchronisation. La
+cause : `windows.sh` était sourcé **avant** `s-monde`, alors que
+`S_WIN_PFX="$S_PREFIXE/pfx"` dépend d'une variable que seul `s-monde` pose.
+Sans elle, `S_WIN_PFX` valait `/pfx` tout court — un chemin qui n'existe nulle
+part, silencieusement pris pour argent comptant parce que `[ -n
+"${S_WIN_PFX:-}" ]` le trouvait non vide et se déclarait satisfait. **Le test
+de garde vérifiait que la variable existait, jamais qu'elle était juste.**
+
+Ordre inversé, réessayé dans les deux sens sur la machine :
+
+```
+sans changement source     -> pas de resync        (attendu)
+.dll source touché         -> resync, puis lancement -> synchronisé (attendu)
+```
+
+Puis le vrai geste, par `gtk-launch` sur le `.desktop` lui-même et non par un
+appel manuel du script : fenêtre `steam_proton | PC Boost` vivante.
+
+### Ce que cette passe ne prouve pas
+
+- **Aucune vraie recompilation de PC Boost n'a déclenché ce mécanisme** —
+  seul un `touch` sur le `.dll` l'a simulée. Le jour d'un vrai `dotnet
+  publish`, à vérifier que le dossier `win-x64` reste le même et que le nom
+  de l'assembly ne change pas.
+- **Rien de ceci n'entre dans une construction** — c'est un fichier du dossier
+  personnel, pas de l'image. Il n'a donc pas besoin d'un redémarrage pour
+  servir, et n'en survivrait pas une réinstallation complète non plus.
+
+---
+
 ## 2026-08-27, 15 h 30 — le menu s'ouvrait tout à gauche, et la réponse était déjà écrite dans ce dépôt
 
 Correctif poussé ce matin : `popupType: Popup.Window`, pour que le menu du clic

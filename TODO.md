@@ -95,15 +95,16 @@ de reprise, tel que confirmé dans la conversation :
    doit le prouver. Voir CLAUDE.md pour la mesure exacte à refaire après
    redémarrage : pousser la souris dans le coin droit et vérifier qu'elle ne
    s'ouvre qu'au tout dernier pixel, pas en travers d'un survol de passage.
-2. **Le mécanisme de mise à jour de PC Boost** — l'utilisateur a confirmé
-   « ben oui ça vaut la peine » juste avant de signaler le bug de la barre.
-   **Pas commencé.** Le besoin : la copie posée dans
-   `.../pfx/dosdevices/c:/Program Files/PcBoost/` se périge à chaque
-   recompilation de `~/Downloads/PcBoostApp`, et rien ne la resynchronise. Une
-   piste à explorer en premier plutôt qu'à supposer : un service ou un geste
-   qui compare la date du binaire compilé à celle de la copie posée, et
-   recopie s'il y a divergence — dans l'esprit de ce que `s-partage` fait déjà
-   pour d'autres coutures.
+2. [x] **Le mécanisme de mise à jour de PC Boost** — fait le 2026-08-27 à
+   15 h 37. `~/.local/bin/s-pcboost-lancer` compare la date de
+   `PcBoostApp.dll` entre le dossier de build et la copie posée avant chaque
+   lancement, recopie si la source est plus récente, puis lance. Testé dans
+   les deux sens sur la machine (sans changement → rien ; `.dll` touché →
+   resynchronisation puis lancement) et via le vrai `.desktop`, pas juste
+   l'appel du script. Voir CLAUDE.md, 2026-08-27, 15 h 37 — y compris un bug
+   trouvé en testant (ordre de sourcing inversé, `S_WIN_PFX` valait `/pfx`).
+   **C'est un fichier personnel, hors du dépôt S** — rien à construire, il
+   sert déjà.
 3. **Après le redémarrage, revérifier ce qui a été touché ce soir** — RapidO
    (`StartupWMClass` corrigé), PC Boost (lanceur et étoile posés), et la barre
    latérale, tous corrigés dans le dépôt mais mesurés au mieux une fois avant
