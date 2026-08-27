@@ -58,6 +58,16 @@ from PySide6.QtCore import QCoreApplication
 QCoreApplication([])
 import veille, fenetres
 
+# LE BANC ÉCRIT AILLEURS QUE LA VRAIE SESSION, ET C'EST NÉCESSAIRE DEPUIS QUE
+# LES PORTÉES GELÉES SONT RETENUES SUR DISQUE. Construire un Fenetres() relit
+# puis réécrit ~/.local/state/s/fenetres-gelees.json : le banc effacerait la
+# liste du Constellation en train de tourner, et un plantage juste après ne
+# saurait plus quoi relâcher. On le dépayse avant toute construction.
+import tempfile
+fenetres.ETAT = tempfile.mkdtemp(prefix="s-banc-veille-")
+fenetres.FICHIER_VUES = os.path.join(fenetres.ETAT, "fenetres-vues.json")
+fenetres.FICHIER_GELES = os.path.join(fenetres.ETAT, "fenetres-gelees.json")
+
 unite = sys.argv[1]
 C = os.path.join(veille.app_slice() or "", unite + ".scope")
 if not os.path.isdir(C):
@@ -102,6 +112,18 @@ f._liste[1]["pid"] = pid
 f._geler({A});   etat(False, "portée partagée avec l'active -> intacte")
 f._liste[1]["pid"] = 0
 
+# CE QUE LA BARRE NE MONTRE PAS EXISTE QUAND MÊME. Un mini-lecteur, un panneau
+# utilitaire, une surface au type inhabituel : kwin les envoie, la barre les
+# écarte, et elles partagent la portée de la fenêtre principale. Geler celle-ci
+# les figerait À L'ÉCRAN, et _reveiller ne les connaît pas — plus aucun clic ne
+# les rattraperait.
+f._toutes = f._liste + [
+    {"id": "{dddddddd-0000-0000-0000-000000000004}", "titre": "Mini-lecteur",
+     "active": False, "reduite": False, "pid": pid, "montrable": False},
+]
+f._geler({A});   etat(False, "surface visible non montrée -> intacte")
+f._toutes = []
+
 f._liste[0]["reduite"] = False
 f._geler({A});   etat(False, "fenêtre remontée entre-temps -> intacte")
 f._liste[0]["reduite"] = True
@@ -120,8 +142,16 @@ if C not in veille.portees_gelees():
     print("  %-52s %s" % ("une portée gelée est retrouvée au démarrage", False))
 else:
     print("  %-52s %s" % ("une portée gelée est retrouvée au démarrage", True))
+# ON NE DÉFAIT QUE CE QU'ON A ÉCRIT AVOIR FAIT. Le balayage relâchait tout ce
+# qu'il trouvait gelé dans app.slice — donc aussi la portée de ce banc-ci, ou
+# un « systemctl --user freeze » demandé à la main. Deux mesures, pas une.
+fenetres._sauver_geles(set())
 fenetres.Fenetres()          # ce que fait un démarrage de Constellation
-etat(False, "un nouveau Constellation la relâche")
+etat(True,  "gelée par un autre -> le démarrage n'y touche pas")
+
+fenetres._sauver_geles({C})  # ce qu'un Constellation vivant aurait écrit
+fenetres.Fenetres()
+etat(False, "gelée par nous -> le démarrage la relâche")
 
 print("\nLES DIX JOURS")
 f._noter(f._liste)
@@ -144,6 +174,61 @@ oublie = B not in f._vues
 if not oublie:
     rates.append("une fenêtre fermée n'est pas oubliée")
 print("  %-52s %s" % ("une fenêtre fermée est oubliée", oublie))
+
+print("\nCE QUE LA REVUE DU 27 AOÛT A TROUVÉ")
+
+def verifier(vrai, quoi):
+    if not vrai:
+        rates.append(quoi)
+    print("  %-52s %s" % (quoi, bool(vrai)))
+
+# Un pid illisible vaut « on ne sait pas », il ne lève pas.
+for mauvais in ("pas un nombre", 3.5e300, None, [], {}):
+    try:
+        rendu = veille.portee(mauvais)
+    except Exception as e:
+        rendu = "LEVÉ : %s" % type(e).__name__
+    if rendu is not None:
+        rates.append("pid illisible %r -> %r" % (mauvais, rendu))
+print("  %-52s %s" % ("un pid illisible rend None sans lever", True))
+
+# « geler » -> « reduire » doit relâcher : on choisit « ranger les autres »
+# précisément pour que les programmes CONTINUENT de tourner.
+#
+# On neutralise l'écriture du réglage : le banc ne doit pas changer le mode de
+# veille de la vraie session sur cette machine.
+import noyau
+noyau.sauver_reglage = lambda *a, **k: None
+g = fenetres.Fenetres()
+g._liste = [{"id": A, "active": False, "reduite": True, "pid": pid}]
+g._mode = "geler"
+g._geler({A});          etat(True,  "endormie, mode « geler »")
+g.reglerMode("reduire"); etat(False, "passage à « reduire » -> relâchée")
+g.arreter()
+
+# Un jeton posé pendant que la veille est coupée doit être consommé quand même,
+# sinon il attend là et avale le premier vrai changement d'après.
+h = fenetres.Fenetres()
+h._mode = "non"
+h._repli = A
+h._veiller([{"id": B, "active": True, "reduite": False, "pid": 0}])
+verifier(h._repli is None, "jeton posé en mode « non » -> consommé quand même")
+
+# kwin envoie tout, la barre ne montre que le montrable.
+import json as _json
+h._bus = None
+h.recevoir(_json.dumps([
+    {"id": A, "active": True, "reduite": False, "pid": 0, "montrable": True},
+    {"id": "{dddddddd-0000-0000-0000-000000000004}", "active": False,
+     "reduite": False, "pid": 0, "montrable": False},
+]))
+verifier(len(h._toutes) == 2 and len(h._liste) == 1,
+         "kwin envoie 2 fenêtres, la barre en reçoit 1")
+
+# Le singulier, qui disait « depuis 1 jours ».
+phrase = h.fermerInactives(1)
+verifier("1 jours" not in phrase, "« depuis 1 jour », pas « 1 jours »")
+h.arreter()
 
 print("\nLES GARDE-FOUS")
 # CE BLOC EST LE PLUS IMPORTANT DU BANC. Geler le compositeur figerait l'écran

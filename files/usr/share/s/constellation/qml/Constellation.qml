@@ -374,6 +374,16 @@ ApplicationWindow {
             if (typeof fenetres !== "undefined" && fenetres)
                 bureau.dire(fenetres.reglerMode(mode));
         }
+        onInactivesDemandees: {
+            // A L'OUVERTURE DU MENU, ET NULLE PART AILLEURS. Le compte depend
+            // de l'heure autant que de la liste — une fenetre franchit les dix
+            // jours sans qu'aucun evenement ne le dise — donc le relire au
+            // moment ou l'etiquette s'affiche est a la fois plus juste et
+            // beaucoup moins cher que de le refaire a chaque frappe.
+            if (typeof fenetres !== "undefined" && fenetres)
+                bureau.fenetresInactives =
+                    fenetres.inactivesDepuis(barreTaches.joursInactivite);
+        }
         onMenuDemande: {
             // LE MENU EST DESSINE ICI, DANS LA FENETRE DU BUREAU, qui reste
             // derriere. On remonte donc le bureau avant d'ouvrir, sinon le
@@ -420,14 +430,6 @@ ApplicationWindow {
         target: typeof fenetres !== "undefined" ? fenetres : null
         function onChangees(liste) {
             barreTaches.ouvertures = JSON.parse(liste);
-            // LE COMPTE SE REFAIT ICI ET NULLE PART AILLEURS. Il depend de
-            // l'heure autant que de la liste : une fenetre franchit les dix
-            // jours sans qu'aucun evenement ne le dise. Le rapporteur de kwin
-            // parle a chaque ouverture, fermeture, activation et changement de
-            // titre — c'est le battement le plus proche qu'on ait, et il suffit
-            // pour une etiquette de menu.
-            bureau.fenetresInactives =
-                fenetres.inactivesDepuis(barreTaches.joursInactivite);
         }
         function onModeChange(mode) {
             bureau.veilleMode = mode;

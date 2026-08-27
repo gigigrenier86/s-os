@@ -242,13 +242,55 @@ def concordance_des_slots():
     return manquants
 
 
+def concordance_du_pont_fenetres():
+    """Chaque « fenetres.machin(...) » du QML existe-t-il sur Fenetres ?
+
+    POURQUOI UN SECOND CONTROLE PLUTOT QU'UN ELARGISSEMENT DU PREMIER. Il y a
+    DEUX ponts vers QML : « pont » (s-constellation) et « fenetres »
+    (fenetres.py). Le premier a un leurre, donc on compare deux declarations.
+    Le second n'en a pas — la verification lui donne None, parce que
+    l'instancier ouvrirait un service D-Bus — donc aucun de ses appels n'est
+    exerce et une faute de frappe passerait verte jusqu'au clic. On compare
+    donc les appels ECRITS DANS LE QML aux slots declares dans fenetres.py.
+
+    C'est exactement le defaut que le premier controle reproche a l'absence de
+    leurre : « il echoue AU CLIC, c'est-a-dire chez l'utilisateur et jamais en
+    construction ».
+    """
+    import re
+    ici = os.path.dirname(os.path.abspath(__file__))
+    candidats = [os.path.join(ici, "..", "files", "usr", "lib", "s", "fenetres.py"),
+                 "/usr/lib/s/fenetres.py"]
+    source = next((c for c in candidats if os.path.isfile(c)), None)
+    if not source:
+        print("  pont fenetres : fenetres.py introuvable, controle saute")
+        return []
+    with io.open(source, encoding="utf-8") as f:
+        declares = set(re.findall(r"@Slot\([^)]*\)\s*\n\s*def (\w+)", f.read()))
+    appeles = set()
+    for nom in sorted(os.listdir(QML)):
+        if not nom.endswith(".qml"):
+            continue
+        with io.open(os.path.join(QML, nom), encoding="utf-8") as f:
+            for appel in re.findall(r"\bfenetres\.(\w+)\s*\(", f.read()):
+                appeles.add(appel)
+    inconnus = sorted(appeles - declares)
+    if inconnus:
+        print("ECHEC : le QML appelle %d methode(s) que Fenetres ne declare "
+              "pas : %s" % (len(inconnus), ", ".join(inconnus)), file=sys.stderr)
+    else:
+        print("  pont fenetres : %d appel(s) QML, tous declares sur Fenetres"
+              % len(appeles))
+    return inconnus
+
+
 def main():
     app = QGuiApplication(sys.argv[:1])
     moteur = QQmlApplicationEngine()
     plaintes = []
     moteur.warnings.connect(
         lambda ws: plaintes.extend(w.toString() for w in ws))
-    manquants = concordance_des_slots()
+    manquants = concordance_des_slots() + concordance_du_pont_fenetres()
     pont = PontLeurre()
     moteur.rootContext().setContextProperty("pont", pont)
     # LE SERVICE DE NOTIFICATIONS EST NUL ICI, ET C'EST UN CAS REEL : la
@@ -283,6 +325,9 @@ def main():
     # deux traits. « count » compte tout ce que le Menu porte.
     ARTICLES_ATTENDUS = 9
     manque_articles = {"valeur": 0, "trouve": False}
+    # La hauteur du menu une fois ouvert, et celle qu'il demande. Voir le
+    # controle plus bas : c'est la mesure qui manquait le 2026-08-26.
+    articles = {"haut": 0.0, "implicite": 0.0}
 
     def ouvrir():
         for enfant in racine.findChildren(QObject):
@@ -290,13 +335,16 @@ def main():
                 if enfant.objectName() == "menuDemarrer":
                     enfant.setProperty("visible", True)
                 elif enfant.objectName() == "menuFenetre":
-                    enfant.setProperty("cible", {
-                        "id": "{00000000-0000-0000-0000-000000000000}",
-                        "titre": "Une fenetre", "classe": "a",
-                        "active": True, "reduite": False, "plein": False,
-                        "pid": 0})
+                    # « cible » est desormais calcule depuis la liste des
+                    # ouvertures : on pose l'identifiant, comme le fait
+                    # ouvrirPour().
+                    enfant.setProperty(
+                        "cibleId", "{00000000-0000-0000-0000-000000000000}")
                     enfant.setProperty("visible", True)
                     manque_articles["trouve"] = True
+                    articles["haut"] = float(enfant.property("height") or 0)
+                    articles["implicite"] = float(
+                        enfant.property("implicitHeight") or 0)
                     # « count », PAS « contentData ». Mesure du 2026-08-26 :
                     # contentData rend une liste vide sur un Menu pourtant
                     # peuple — c'est la propriete par defaut, pas l'inventaire
@@ -328,14 +376,32 @@ def main():
             print("ECHEC : le menu du clic droit de la barre est introuvable "
                   "dans la scene (objectName « menuFenetre »).", file=sys.stderr)
             code["valeur"] = 1
-        elif manque_articles["valeur"] < ARTICLES_ATTENDUS:
+        elif manque_articles["valeur"] != ARTICLES_ATTENDUS:
+            # « != » ET NON « < ». Le controle n'attrapait que le menu vide :
+            # une edition qui duplique le Repeater ou laisse un article errant
+            # passait a dix, douze ou vingt sans le moindre signal. Un compte
+            # attendu qui n'est pas atteint PAR LE HAUT est un defaut autant
+            # que par le bas.
             print("ECHEC : le menu du clic droit de la barre porte %d article(s), "
                   "%d attendus." % (manque_articles["valeur"], ARTICLES_ATTENDUS),
                   file=sys.stderr)
             code["valeur"] = 1
+        # LA HAUTEUR, PARCE QUE COMPTER LES ARTICLES NE DIT PAS QU'ON LES VOIT.
+        # Mesure du 2026-08-27 : le menu portait bien ses neuf articles et
+        # demandait 360 pixels, mais s'ouvrait a 52 — la hauteur de la fenetre
+        # de la barre, qui borne tout Popup mis en page en elle. Neuf articles
+        # dont un seul visible passaient ce controle en vert.
+        elif articles["haut"] + 0.5 < articles["implicite"]:
+            print("ECHEC : le menu du clic droit s'ouvre a %d px alors qu'il en "
+                  "demande %d — il est borne par la fenetre de la barre. Voir "
+                  "« popupType » dans Barre.qml."
+                  % (articles["haut"], articles["implicite"]), file=sys.stderr)
+            code["valeur"] = 1
         else:
-            print("  menu barre    : %d articles instancies, %d attendus"
-                  % (manque_articles["valeur"], ARTICLES_ATTENDUS))
+            print("  menu barre    : %d articles instancies, %d attendus, "
+                  "%d px ouverts pour %d demandes"
+                  % (manque_articles["valeur"], ARTICLES_ATTENDUS,
+                     articles["haut"], articles["implicite"]))
         attendu = 5
         # ON DEMANDE AU REPEATER, PAS A L'ARBRE D'OBJETS. Compter les enfants
         # par leur objectName rendait ZERO alors que le modele en portait cinq :

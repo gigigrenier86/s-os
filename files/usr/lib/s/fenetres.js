@@ -119,9 +119,17 @@ function estMontrable(f) {
     return true;
 }
 
-function decrire(f) {
+function decrire(f, montrable) {
     return {
         id: String(f.internalId),
+        // CE QUE LA BARRE MONTRE, ET CE QUE LA VEILLE DOIT VOIR, NE SONT PAS
+        // LA MEME LISTE. Le rapporteur n'envoyait que le montrable, et la
+        // veille se retrouvait aveugle aux fenetres ecartees — mini-lecteur,
+        // panneau utilitaire, surface au type inhabituel. Or elles partagent
+        // la portee cgroup de la fenetre principale : geler celle-ci figeait
+        // a l'ecran une surface visible que plus aucun clic ne reveillait. On
+        // envoie donc tout, avec l'etiquette, et le tri se fait cote Python.
+        montrable: (montrable === true),
         classe: String(f.resourceClass || ""),
         titre: String(f.caption || ""),
         active: (workspace.activeWindow === f),
@@ -151,7 +159,7 @@ function envoyer() {
     var liste = workspace.windowList();
     var vues = [];
     for (var i = 0; i < liste.length; i++) {
-        if (estMontrable(liste[i])) vues.push(decrire(liste[i]));
+        vues.push(decrire(liste[i], estMontrable(liste[i])));
     }
     callDBus("org.s.Constellation", "/fenetres", "org.s.Constellation",
              "Fenetres", JSON.stringify(vues));

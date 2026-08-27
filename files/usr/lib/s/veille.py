@@ -113,7 +113,19 @@ def portee(pid):
     n'est pas un programme lance par l'utilisateur » — et donc qu'on n'y
     touche pas.
     """
-    if not pid or int(pid) <= 1:
+    # « int » PEUT LEVER, ET LE PID VIENT DE KWIN. Il arrive en JSON depuis
+    # decrire() : une version du compositeur ou un type de fenetre rendant une
+    # chaine ou un flottant faisait remonter le ValueError a travers _geler et
+    # _veiller jusque hors de la methode D-Bus — la liste des fenetres cessait
+    # de se mettre a jour et la barre se figeait sur son dernier etat. Le
+    # contrat de l'en-tete est pourtant simple : ce qu'on ne sait pas lire vaut
+    # « on ne sait pas », donc « on n'y touche pas ».
+    if not pid:
+        return None
+    try:
+        if int(pid) <= 1:
+            return None
+    except (TypeError, ValueError):
         return None
     relatif = _chemin_cgroup(pid)
     if not relatif:

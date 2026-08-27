@@ -191,12 +191,21 @@ c'est la première fois qu'elle tient debout.
   occupe un numéro de processus jusqu'au réveil. Sans conséquence ici, à
   surveiller sur un programme bavard laissé gelé des jours.
 
-- **Le menu du clic droit n'a toujours pas été ouvert.** C'est la moitié de
-  l'hypothèse d'hier qui tient encore, et elle tient à un seul clic : la barre
-  porte `Qt.WindowDoesNotAcceptFocus`, et un menu Qt Quick a besoin d'une prise
-  sur le pointeur. Si le menu refuse de s'ouvrir, le repli est déjà en tête —
-  faire grandir la fenêtre de la barre vers le haut plutôt qu'ouvrir une
-  fenêtre surgissante. Voir la section de 23 h.
+- ~~**Le menu du clic droit n'a toujours pas été ouvert.**~~ **Il ne s'ouvrait
+  pas, et ce n'était pas le focus.** La revue du 27 août l'a mesuré hors écran
+  avant qu'un seul clic ne soit donné : le menu portait bien ses neuf articles
+  et en demandait 360 pixels, mais s'ouvrait à 52 — la hauteur de la fenêtre de
+  la barre, qui borne tout `Popup` mis en page en elle. Un article visible sur
+  neuf. `popupType: Popup.Window` lui rend sa fenêtre à lui et sa vraie
+  hauteur, mesuré dans les deux sens sur la même scène. Corrigé, et le
+  vérificateur mesure désormais la hauteur en plus du compte — il échoue sur la
+  scène installée et passe sur celle du dépôt, ce qui est la preuve qu'il sait
+  échouer. Voir la section de 5 h 40.
+
+  **Ce qui reste vrai :** aucun de ces gestes n'a encore été fait à la souris.
+  Le menu s'ouvre à la bonne taille dans un moteur QML hors écran ; qu'il se
+  pose au bon endroit au-dessus d'une barre posée en bas d'un vrai écran est
+  une autre affaire, et `Qt.WindowDoesNotAcceptFocus` reste sur la barre.
 - ~~Aucun de ces six correctifs n'est dans l'image.~~ **Ils y sont depuis
   15 h 47, et la machine a redémarré dessus à 11 h 55** — image `44.20260824`,
   `sha256:c73f90ed…` *(dépassé : depuis 15 h 50 la machine tourne sur
@@ -283,6 +292,143 @@ c'est la première fois qu'elle tient debout.
   mosh a besoin. **Rien de tout cela n'a été exercé depuis le téléphone.**
 
 ---
+
+## 2026-08-27, 5 h 40 — la revue trouve quatorze choses, dont une qui rendait le menu inutilisable
+
+Le gel a été mesuré sur une vraie fenêtre ce matin (voir plus haut : Vivaldi,
+zéro microseconde de processeur, 276 Mo gardés). Une revue systématique du
+commit `7891d47` a suivi. Elle a rendu **quatorze constats, tous vérifiés dans
+le code avant d'être retenus**, et tous corrigés dans la foulée — aucun ne
+demandait de mot de passe.
+
+### Celui qui comptait le plus, et que personne n'aurait vu en lisant
+
+Le menu du clic droit **ne pouvait pas fonctionner**, et le vérificateur le
+déclarait vert. Il comptait les articles — neuf, c'est juste — et ne mesurait
+jamais s'ils étaient visibles. Mesure hors écran, Qt 6.11, même scène :
+
+```
+defaut (Popup.Item)   implicitHeight 360  ->  height  52     borné
+Popup.Window          implicitHeight 360  ->  height 360     intact
+```
+
+Cinquante-deux pixels, c'est la hauteur de la fenêtre de la barre : un `Popup`
+mis en page dans une fenêtre y est borné, point. **Un article visible sur
+neuf.** Le repli envisagé hier — faire grandir la fenêtre de la barre vers le
+haut — n'était pas nécessaire : `popupType: Popup.Window` donne au menu sa
+propre fenêtre, donc sa vraie hauteur.
+
+Un second défaut se cachait dans le même endroit : `ouvrirPour` calculait sa
+position depuis `height`, qui vaut l'implicite avant la première ouverture et
+la valeur bornée ensuite. Le menu se posait à deux hauteurs différentes selon
+qu'on l'avait déjà ouvert ou non. Il se pose maintenant sur `implicitHeight` et
+`implicitWidth`, qui ne dépendent pas de l'état d'ouverture.
+
+**Le vérificateur mesure maintenant la hauteur**, et la preuve qu'il sait
+échouer est faite dans les deux sens :
+
+```
+scène installée (l'ancienne)  ->  ÉCHEC : s'ouvre à 52 px, en demande 222
+scène du dépôt (corrigée)     ->  9 articles, 222 px ouverts pour 222 demandés
+```
+
+### Trois défauts qui auraient balayé le bureau de l'utilisateur
+
+`activer()` documentait un garde-fou — **un repli demandé à la main suspend la
+veille d'une passe** — parce que ranger la fenêtre du dessus fait remonter la
+suivante, et que la règle « une seule debout » se déclencherait sur cette
+remontée. Le commentaire disait la chose exactement : « le geste *écarte-moi
+ça* deviendrait *ferme-moi tout* ».
+
+**`endormir()` et `fermer()` faisaient le même geste sans poser le jeton.**
+« Endors-moi cette fenêtre-là » aurait rangé et arrêté tout le reste du bureau.
+Les deux articles du menu neuf de la veille, les deux touchés.
+
+Le jeton lui-même avait deux fuites. Il n'était consommé qu'après le test du
+mode : un repli demandé pendant que la veille était coupée posait un jeton que
+plus rien ne venait prendre, et c'est **le premier Alt+Tab réel d'après le
+retour à « geler »** qu'il avalait — des heures après la cause, avec l'air de
+ne marcher qu'une fois sur deux. Il est maintenant pris avant toute autre
+sortie. Et il se posait sans savoir si le script kwin était parti : `_script`
+rend Faux quand le bus manque, donc un rangement qui n'a jamais eu lieu
+mangeait quand même la passe suivante.
+
+### « Ranger les autres » laissait les programmes arrêtés pour toujours
+
+`reglerMode()` ne dégelait que pour « aucune veille ». Or on choisit « ranger
+les autres » **précisément pour que les programmes continuent de tourner** : un
+lecteur de musique déjà gelé restait arrêté indéfiniment, et la raison même du
+choix était retournée en silence. On dégèle désormais dès qu'on quitte
+« geler ».
+
+### La veille était aveugle à ce que la barre ne montre pas
+
+La garde qui protège une portée partagée ne lisait que la liste de la barre —
+d'où sont retirées les fenêtres non `normalWindow` et `skipTaskbar`. Un
+programme dont la fenêtre principale est rangée mais qui garde un mini-lecteur
+**à l'écran** partage pourtant sa portée cgroup : le gel figeait la surface
+visible en pleine image, et comme `_reveiller` ne connaît que les fenêtres de
+la barre, **aucun clic ne pouvait plus la dégeler** — il fallait relancer
+Constellation.
+
+Le rapporteur kwin envoie maintenant *toutes* les fenêtres avec une étiquette
+`montrable`, et le tri se fait côté Python : la barre ne reçoit que le
+montrable, la veille voit tout. Éprouvé au banc.
+
+### Le balayage du démarrage relâchait ce qui ne lui appartenait pas
+
+Il écrivait `0` dans `cgroup.freeze` de **toute** `app-*.scope` gelée trouvée
+dans `app.slice`, en supposant que rien d'autre sur la machine n'en gèle. Ce
+même commit brisait déjà l'hypothèse : le banc `veille-eprouver-le-gel.sh`
+crée et gèle sa propre portée, et un Constellation qui redémarre pendant la
+mesure la dégelait sous elle. Idem pour un `systemctl --user freeze` demandé à
+la main. Le balayage tournait aussi quand le mode retenu était « aucune
+veille ».
+
+On ne défait plus que ce qu'on a **écrit** avoir fait :
+`~/.local/state/s/fenetres-gelees.json`, réécrit à chaque gel et à chaque
+dégel. Deux mesures au banc plutôt qu'une — *gelée par un autre → le démarrage
+n'y touche pas*, *gelée par nous → le démarrage la relâche*.
+
+Le banc lui-même dépayse maintenant son dossier d'état dans un dossier
+temporaire : le construire écrasait le fichier de la vraie session en train de
+tourner.
+
+### Le reste
+
+- `veille.portee()` appelait `int(pid)` hors de tout `try`. Le pid vient de
+  kwin en JSON ; une chaîne ou un flottant faisait remonter le `ValueError`
+  hors de la méthode D-Bus, **la liste des fenêtres cessait de se mettre à
+  jour et la barre se figeait sur son dernier état**. L'en-tête du fichier
+  posait pourtant le contrat : ce qu'on ne sait pas lire vaut « on ne sait
+  pas ».
+- Le menu gardait un instantané de `modelData`, remplacé en entier par
+  `JSON.parse` à chaque nouvelle de kwin : tous ses libellés mentaient dès que
+  la fenêtre changeait d'état pendant qu'il était ouvert. Il garde maintenant
+  l'identifiant et relit la liste.
+- Le compte des fenêtres oubliées se refaisait à **chaque changement de
+  titre** — donc plusieurs fois par seconde pendant qu'on tape dans un
+  terminal — pour une étiquette invisible tant que le menu est fermé. Il se
+  demande à l'ouverture.
+- Le vérificateur ne contrôlait qu'un des deux ponts QML. Les six slots ajoutés
+  à `Fenetres` n'étaient vérifiés par rien, et une faute de frappe serait
+  passée verte jusqu'au clic — l'échec exact que ce contrôle reproche à son
+  absence. Un second contrôle compare les appels `fenetres.machin(...)` écrits
+  dans le QML aux `@Slot` déclarés : **8 appels, tous déclarés**.
+- Le compte des articles du menu comparait avec `<` : le menu vide était
+  attrapé, un article dupliqué passait à dix ou vingt sans signal. C'est `!=`.
+- `fermerInactives(1)` annonçait « inactive depuis 1 **jours** », et recopiait
+  en Python un pluriel que le QML compose déjà.
+- Un champ `vu` était écrit sur disque et relu par personne, pendant qu'un
+  commentaire envoyait le prochain lecteur le chercher.
+- Une recette du grimoire était entrée non exécutable.
+
+### Ce que le banc dit maintenant
+
+**Dix-neuf contrôles, tous verts** — les onze d'hier, plus la surface visible
+non montrée, les deux du balayage sélectif, le pid illisible, le passage
+« geler » → « reduire », le jeton consommé en mode « aucune veille », le tri
+montrable/non montrable, et le singulier de « 1 jour ».
 
 ## 2026-08-26, 23 h — une seule fenêtre debout, et les autres s'arrêtent pour de bon
 

@@ -71,6 +71,12 @@ Window {
     signal sommeil(string ident)
     signal menageDemande(int jours)
     signal veilleChoisie(string mode)
+    // LE COMPTE DES OUBLIEES SE DEMANDE A L'OUVERTURE DU MENU, PAS EN CONTINU.
+    // Il se refaisait a chaque nouvelle du compositeur — donc a chaque
+    // changement de titre, donc plusieurs fois par seconde pendant qu'on tape
+    // dans un terminal — pour une etiquette que personne ne regarde tant que
+    // le menu est ferme.
+    signal inactivesDemandees()
     // ELLE TRANSMET L'ETAT QU'ELLE AFFICHE, ET C'EST TOUT L'OBJET DU SECOND
     // ARGUMENT. Laisser kwin relire « quelle fenetre est active » au moment ou
     // le script tourne rend une reponse qui a pu changer depuis le clic : le
@@ -359,14 +365,45 @@ Window {
         Menu {
             id: menuFenetre
             objectName: "menuFenetre"
-            property var cible: null
+
+            // IL A SA PROPRE FENETRE, ET C'EST MESURE. Un Popup ordinaire est
+            // mis en page DANS sa fenetre hote et s'y trouve borne : neuf
+            // articles hauts de 360 pixels rendaient « height 52 », la hauteur
+            // de la barre, soit une ligne visible sur neuf. Mesure hors ecran,
+            // meme scene, Qt 6.11 :
+            //     defaut        implicitHeight 360 -> height  52
+            //     Popup.Window  implicitHeight 360 -> height 360
+            popupType: Popup.Window
+
+            // L'IDENTIFIANT PLUTOT QUE L'OBJET, PARCE QUE LA LISTE EST
+            // REMPLACEE EN ENTIER. « ouvertures » est refait par JSON.parse a
+            // chaque nouvelle de kwin : garder le modelData du delegue laissait
+            // le menu decrire un etat perime — « Ranger » sur une fenetre deja
+            // rangee, « Mettre en veille » sur une fenetre endormie. Les
+            // identifiants kwin, eux, ne bougent pas.
+            property string cibleId: ""
+            readonly property var cible: {
+                for (var i = 0; i < barre.ouvertures.length; i++)
+                    if (barre.ouvertures[i].id === menuFenetre.cibleId)
+                        return barre.ouvertures[i];
+                return null;
+            }
             readonly property bool rangee: cible !== null && cible.reduite === true
 
+            // Une fenetre qui disparait pendant que son menu est ouvert
+            // laisserait un menu qui ne vise plus rien.
+            onCibleChanged: if (cible === null && visible) close()
+
+            // ON SE POSE SUR LES TAILLES IMPLICITES, JAMAIS SUR LES EFFECTIVES.
+            // « height » vaut l'implicite avant la premiere ouverture et la
+            // valeur bornee ensuite : le menu se posait a deux hauteurs
+            // differentes selon qu'on l'avait deja ouvert ou non.
             function ouvrirPour(fenetre, ex) {
-                cible = fenetre;
-                popup(Math.max(4, Math.min(barre.width - width - 4,
-                                           ex - width / 2)),
-                      -height - 6);
+                cibleId = fenetre.id;
+                barre.inactivesDemandees();
+                popup(Math.max(4, Math.min(barre.width - implicitWidth - 4,
+                                           ex - implicitWidth / 2)),
+                      -implicitHeight - 6);
             }
 
             background: Verre {
@@ -376,7 +413,7 @@ Window {
 
             ArticleMenu {
                 text: menuFenetre.rangee ? "Afficher" : "Ranger"
-                onTriggered: barre.activation(menuFenetre.cible.id,
+                onTriggered: barre.activation(menuFenetre.cibleId,
                                               !menuFenetre.rangee)
             }
 
@@ -386,7 +423,7 @@ Window {
                 visible: barre.veille === "geler" && !menuFenetre.rangee
                 height: visible ? implicitHeight : 0
                 text: "Mettre en veille maintenant"
-                onTriggered: barre.sommeil(menuFenetre.cible.id)
+                onTriggered: barre.sommeil(menuFenetre.cibleId)
             }
 
             SeparateurMenu { }
@@ -394,7 +431,7 @@ Window {
             ArticleMenu {
                 grave: true
                 text: "Fermer la fenetre"
-                onTriggered: barre.fermeture(menuFenetre.cible.id)
+                onTriggered: barre.fermeture(menuFenetre.cibleId)
             }
 
             ArticleMenu {
