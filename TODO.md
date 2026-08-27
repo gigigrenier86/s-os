@@ -89,20 +89,24 @@ L'utilisateur a demandé de sauvegarder ce qui reste à faire avant de
 construire et redémarrer, parce qu'un redémarrage coupe cette session. Ordre
 de reprise, tel que confirmé dans la conversation :
 
-1. **La barre latérale qui s'ouvre trop tôt** — corrigée dans le dépôt
-   (`BarreLaterale.qml`, `epaisseurLigne` 5 px → 1 px), **jamais testée en
-   vrai**, ni au banc ni sur la machine. C'est la construction en cours qui
-   doit le prouver. Voir CLAUDE.md pour la mesure exacte à refaire après
-   redémarrage : pousser la souris dans le coin droit et vérifier qu'elle ne
-   s'ouvre qu'au tout dernier pixel, pas en travers d'un survol de passage.
+1. [x] **La barre latérale qui s'ouvrait trop tôt** — corrigée
+   (`BarreLaterale.qml`, `epaisseurLigne` 5 px → 1 px), construite et
+   déployée le 2026-08-27 matin (confirmée identique octet pour octet dans
+   l'image `825b545` en cours). **Reste à essayer à la souris pour de vrai** —
+   personne ne l'a encore fait : pousser la souris dans le coin droit et
+   vérifier qu'elle ne s'ouvre qu'au tout dernier pixel, pas en travers d'un
+   survol de passage.
 2. [x] **Le mécanisme de mise à jour de PC Boost** — fait le 2026-08-27 à
-   15 h 37. `~/.local/bin/s-pcboost-lancer` compare la date de
-   `PcBoostApp.dll` entre le dossier de build et la copie posée avant chaque
-   lancement, recopie si la source est plus récente, puis lance. Testé dans
-   les deux sens sur la machine (sans changement → rien ; `.dll` touché →
-   resynchronisation puis lancement) et via le vrai `.desktop`, pas juste
-   l'appel du script. Voir CLAUDE.md, 2026-08-27, 15 h 37 — y compris un bug
-   trouvé en testant (ordre de sourcing inversé, `S_WIN_PFX` valait `/pfx`).
+   15 h 37, puis **étendu à 15 h 56** : `~/.local/bin/s-pcboost-lancer`
+   compare maintenant le CODE SOURCE (pas juste un build déjà là) au dernier
+   build, recompile avec le SDK .NET posé par Homebrew si besoin, resynchronise
+   la copie posée, puis lance. Le vrai projet PC Boost (avec RapidO dedans, et
+   quatorze fichiers non commités) a été importé depuis la Seagate dans
+   `~/Projets/PcBoost` — voir CLAUDE.md, 2026-08-27, 15 h 56. Testé dans deux
+   cas sur trois (rien ne change → rien ; source touchée → recompile et
+   resynchronise) ; le troisième (échec de compilation) est raisonné, pas
+   mesuré en vrai — un essai a expiré avant de conclure, sans dommage au
+   fichier source (revérifié identique à sa sauvegarde).
    **C'est un fichier personnel, hors du dépôt S** — rien à construire, il
    sert déjà.
 3. **Après le redémarrage, revérifier ce qui a été touché ce soir** — RapidO

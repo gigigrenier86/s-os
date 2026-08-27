@@ -288,6 +288,123 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-27, 15 h 56 — le vrai PC Boost entre dans S, compilé depuis Linux
+
+Demande de l'utilisateur, mot pour mot : « le dossier de PC Boost doit être
+sur la Seagate, importe-le dans S et mets-le à jour, je vais l'inclure
+nativement dans S-OS ».
+
+### Ce qui tournait dans S depuis la veille n'était pas le vrai PC Boost
+
+`~/Downloads/PcBoostApp` — la source utilisée hier soir pour le premier
+lanceur — **n'était qu'un fragment de build**, sans dépôt, sans historique.
+Le vrai projet vit sur la Seagate, dans le Windows cloné :
+
+```
+/var/mnt/windows/Users/Ghis/Desktop/Projet pc boost/
+    .git/                    un vrai dépôt, aucun remote configuré
+    PcBoostApp/               le code de PC Boost
+    RapidO/                   LE CODE SOURCE ORIGINAL DE RAPIDO EST ICI AUSSI
+    .agents/skills/           PC Boost a ses propres rôles Claude, comme S
+```
+
+**Branche `pilotes-controles-installation`, dernier commit le 20 août, et
+QUATORZE fichiers modifiés jamais commités** — `PcBoostApp/` et `RapidO/`
+mêlés. Le vrai travail en cours n'était donc ni dans le dernier commit ni dans
+aucun des deux builds déjà présents sur la machine (Downloads, ou
+`publish/PcBoostApp.exe` sur la Seagate) : il était dans l'arbre de travail
+sale, jamais compilé nulle part.
+
+**Aucun remote — c'est le seul exemplaire.** Copié, jamais déplacé : le geste
+le plus prudent quand une seule copie porte du travail non sauvegardé.
+Importé tel quel dans `~/Projets/PcBoost`, `.git` et fichiers modifiés
+compris, `bin/`/`obj/` exclus (déjà 137 Mo sans eux).
+
+### La compilation se fait sur Linux, jamais dans Wine
+
+**`dotnet` n'était pas sur la machine** — la ligne du 2026-08-19 qui le disait
+présent parlait de la machine de développement Windows, pas de S. Posé par
+Homebrew (`brew install dotnet`, .NET 10, déjà en bouteille — aucune
+compilation locale, quelques minutes).
+
+**Compiler un exécutable Windows depuis Linux n'a rien d'exotique une fois
+qu'on s'y tient : c'est du texte C# vers un binaire PE, aucune API Windows
+n'est appelée pendant la compilation.** Un seul réglage à poser,
+`-p:EnableWindowsTargeting=true` — un garde-fou que le SDK pose par défaut
+sur un système non-Windows, pas un vrai obstacle technique :
+
+```bash
+dotnet publish PcBoostApp.csproj -c Release -r win-x64 \
+    --self-contained true -p:EnableWindowsTargeting=true
+```
+
+**Réussi du premier coup**, avec les quatorze fichiers modifiés inclus — donc
+le vrai code en cours d'écriture, pas un instantané d'il y a une semaine.
+164 Mo, 247 fichiers, déployés dans le Windows de S, lancés, fenêtre
+`steam_proton | PC Boost` vivante.
+
+### `s-pcboost-lancer` gagne un étage : il recompile, pas seulement il resynchronise
+
+Hier soir, le script comparait un build déjà là à la copie posée. Maintenant
+qu'un vrai projet et un vrai compilateur sont disponibles, il compare le
+**code source** au dernier build, et régénère celui-ci si besoin — deux
+étages, pas un :
+
+```
+1. .cs / .xaml plus recents que le dernier build  -> dotnet publish
+2. Build plus recent que la copie posee            -> recopie
+```
+
+**Les deux comparaisons portent sur des dates, jamais des hachages, et c'est
+fiable pour la même raison qu'hier soir :** ni `dotnet publish` ni `cp` ne
+préservent les dates d'origine — un objet regénéré porte toujours la date de
+sa DERNIÈRE régénération. Une vraie modification est donc toujours plus
+récente que le dernier geste qui l'a absorbée.
+
+**Un échec de compilation ne doit jamais écraser le dernier build bon** — le
+script avertit et relance l'ancienne version plutôt que de propager une copie
+à moitié écrite. Ce n'est pas un vœu pieux : `dotnet publish` ne réécrit pas
+sa sortie s'il échoue, comportement standard et documenté de MSBuild
+(construction incrémentale) — la branche d'échec du script n'a donc rien à
+défaire, elle n'a qu'à ne pas toucher à `$BUILD` ni `$CIBLE`.
+
+**Éprouvé dans deux cas sur trois, le troisième raisonné et non mesuré :**
+
+| Cas | Résultat |
+|---|---|
+| Rien n'a changé | ni recompilation ni resynchronisation — juste le lancement |
+| Un `.cs` touché | recompilation reçue, notifiée, copie synchronisée, lancé |
+| Échec de compilation | **non mesuré pour de vrai** — voir plus bas |
+
+**Le troisième cas n'a pas abouti à une vraie mesure**, et il faut le dire
+plutôt que le cacher. Une erreur syntaxique a été introduite dans le fichier
+source réel pour le déclencher — geste risqué sur le seul exemplaire d'un
+projet sans remote — et une commande a expiré (35 s) avant que le test ne
+conclue. Le fichier a été **restauré et revérifié identique à sa sauvegarde**
+avant toute autre chose ; mais un `dotnet publish` lancé en arrière-plan a
+vraisemblablement lu le fichier déjà restauré, et le journal de compilation
+ne montre qu'un succès. **Le chemin d'échec repose donc sur la lecture du
+code et le comportement documenté de MSBuild, pas sur une exécution
+observée.** Refait plus tard, sans toucher au vrai fichier — une copie
+jetable du projet suffirait à le vérifier sans risque.
+
+### Ce que cette passe ne prouve pas
+
+- **Le chemin d'échec de compilation n'a pas été mesuré pour de vrai** — voir
+  ci-dessus. C'est une hypothèse cohérente avec le code et le comportement
+  documenté de MSBuild, pas une preuve.
+- **Rien de tout ceci n'entre dans une construction de S.** `~/Projets/PcBoost`
+  et `s-pcboost-lancer` vivent dans le dossier personnel, hors du dépôt et de
+  l'image — exactement voulu pour l'instant, l'utilisateur ayant dit vouloir
+  l'inclure « nativement » plus tard, pas immédiatement.
+- **Le dépôt PC Boost garde ses quatorze fichiers non commités, tels quels.**
+  Aucun commit n'a été fait en son nom — ce n'est pas à moi de décider quand
+  ce travail est prêt à être figé dans son histoire.
+- **Aucune fonction de PC Boost n'a été exercée au-delà du lancement** — la
+  fenêtre s'ouvre et reste en vie, rien de plus.
+
+---
+
 ## 2026-08-27, 15 h 37 — PC Boost se resynchronise tout seul avant chaque lancement
 
 Dernière pièce de l'entretien du 2026-08-26 : « ben oui ça vaut la peine, je
