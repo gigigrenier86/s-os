@@ -271,11 +271,40 @@ def main():
 
     # On ouvre le menu Demarrer : la moitie de la scene ne s'instancie qu'a ce
     # moment-la, et une faute qui n'y serait que la passerait sinon inapercue.
+    # LE MENU DU CLIC DROIT DE LA BARRE EST OUVERT ICI, ET IL A SA RAISON.
+    # Ses articles sont poses par un Repeater a l'interieur d'un Menu — un
+    # montage qui charge sans une plainte meme s'il n'instancie RIEN, parce
+    # qu'un Menu vide est un Menu valide. Sans ce controle, « fermer la
+    # fenetre » aurait pu n'exister que dans le fichier : la scene se serait
+    # verifiee verte, et le menu se serait ouvert vide chez l'utilisateur.
+    # NEUF, ET LE COMPTE INCLUT LES SEPARATEURS : quatre articles ecrits a la
+    # main (ranger, veille immediate, fermer, menage), TROIS poses par le
+    # Repeater — les modes de veille, la partie qu'on verifie vraiment — et
+    # deux traits. « count » compte tout ce que le Menu porte.
+    ARTICLES_ATTENDUS = 9
+    manque_articles = {"valeur": 0, "trouve": False}
+
     def ouvrir():
         for enfant in racine.findChildren(QObject):
             try:
                 if enfant.objectName() == "menuDemarrer":
                     enfant.setProperty("visible", True)
+                elif enfant.objectName() == "menuFenetre":
+                    enfant.setProperty("cible", {
+                        "id": "{00000000-0000-0000-0000-000000000000}",
+                        "titre": "Une fenetre", "classe": "a",
+                        "active": True, "reduite": False, "plein": False,
+                        "pid": 0})
+                    enfant.setProperty("visible", True)
+                    manque_articles["trouve"] = True
+                    # « count », PAS « contentData ». Mesure du 2026-08-26 :
+                    # contentData rend une liste vide sur un Menu pourtant
+                    # peuple — c'est la propriete par defaut, pas l'inventaire
+                    # des articles. Le controle rendait donc zero article sur
+                    # un menu complet, ce qui aurait fait echouer la
+                    # construction pour un defaut inexistant.
+                    manque_articles["valeur"] = int(
+                        enfant.property("count") or 0)
             except (RuntimeError, AttributeError):
                 pass
         QTimer.singleShot(700, fini)
@@ -293,6 +322,20 @@ def main():
         #           boucle des placees et une fois par celle des fichiers ;
         #   Six  -> ou bien le fichier epingle depuis un AUTRE dossier est monte
         #           au ciel, alors qu'il n'y a jamais ete.
+        # UN CONTROLE QUI NE TROUVE PAS SA CIBLE REND VERT SANS RIEN MESURER,
+        # et c'est la faute que ce fichier reproche deja au compteur d'astres.
+        if not manque_articles["trouve"]:
+            print("ECHEC : le menu du clic droit de la barre est introuvable "
+                  "dans la scene (objectName « menuFenetre »).", file=sys.stderr)
+            code["valeur"] = 1
+        elif manque_articles["valeur"] < ARTICLES_ATTENDUS:
+            print("ECHEC : le menu du clic droit de la barre porte %d article(s), "
+                  "%d attendus." % (manque_articles["valeur"], ARTICLES_ATTENDUS),
+                  file=sys.stderr)
+            code["valeur"] = 1
+        else:
+            print("  menu barre    : %d articles instancies, %d attendus"
+                  % (manque_articles["valeur"], ARTICLES_ATTENDUS))
         attendu = 5
         # ON DEMANDE AU REPEATER, PAS A L'ARBRE D'OBJETS. Compter les enfants
         # par leur objectName rendait ZERO alors que le modele en portait cinq :

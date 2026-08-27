@@ -398,6 +398,15 @@ def main():
     moteur.rootContext().setContextProperty("fenetres", liste_fenetres)
     moteur.load(QUrl.fromLocalFile(os.path.join(QML, "Constellation.qml")))
 
+    # ON RELACHE LES PROGRAMMES ENDORMIS AVANT DE PARTIR. La veille arrete les
+    # programmes des fenetres rangees (voir /usr/lib/s/veille.py) ; Constellation
+    # qui s'arreterait sans les relacher laisserait a l'utilisateur des fenetres
+    # figees que PLUS RIEN au monde ne peut degeler, puisque le degel vient
+    # d'ici. Le balayage du demarrage rattrape les plantages ; ceci rattrape les
+    # arrets propres, qui sont le cas normal.
+    if liste_fenetres is not None:
+        app.aboutToQuit.connect(liste_fenetres.arreter)
+
     if not moteur.rootObjects():
         print("s-constellation : la scene n'a pas charge — voir les erreurs QML "
               "ci-dessus.", file=sys.stderr)

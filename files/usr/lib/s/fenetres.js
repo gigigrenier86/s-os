@@ -126,6 +126,17 @@ function decrire(f) {
         titre: String(f.caption || ""),
         active: (workspace.activeWindow === f),
         reduite: (f.minimized === true),
+        // LE PID SORT D'ICI POUR LA VEILLE, ET LUI SEUL PEUT LE DIRE. Pour
+        // endormir le programme d'une fenetre rangee, il faut remonter de la
+        // fenetre au processus, puis du processus a sa portee cgroup. Le
+        // premier pas n'appartient qu'au compositeur : un client Wayland ne
+        // sait meme pas que les fenetres des autres existent.
+        //
+        // IL VAUT ZERO PLUS SOUVENT QU'ON NE CROIT, et le code qui le lit doit
+        // le supporter : une fenetre X11 sans _NET_WM_PID, une surface posee
+        // par un intermediaire. Zero veut dire « on ne sait pas », donc « on
+        // n'y touche pas » — jamais « c'est le processus 0 ».
+        pid: (f.pid || 0),
         // LE PLEIN ECRAN SORT D'ICI PARCE QUE PERSONNE D'AUTRE NE PEUT LE
         // SAVOIR. Un client Wayland ne voit pas l'etat des fenetres des
         // autres — c'est la raison meme de ce script. La barre laterale s'en

@@ -26,6 +26,14 @@ import "Fonds.js" as Fonds
 ApplicationWindow {
     id: bureau
 
+    // ── LA VEILLE DES FENETRES ────────────────────────────────────────────
+    // Ce que la barre affiche du reglage. La valeur de depart est celle du
+    // pont — « geler » — et elle est corrigee des que le pont parle, ce qu'il
+    // fait a la premiere nouvelle du compositeur.
+    property string veilleMode: (typeof fenetres !== "undefined" && fenetres)
+                                ? fenetres.mode() : "geler"
+    property int fenetresInactives: 0
+
     visible: true
     visibility: Window.FullScreen
     color: Theme.espace
@@ -340,9 +348,31 @@ ApplicationWindow {
     // par une regle kwin. Voir Barre.qml.
     Barre {
         id: barreTaches
+        // Le mode de veille et le compte des fenetres oubliees descendent
+        // d'ici : la barre affiche, elle ne mesure pas. Voir la Connections
+        // plus bas, qui les rafraichit a chaque nouvelle du compositeur.
+        veille: bureau.veilleMode
+        inactives: bureau.fenetresInactives
+
         onActivation: function (ident, estActive) {
             if (typeof fenetres !== "undefined" && fenetres)
                 fenetres.activer(ident, estActive);
+        }
+        onFermeture: function (ident) {
+            if (typeof fenetres !== "undefined" && fenetres)
+                fenetres.fermer(ident);
+        }
+        onSommeil: function (ident) {
+            if (typeof fenetres !== "undefined" && fenetres)
+                fenetres.endormir(ident);
+        }
+        onMenageDemande: function (jours) {
+            if (typeof fenetres !== "undefined" && fenetres)
+                bureau.dire(fenetres.fermerInactives(jours));
+        }
+        onVeilleChoisie: function (mode) {
+            if (typeof fenetres !== "undefined" && fenetres)
+                bureau.dire(fenetres.reglerMode(mode));
         }
         onMenuDemande: {
             // LE MENU EST DESSINE ICI, DANS LA FENETRE DU BUREAU, qui reste
@@ -390,6 +420,17 @@ ApplicationWindow {
         target: typeof fenetres !== "undefined" ? fenetres : null
         function onChangees(liste) {
             barreTaches.ouvertures = JSON.parse(liste);
+            // LE COMPTE SE REFAIT ICI ET NULLE PART AILLEURS. Il depend de
+            // l'heure autant que de la liste : une fenetre franchit les dix
+            // jours sans qu'aucun evenement ne le dise. Le rapporteur de kwin
+            // parle a chaque ouverture, fermeture, activation et changement de
+            // titre — c'est le battement le plus proche qu'on ait, et il suffit
+            // pour une etiquette de menu.
+            bureau.fenetresInactives =
+                fenetres.inactivesDepuis(barreTaches.joursInactivite);
+        }
+        function onModeChange(mode) {
+            bureau.veilleMode = mode;
         }
     }
 

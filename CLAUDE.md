@@ -166,6 +166,15 @@ c'est la première fois qu'elle tient debout.
 
 ### Ce qui n'est toujours pas éprouvé
 
+- **La veille des fenêtres n'a jamais tourné dans une vraie session.** Le gel
+  lui-même est mesuré de bout en bout sur cette machine — onze contrôles verts,
+  `grimoire/veille-eprouver-le-gel.sh`, garde-fous compris — mais toujours
+  contre une portée jetable, jamais contre une fenêtre. Deux choses attendent
+  donc le prochain redémarrage : **le menu du clic droit s'ouvre-t-il au-dessus
+  de la barre** (elle porte `Qt.WindowDoesNotAcceptFocus`, et un menu Qt Quick a
+  besoin d'une prise sur le pointeur), et **le gel tient-il sur de vrais
+  programmes** — un navigateur, un jeu, une fenêtre Android. Voir la section de
+  23 h.
 - ~~Aucun de ces six correctifs n'est dans l'image.~~ **Ils y sont depuis
   15 h 47, et la machine a redémarré dessus à 11 h 55** — image `44.20260824`,
   `sha256:c73f90ed…` *(dépassé : depuis 15 h 50 la machine tourne sur
@@ -252,6 +261,212 @@ c'est la première fois qu'elle tient debout.
   mosh a besoin. **Rien de tout cela n'a été exercé depuis le téléphone.**
 
 ---
+
+## 2026-08-26, 23 h — une seule fenêtre debout, et les autres s'arrêtent pour de bon
+
+**La demande, mot pour mot.** « Le changement de fenêtre active m'énerve un peu,
+pas de clic droit fermer la fenêtre, quand tu veux changer tu vas au bureau
+directement. Ce serait bien mieux si la première fenêtre descendait directement
+en mode veille et que la deuxième ouvre direct, et qu'au nouveau changement la
+2ᵉ passe en veille et vice versa, peu importe combien de fenêtres — économie
+d'énergie max, seulement un petit cache pour ouverture rapide. Et mets une
+option fermer toutes les fenêtres inactives depuis 10 jours. »
+
+Trois choses dans une phrase : un geste qui manque, une règle de bureau, et une
+économie d'énergie. La troisième est la seule qui demandait à chercher.
+
+### Le mécanisme existait déjà dans le noyau, et il ne demande pas le mot de passe
+
+C'était l'inconnue. « Mettre en veille » un programme veut dire l'ARRÊTER, pas
+le réduire : une fenêtre réduite continue de tourner, de dessiner, de réveiller
+le processeur. Le noyau sait faire exactement cela depuis Linux 5.2, et le
+fichier est à portée de l'utilisateur — mesure du 2026-08-26 :
+
+```
+/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/
+    app-code-3359.scope/cgroup.freeze
+-rw-r--r--. 1 RyuRex RyuRex
+```
+
+**Il appartient à `RyuRex`.** C'est la délégation cgroup de systemd :
+`user@1000.service` reçoit son sous-arbre, et l'utilisateur y écrit sans passer
+par polkit. Ce détail décide de tout — un réglage de bureau qui réclamerait un
+mot de passe serait mort d'avance sur une machine pilotée depuis un téléphone,
+où personne ne peut répondre à la fenêtre de polkit.
+
+**Le « petit cache pour ouverture rapide » n'était pas à écrire : c'est ce que
+le gel EST.** Un programme gelé garde sa mémoire, ses fichiers ouverts, ses
+connexions et sa fenêtre déjà dessinée. Le dégeler, c'est écrire un octet — il
+repart à l'instruction suivante, sans rien recharger. Écrire un cache par-dessus
+aurait été recopier ce que le noyau tient déjà.
+
+### La règle de sûreté tient en une phrase, et c'est un relevé qui la donne
+
+On ne gèle QUE les portées `app-*.scope` posées directement sous `app.slice`.
+Rien d'autre. Ce n'est pas une précaution théorique — c'est ce que la machine
+dit :
+
+```
+s-constellation   session-2.scope               pas sous app.slice  -> refusé
+kwin_wayland      session-2.scope               pas sous app.slice  -> refusé
+plasmashell       session-2.scope               pas sous app.slice  -> refusé
+Xwayland          session-2.scope               pas sous app.slice  -> refusé
+waydroid          system.slice/…                hors du sous-arbre  -> refusé
+wineserver        app.slice/s-windows.service   c'est un .service   -> refusé
+code, vivaldi     app.slice/app-*.scope                             -> ACCEPTÉ
+```
+
+**Les quatre pièces du bureau vivent dans la portée de SESSION, jamais dans
+`app.slice`.** Geler le compositeur figerait l'écran entier sans que rien puisse
+le dégeler, puisque le dégel viendrait d'un clic. C'est la panne qu'on ne peut
+pas se permettre ici.
+
+**La distinction `.scope` / `.service` n'est pas cosmétique.** `app.slice`
+contient les deux : les portées sont les programmes que l'utilisateur a lancés,
+les services sont l'infrastructure de sa session. Parmi eux, `s-windows.service`
+porte le **wineserver** — le geler figerait d'un coup tous les programmes
+Windows de la machine, y compris celui qu'on regarde.
+
+**Et on remonte jusqu'à la portée, on ne gèle pas la feuille.** Konsole se range
+dans `app-org.kde.konsole-28261.scope/main.scope` — un enfant. Le `cgroup.procs`
+de la portée elle-même est VIDE. Un code qui aurait gelé le cgroup du processus
+tel quel aurait figé `main.scope` en laissant le reste de l'application dehors.
+
+### Deux pièges mesurés, et le second a fait échouer le banc avant d'être compris
+
+**1. `/proc/PID/stat` annonce « S » pendant le gel.** Un processus gelé n'est ni
+en `D` ni en `T` : le noyau le pose dans un piège de contrôle de tâche qui ne
+change pas la lettre. Vérifier le gel en lisant `/proc` rend « ça n'a pas
+marché » sur un gel parfaitement appliqué.
+
+**2. `cgroup.freeze` et `cgroup.events` ne disent pas la même chose, et ne
+répondent pas au même moment.**
+
+```
+cgroup.freeze   LA DEMANDE — vaut 1 dès que l'écriture est rendue
+cgroup.events   L'ÉTAT      — « frozen 1 » quand les tâches sont arrêtées
+```
+
+Relevé du 2026-08-26, trois lectures d'affilée sur la même portée, dans cet
+ordre : `cgroup.events` dit `frozen 0`, `cgroup.freeze` dit `1`, puis
+`cgroup.events` relu dit `frozen 1`. Le décalage tient dans une fraction de
+milliseconde — le temps qu'une tâche atteigne un point où elle peut s'arrêter —
+mais il suffit à faire rendre FAUX à un contrôle écrit juste après la demande.
+Le banc a rendu « ça n'a pas marché » sur un gel qui fonctionnait.
+
+**Conséquence dans le code :** `gelee()` lit l'ÉTAT et sert à observer ; le
+balayage de rattrapage lit la DEMANDE. Une tâche coincée dans un appel système
+non interruptible pourrait garder `frozen 0` alors que la demande vaut 1 — s'en
+remettre à l'état laisserait ce programme figé pour toujours, ce que ce balayage
+existe précisément pour empêcher.
+
+### Le trou que `atexit` ne bouche pas
+
+Constellation dégèle ce qu'il a gelé en s'arrêtant proprement. **Tué net —
+plantage, SIGKILL, fin de session brutale — il ne dégèle rien**, et les
+programmes resteraient figés sans que rien à l'écran ne dise pourquoi.
+L'utilisateur verrait des fenêtres mortes et n'aurait aucune raison de
+soupçonner un fichier de cgroup.
+
+Constellation balaie donc `app.slice` **à son démarrage** et relâche tout ce
+qu'il trouve. Le balayage est sûr parce que rien d'autre sur cette machine
+n'écrit dans ces fichiers : une portée gelée trouvée au démarrage est
+forcément un reste de nous.
+
+### On réagit au changement de fenêtre active, pas au clic sur la barre
+
+C'est la différence entre un correctif et une règle. Alt+Tab, un clic sur une
+fenêtre, un programme qui ouvre la sienne au démarrage : tous passent par
+`windowActivated`, que le rapporteur kwin renvoie déjà. Brancher la veille sur
+le clic de la barre l'aurait laissée muette dans les trois autres cas, et
+l'utilisateur aurait vu une règle qui ne s'applique qu'une fois sur quatre.
+
+**Une exception, et elle est nécessaire.** Ranger la fenêtre du dessus fait
+remonter la suivante — c'est kwin qui choisit, pas nous. Sans exception, la
+règle « une seule debout » se déclencherait sur cette remontée et rangerait tout
+le reste : le geste « écarte-moi ça » deviendrait « ferme-moi tout ». Un repli
+demandé à la main suspend donc la veille d'une passe.
+
+### Ce que le gel coûte, et il faut le dire
+
+**Un programme arrêté ne fait plus RIEN** : pas de musique, pas de
+téléchargement, pas de compilation, pas de message reçu. C'est le sens de
+« économie d'énergie max », et c'est aussi la raison des trois modes plutôt
+qu'une bascule :
+
+| mode | ce qu'il fait |
+|---|---|
+| `non` | l'ancien comportement, rien ne change |
+| `reduire` | une seule fenêtre debout, les autres se rangent |
+| **`geler`** | en plus, leur programme s'arrête — **défaut** |
+
+Ils se règlent dans le menu du clic droit de la barre, là où on les voit agir.
+
+### Le clic droit, qui n'existait pas
+
+Il n'y avait **aucun** moyen de fermer une fenêtre depuis la barre : il fallait
+la remonter, viser sa croix — et celle d'un programme Windows n'est pas au même
+endroit que celle d'un programme Linux. Le menu porte maintenant : afficher ou
+ranger, mettre en veille tout de suite, fermer la fenêtre, fermer les fenêtres
+inactives, et les trois modes de veille.
+
+**On dégèle avant de fermer, et c'est obligatoire.** `closeWindow()` envoie une
+DEMANDE au programme : le compositeur ne détruit pas la fenêtre, il prie son
+propriétaire de le faire. Un programme gelé ne reçoit rien et ne répond rien —
+la fenêtre resterait à l'écran, et le geste aurait l'air cassé alors qu'il a
+parfaitement fonctionné.
+
+### Les dix jours
+
+Le compte part de la **première fois qu'on a vu la fenêtre**, jamais de zéro :
+une fenêtre ouverte il y a une minute n'a pas dix jours d'inactivité parce que
+Constellation vient de démarrer. Les horodatages sont dans
+`~/.local/state/s/fenetres-vues.json`, et ils survivent à un redémarrage du
+bureau — `internalId` appartient à kwin, pas à nous.
+
+**Le compte est dans l'étiquette du menu.** « Fermer les fenêtres inactives »
+sans nombre demanderait à l'utilisateur de cliquer pour savoir ce qu'il
+détruit. À zéro, l'article se grise au lieu de disparaître : son absence ne
+dirait pas qu'il n'y a rien à fermer, elle dirait que la fonction n'existe pas.
+
+### Le banc, et pourquoi il n'est pas à l'écran
+
+`grimoire/veille-eprouver-le-gel.sh` — onze contrôles, deux secondes, aucune
+fenêtre de l'utilisateur touchée. Il fabrique une portée jetable avec
+`systemd-run`, invente une liste de fenêtres qui la désigne, et vérifie ce que
+le noyau fait vraiment. Passage du 2026-08-26 : les onze verts, dont les cinq
+garde-fous et le rattrapage après plantage.
+
+**Éprouver à l'écran était impossible sans casser la session.**
+`s-coquille` relance Constellation en boucle (`while true` avec témoin de
+sortie) : on ne peut pas l'arrêter pour lui substituer la version du dépôt, la
+coquille rouvre aussitôt celle de l'image et les deux se disputent le nom D-Bus
+`org.s.Constellation`. Le faire quand même voudrait dire redémarrer la session
+de l'utilisateur pendant qu'il travaille.
+
+Le contrôle de construction a été étendu en compensation : il **ouvre** le menu
+du clic droit et compte ses articles. Un `Repeater` à l'intérieur d'un `Menu`
+charge sans une plainte même s'il n'instancie rien — un menu vide est un menu
+valide. Sans ce contrôle, « fermer la fenêtre » aurait pu n'exister que dans le
+fichier. Relevé : **9 articles instanciés**, sept plus deux traits.
+
+Et ce contrôle a lui-même trouvé un piège : `contentData` rend une liste VIDE
+sur un `Menu` pourtant peuplé — c'est la propriété par défaut, pas l'inventaire
+des articles. Il faut lire `count`. La première version du contrôle aurait fait
+échouer la construction pour un défaut inexistant.
+
+### Ce qui reste une hypothèse, et il faut le dire
+
+**Le menu s'ouvre-t-il VRAIMENT au-dessus de la barre ?** La barre porte
+`Qt.WindowDoesNotAcceptFocus`, et un menu Qt Quick a besoin d'une prise sur le
+pointeur. La scène charge sans un avertissement et les neuf articles
+s'instancient hors écran, mais **le placement d'une fenêtre surgissante par le
+compositeur ne se mesure pas hors écran**. C'est une hypothèse jusqu'au premier
+clic droit sur la machine, après le prochain redémarrage.
+
+Le menu s'ouvre explicitement vers le haut (`y = -height - 6`) plutôt que de
+s'en remettre au rabattement automatique : la barre touche le bas de l'écran et
+ne fait que cinquante-deux pixels.
 
 ## 2026-08-26, 21 h 45 — RapidO : `--class=` n'a jamais rien fait, et personne ne l'avait mesuré
 

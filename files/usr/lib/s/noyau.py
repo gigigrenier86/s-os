@@ -922,7 +922,12 @@ def composer_etoiles():
 # defaut a chaque connexion — une regression que l'utilisateur aurait vue le
 # premier matin, et qu'aucun de ces fichiers n'aurait expliquee.
 
-REGLAGES_DEFAUT = {"fond": "nebuleuse", "noms": False}
+# « veille » est le mode de mise au repos des fenetres, ajoute le
+# 2026-08-26 : « non », « reduire » ou « geler ». Il vit ici, avec les
+# autres reglages du bureau, plutot que dans fenetres.py — un reglage
+# range a cote du code qui l'utilise est un reglage que personne ne
+# trouve. Voir /usr/lib/s/veille.py pour ce que « geler » veut dire.
+REGLAGES_DEFAUT = {"fond": "nebuleuse", "noms": False, "veille": "geler"}
 
 
 def charger_reglages():

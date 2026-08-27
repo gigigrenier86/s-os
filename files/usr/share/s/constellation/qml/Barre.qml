@@ -55,7 +55,22 @@ Window {
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
            | Qt.WindowDoesNotAcceptFocus
 
+    // CE QUE LA BARRE AFFICHE DE LA VEILLE, ET QU'ELLE NE CALCULE PAS. Le mode
+    // et le compte des fenetres oubliees viennent de Constellation, qui les
+    // tient du pont. La barre est une vue : elle montre, elle previent, elle
+    // ne demande rien elle-meme. Voir le piege du nom « fenetres » plus haut —
+    // il a coute un clic mort a chaque entree de la barre.
+    property string veille: "geler"
+    property int inactives: 0
+    // DIX JOURS, PARCE QUE L'UTILISATEUR A DIT DIX JOURS. Le nombre est ici et
+    // dans l'etiquette du menu, jamais ecrit deux fois.
+    property int joursInactivite: 10
+
     signal menuDemande()
+    signal fermeture(string ident)
+    signal sommeil(string ident)
+    signal menageDemande(int jours)
+    signal veilleChoisie(string mode)
     // ELLE TRANSMET L'ETAT QU'ELLE AFFICHE, ET C'EST TOUT L'OBJET DU SECOND
     // ARGUMENT. Laisser kwin relire « quelle fenetre est active » au moment ou
     // le script tourne rend une reponse qui a pu changer depuis le clic : le
@@ -288,6 +303,21 @@ Window {
                         onTapped: barre.activation(modelData.id,
                                                    modelData.active === true)
                     }
+
+                    // ── LE CLIC DROIT, QUI N'EXISTAIT PAS ─────────────────
+                    // Il n'y avait AUCUN moyen de fermer une fenetre depuis
+                    // la barre : il fallait la remonter, viser sa croix, et
+                    // celle d'un programme Windows n'est pas au meme endroit
+                    // que celle d'un programme Linux. Releve par l'utilisateur
+                    // le 2026-08-26 : « pas de clic droit fermer la fenetre ».
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        onTapped: function (point) {
+                            menuFenetre.ouvrirPour(
+                                modelData,
+                                parent.mapToItem(null, point.position.x, 0).x);
+                        }
+                    }
                 }
             }
         }
@@ -312,6 +342,99 @@ Window {
                 color: Theme.texte
                 font.family: Theme.police
                 font.pixelSize: 10
+            }
+        }
+
+        // ── Le menu du clic droit sur une fenetre ─────────────────────────
+        //
+        // IL EST DESSINE DANS LA FENETRE DE LA BARRE, ET C'ETAIT LE SEUL CHOIX.
+        // Le menu du bureau vit dans Constellation.qml — mais le bureau reste
+        // DERRIERE toutes les fenetres, c'est sa place. Un menu ouvert la
+        // s'afficherait sous la fenetre qu'il propose de fermer. La barre, elle,
+        // porte « WindowStaysOnTop » : ce qu'elle ouvre passe devant.
+        //
+        // IL S'OUVRE VERS LE HAUT, EXPLICITEMENT. La barre touche le bas de
+        // l'ecran et ne fait que cinquante-deux pixels ; on ne s'en remet pas au
+        // rabattement automatique, qui depend du positionneur du compositeur.
+        Menu {
+            id: menuFenetre
+            objectName: "menuFenetre"
+            property var cible: null
+            readonly property bool rangee: cible !== null && cible.reduite === true
+
+            function ouvrirPour(fenetre, ex) {
+                cible = fenetre;
+                popup(Math.max(4, Math.min(barre.width - width - 4,
+                                           ex - width / 2)),
+                      -height - 6);
+            }
+
+            background: Verre {
+                radius: 8
+                implicitWidth: 268
+            }
+
+            ArticleMenu {
+                text: menuFenetre.rangee ? "Afficher" : "Ranger"
+                onTriggered: barre.activation(menuFenetre.cible.id,
+                                              !menuFenetre.rangee)
+            }
+
+            ArticleMenu {
+                // Sans objet quand la veille ne gele rien : l'article
+                // promettrait un arret qui n'aurait pas lieu.
+                visible: barre.veille === "geler" && !menuFenetre.rangee
+                height: visible ? implicitHeight : 0
+                text: "Mettre en veille maintenant"
+                onTriggered: barre.sommeil(menuFenetre.cible.id)
+            }
+
+            SeparateurMenu { }
+
+            ArticleMenu {
+                grave: true
+                text: "Fermer la fenetre"
+                onTriggered: barre.fermeture(menuFenetre.cible.id)
+            }
+
+            ArticleMenu {
+                // LE COMPTE EST DANS L'ETIQUETTE. « Fermer les fenetres
+                // inactives » sans nombre demande a l'utilisateur de cliquer
+                // pour savoir ce qu'il detruit. A zero, l'article se grise au
+                // lieu de disparaitre : son absence ne dirait pas qu'il n'y a
+                // rien a fermer, elle dirait que la fonction n'existe pas.
+                grave: barre.inactives > 0
+                enabled: barre.inactives > 0
+                opacity: enabled ? 1 : 0.45
+                text: barre.inactives > 0
+                      ? "Fermer %1 fenetre%2 inactive%2 depuis %3 j"
+                        .arg(barre.inactives)
+                        .arg(barre.inactives > 1 ? "s" : "")
+                        .arg(barre.joursInactivite)
+                      : "Aucune fenetre inactive depuis %1 j"
+                        .arg(barre.joursInactivite)
+                onTriggered: barre.menageDemande(barre.joursInactivite)
+            }
+
+            SeparateurMenu { }
+
+            // ── Le mode de veille, reglable la ou il se voit ───────────────
+            // TROIS ARTICLES PLUTOT QU'UN SOUS-MENU. Le style « Basic » ne
+            // peint rien de lui-meme (voir ArticleMenu.qml) : un sous-menu
+            // demanderait d'habiller une seconde fois le fond, la fleche et
+            // le survol, pour trois lignes qu'on lit d'un coup d'oeil.
+            Repeater {
+                model: [
+                    { cle: "non", nom: "Veille : aucune" },
+                    { cle: "reduire", nom: "Veille : ranger les autres" },
+                    { cle: "geler", nom: "Veille : arreter les programmes" }
+                ]
+                delegate: ArticleMenu {
+                    required property var modelData
+                    text: (barre.veille === modelData.cle ? "\u2713  " : "     ")
+                          + modelData.nom
+                    onTriggered: barre.veilleChoisie(modelData.cle)
+                }
             }
         }
 
