@@ -54,6 +54,7 @@ preuve.** Pas la construction verte, pas le code écrit : la mesure.
 | [windows-declarer-police.sh](windows-declarer-police.sh) | Une police copiée dans un prefixe Wine n'existe pas tant qu'elle n'est pas déclarée | 2026-08-26 |
 | [construction-eprouver-les-motifs.sh](construction-eprouver-les-motifs.sh) | Rejouer les contrôles par motif des scripts de build avant de construire | 2026-08-26 |
 | [ostree-comparer-deploiements.sh](ostree-comparer-deploiements.sh) | Savoir ce qu'un `bootc rollback` coûte, avant de le faire | 2026-08-25 |
+| [vivaldi-classe-reelle-app.sh](vivaldi-classe-reelle-app.sh) | Trouver la vraie classe d'une fenêtre `vivaldi --app=`, que `--class=` ne fixe jamais | 2026-08-26 |
 
 ---
 

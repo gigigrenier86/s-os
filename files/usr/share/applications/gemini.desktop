@@ -4,10 +4,10 @@ Version=1.0
 Name=Gemini
 GenericName=Assistant Google
 Comment=Ouvre Gemini dans une fenêtre dédiée, sans barre d'adresse ni onglets
-Exec=/usr/lib/opt/vivaldi/vivaldi --app=https://gemini.google.com/app --class=Gemini
+Exec=/usr/lib/opt/vivaldi/vivaldi --app=https://gemini.google.com/app
 Icon=vivaldi
 Terminal=false
 StartupNotify=true
-StartupWMClass=Gemini
+StartupWMClass=vivaldi-gemini.google.com__app-Default
 Categories=Network;Utility;Development;
 Keywords=gemini;google;ia;assistant;

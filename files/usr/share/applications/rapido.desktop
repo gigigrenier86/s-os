@@ -4,10 +4,10 @@ Version=1.0
 Name=RapidO
 GenericName=Poste MEWS
 Comment=Ouvre MEWS dans une fenêtre dédiée, sans barre d'adresse ni onglets
-Exec=/usr/lib/opt/vivaldi/vivaldi --app=https://app.mews.com/ --class=RapidO
+Exec=/usr/lib/opt/vivaldi/vivaldi --app=https://app.mews.com/
 Icon=vivaldi
 Terminal=false
 StartupNotify=true
-StartupWMClass=RapidO
+StartupWMClass=vivaldi-app.mews.com__-Default
 Categories=Network;WebBrowser;Office;
 Keywords=mews;hotel;reservation;

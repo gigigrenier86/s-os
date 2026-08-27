@@ -26,6 +26,13 @@ Chromium, aucun paquet supplémentaire.
 par processus, version du moteur affichée dans une barre d'état. Rien
 n'empêchera de les retrouver plus tard ; ce ne sont pas les mêmes outils.
 
-`--class=RapidO` et `StartupWMClass=RapidO` donnent à la fenêtre sa propre
-identité dans la barre des tâches, au lieu de se confondre avec Vivaldi. C'est
-ce qui fait qu'elle reste *une application*, et non un onglet déguisé.
+**`--class=` n'a aucun effet sur une fenêtre `vivaldi --app=`, et ça a été cru
+pendant des jours sans être mesuré.** Vivaldi calcule lui-même l'identité
+Wayland de la fenêtre à partir de l'URL — hôte, premier segment du chemin, nom
+du profil — et ignore silencieusement le drapeau. Mesuré le 2026-08-26,
+directement sur cette machine, processus frais et processus réutilisé
+confondus : `--class=RapidO` donne une fenêtre dont la vraie classe est
+`vivaldi-app.mews.com__-Default`. C'est cette valeur, et non `RapidO`, qui
+donne à la fenêtre sa propre identité dans la barre des tâches — `StartupWMClass`
+la porte désormais. Voir `grimoire/vivaldi-classe-reelle-app.sh` pour la
+mesurer sur un autre lanceur.

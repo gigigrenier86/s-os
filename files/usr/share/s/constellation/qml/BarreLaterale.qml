@@ -31,7 +31,16 @@ Window {
 
     readonly property int largeur: 300
     readonly property int largeurBarre: 76
-    readonly property int epaisseurLigne: 5
+    // UN SEUL PIXEL, ET C'EST DELIBERE — demande de l'utilisateur le 2026-08-26 :
+    // « elle s'active trop tot, elle devrait s'ouvrir au point mort de la souris,
+    // quand elle ne peut plus aller plus loin ». A 5 px, la zone sensible se
+    // declenchait en TRAVERSANT le bord, pas en s'y arretant. A 1 px, la seule
+    // position qui l'ouvre est le dernier pixel de l'ecran — celui ou le
+    // curseur reste PARCE QU'IL NE PEUT PAS ALLER PLUS LOIN, jamais un survol
+    // de passage. Fiable a cette largeur : le compositeur clampe deja le
+    // curseur au bord de l'ecran, donc pousser la souris a droite l'y amene
+    // toujours, sans viser un pixel precis a l'oeil.
+    readonly property int epaisseurLigne: 1
 
     property bool deploye: false
     // Un jeu en plein ecran fait disparaitre la barre ENTIEREMENT. Demande de

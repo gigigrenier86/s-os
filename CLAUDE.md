@@ -201,14 +201,16 @@ c'est la première fois qu'elle tient debout.
   fenêtre `352x561`, **3198 couleurs**, logo et version lisibles, vivant à 70 s.
   Ce qui reste vrai est plus étroit : il **stagne sur son écran de démarrage**,
   sans erreur. Non expliqué. Voir la section de l'après-midi.
-- **Tout le pan Constellation du soir est hors de l'image.** Le ciel qui porte
-  des fichiers, le clic droit et la barre latérale ont tourné depuis le dépôt,
-  par `S_QML` et `S_NOYAU`, dans une seconde Constellation lancée à côté de la
-  vraie. La construction `#80` tournait encore à 19 h 06 ; il faudra un
-  `bootc upgrade` puis un redémarrage.
-- **`uupd` n'a pas encore tourné sous la politique qui exige.** Le rejet d'une
-  image mal signée est prouvé à froid par `skopeo` avec le fichier de politique
-  du système — le passage réel de 4 h n'a pas eu lieu.
+- ~~**Tout le pan Constellation du soir est hors de l'image.**~~ **Il y est,
+  et c'est vérifié fichier par fichier.** `bootc upgrade` a été lancé à la main
+  à 19 h 19, sous la politique qui exige — `Fetching ostree-image-signed:…`,
+  21 couches, 2,8 Go — et la machine a redémarré sur ce déploiement à 19 h 23.
+  Voir la section de 19 h 23.
+- **`uupd` n'a toujours pas tourné sous la politique qui exige** — son dernier
+  passage automatique date de 04 h 09, avant que la politique ne devienne
+  stricte. Mais `bootc upgrade`, qui passe par le même `policy.json`, **vient
+  de le faire pour de vrai** — pas à froid par `skopeo`. Voir la section de
+  19 h 23.
 - **L'accès distant n'a jamais servi, et le relevé du 2026-08-26 à 19 h dit où
   il coince.** Le tailnet est monté (`s` = `100.103.169.98`, le Pixel en ligne),
   `sshd` **répond bien sur l'adresse du tailnet** — mais il refuse :
@@ -248,6 +250,246 @@ c'est la première fois qu'elle tient debout.
   mosh y survit), `tmux` posé, `claude` **dans l'image** à `/usr/bin/claude`
   (2.1.231), et la zone `FedoraWorkstation` ouvre déjà l'UDP 1025-65535 dont
   mosh a besoin. **Rien de tout cela n'a été exercé depuis le téléphone.**
+
+---
+
+## 2026-08-26, 21 h 45 — RapidO : `--class=` n'a jamais rien fait, et personne ne l'avait mesuré
+
+Repris après un entretien avec l'utilisateur sur les priorités du projet — voir
+`TODO.md`. RapidO est « son réel travail », donc la première chose à faire
+était de vérifier qu'il tient vraiment, pas de le supposer.
+
+**`--class=RapidO` et `StartupWMClass=RapidO`, présents depuis la création du
+lanceur, n'ont jamais eu le moindre effet.** Mesuré deux fois sur la machine ce
+soir — processus Vivaldi réutilisé, puis processus entièrement frais avec un
+`--user-data-dir` isolé — la fenêtre porte toujours la même classe réelle,
+calculée par Vivaldi lui-même à partir de l'URL, jamais celle du drapeau :
+
+```
+vivaldi --app=https://app.mews.com/           --class=RapidO   (déclaré)
+    -> vraie classe : vivaldi-app.mews.com__-Default            (mesurée)
+```
+
+**Même mécanisme, même preuve, sur Gemini** — un second lanceur qui partage le
+même patron — pour écarter l'hypothèse que ce soit propre à MEWS :
+
+```
+vivaldi --app=https://gemini.google.com/app   --class=Gemini   (déclaré)
+    -> vraie classe : vivaldi-gemini.google.com__app-Default    (mesurée)
+```
+
+**C'est un succès silencieux dans sa forme la plus tranquille :** la fenêtre
+s'ouvre, elle a l'air d'une application dédiée, rien ne dit que sa classe ment.
+Ça ne cassait rien tant que rien dans S ne matchait par classe — vérifié,
+aucune règle kwin ni aucun script de S ne cherchait « RapidO » — mais le jour
+où une règle de positionnement ou un regroupement de barre des tâches en aurait
+eu besoin, elle aurait échoué sans un mot.
+
+**Corrigé dans les deux lanceurs** : `--class=` retiré (mort, trompeur pour qui
+relit le code), `StartupWMClass` porte désormais la vraie valeur mesurée. Le
+mécanisme de mesure — un script kwin qui liste les fenêtres et se sert du bus
+comme témoin, puisqu'un script kwin ne rend rien à l'appelant — est au
+Grimoire : `vivaldi-classe-reelle-app.sh`, réutilisable pour tout futur lanceur
+`vivaldi --app=`.
+
+**Ce que ça ne règle pas, et qui n'est pas un défaut de S :** en le relançant
+pour le mesurer, RapidO affichait « Autoriser cet appareil ? » — MEWS demande
+une autorisation de connexion que personne n'avait encore accordée sur cette
+machine. C'est un geste de connexion normal, pas une panne ; à l'utilisateur de
+le passer une fois.
+
+### Ce que cette passe ne prouve pas
+
+- **La formule de calcul de la classe** (`vivaldi-<hôte>__<segment>-<profil>`)
+  n'est vérifiée que sur deux URL simples. Elle n'est pas fiable pour un chemin
+  à plusieurs segments ou une requête — le Grimoire le dit explicitement, pas
+  de fonction de calcul écrite, seulement l'outil de mesure.
+- **Aucune règle kwin ni logique de barre des tâches n'utilise encore la
+  nouvelle classe** — rien n'en avait besoin jusqu'ici, donc rien ne prouve que
+  la correction change quoi que ce soit à l'usage, seulement qu'elle rend enfin
+  vraie une valeur qui était fausse.
+- **Rien de ceci n'est dans l'image** — corrigé dans le dépôt, pas encore
+  construit ni redémarré dessus.
+
+---
+
+## 2026-08-26, 22 h — PC Boost entre dans le menu de S, pour la première fois
+
+Priorité 2 de l'entretien (`TODO.md`). Contrairement à RapidO, PC Boost n'avait
+**jamais** été posé comme logiciel Windows de S : compilé dans
+`~/Downloads/PcBoostApp/bin/Release/net8.0-windows/win-x64/`, jamais copié dans
+le Windows de S, jamais lancé par `s-ouvrir-exe`, aucune étoile, aucun lanceur.
+
+**Pourquoi il n'était jamais entré dans le menu, et ce n'est pas un défaut de
+`s-menu-windows` :** la moisson ne trouve que ce qu'un installateur a laissé —
+un `.desktop` de `winemenubuilder` ou un `.lnk` du menu Démarrer. PC Boost n'a
+pas d'installateur, c'est un binaire compilé posé à la main : rien à moissonner,
+et c'était juste.
+
+### Ce qui a été fait, en suivant le patron déjà posé pour Cursor et PURPLE
+
+1. Le binaire autonome (163 Mo, .NET 8 self-contained) copié dans le Windows de
+   S : `.../pfx/dosdevices/c:/Program Files/PcBoost/`.
+2. Lancé par le vrai chemin — `s-ouvrir-exe`, pas un raccourci de circonstance —
+   et vérifié en vie : `PcBoostApp.exe`, PID confirmé, fenêtre `steam_proton |
+   PC Boost` mesurée par `vivaldi-classe-reelle-app.sh` (qui liste n'importe
+   quelle fenêtre kwin, pas seulement celles de Vivaldi — son nom vient de sa
+   première preuve, pas de sa portée).
+3. Le lanceur posé par `poser_lanceur`, la même fonction que `s-menu-windows`
+   utilise pour tout le reste — pas une réécriture à côté. Identifiant
+   `s-windows-a9a1f2f55131`, calculé par le même hash SHA-256 du chemin résolu
+   que porte chaque logiciel Windows de S.
+4. L'étoile posée dans le ciel par `s_placer_etoile`, à la position stable que
+   son identifiant lui donne — exactement ce qui se serait passé si PC Boost
+   avait été « installé » par un vrai geste plutôt que compilé à la main.
+
+**Icône : repli générique, et c'est attendu.** Le carnet le savait déjà depuis
+le 2026-08-20 — le `.csproj` de PC Boost ne porte pas `<ApplicationIcon>`. Rien
+de neuf à corriger ici.
+
+### UN DÉFAUT TROUVÉ EN MESURANT, DANS LE GRIMOIRE POSÉ UNE HEURE PLUS TÔT
+
+`vivaldi-classe-reelle-app.sh`, écrit pour RapidO, portait un identifiant
+accentué — `témoin_log`. Sur cette machine, dans ce shell, `local` l'a refusé :
+*« identifiant non valable »* — et la ligne suivante, une assignation à ce même
+nom, a été **exécutée comme une commande** plutôt qu'affectée, parce que bash
+ne l'a plus reconnue comme une variable. Renommé en `temoin_log`, ASCII pur,
+réessayé : propre. **Un outil écrit une heure plus tôt a servi de banc
+d'essai à lui-même**, et c'est la preuve que le Grimoire vaut d'être relu
+après coup, pas seulement écrit une fois.
+
+### Ce que cette passe ne prouve pas
+
+- **PC Boost n'a été vérifié qu'au lancement.** Aucun de ses écrans n'a été
+  cliqué, aucune de ses fonctions n'a été exercée — seule sa fenêtre existe et
+  reste en vie.
+- **Rien de ceci n'est dans l'image.** Le binaire vit dans le Windows de S sur
+  cette machine précise ; une machine neuve ne l'aurait pas. Ce n'est pas un
+  défaut à corriger — PC Boost est le logiciel personnel de l'utilisateur, en
+  développement actif, pas un logiciel que S doit fournir d'avance.
+- **La copie posée est figée à ce build.** Le jour où PC Boost est recompilé,
+  le lanceur pointera sur un binaire périmé tant que personne ne recopie le
+  nouveau par-dessus — aucun mécanisme de mise à jour automatique n'existe pour
+  ce cas, contrairement aux logiciels posés par construction d'image.
+
+---
+
+## 2026-08-26, soir — Steam sur une Switch Lite : recherche pure, rien de mesuré
+
+Hors du projet S — une console branchée à la machine le temps d'une soirée, pas
+une couture de S. Consignée ici parce que le Wizard l'exige : une trouvaille
+non éprouvée va au carnet, jamais au Grimoire, dont la règle d'entrée est une
+`PREUVE:` datée qu'aucune de ces lignes ne porte. **Rien de ce qui suit n'a
+tourné — ni sur cette Switch, ni ailleurs.**
+
+### Ce qui est fermé, et pourquoi ça ne rouvrira pas de ce côté-ci
+
+La Switch Lite porte la puce **Mariko**, sortie en septembre 2019. Deux voies
+logicielles indépendantes sont mortes dessus, pour deux raisons différentes :
+
+- **RCM / Fusée Gelée** — le bug qui permettait d'injecter un payload par USB
+  vivait dans le BootROM du Tegra X1, gravé en usine, corrigé en silicium sur
+  Mariko. Confirmé par SciresM, le mainteneur d'Atmosphère lui-même : « aucun
+  exploit logiciel n'existe pour la Switch Lite ». [GBAtemp](https://gbatemp.net/threads/nintendo-switch-lite-exploit-is-it-possible-without-a-mod-chip.592310/)
+- **Caffeine / Déjà Vu (WebKit du navigateur)** — un vrai exploit logiciel,
+  sans RCM, qui a fait tourner du CFW sur des consoles patchées entre 2018 et
+  2019. Colmaté par Nintendo au firmware **8.0.0**. La Switch Lite est sortie
+  **après** ce patch : aucun exemplaire n'a jamais existé sur un firmware
+  vulnérable. [switchbrew.org](https://switchbrew.org/wiki/Homebrew_Exploits)
+
+Aucun successeur documenté à ces deux voies pour du matériel patché sur
+firmware récent.
+
+### Ce qui reste entrouvert — deux hypothèses nommées
+
+1. **Le navigateur caché** (déroutement DNS via le portail captif,
+   `045.055.142.122`, [Digital Trends](https://www.digitaltrends.com/gaming/how-to-use-hidden-nintendo-switch-browser/))
+   reste accessible sur firmware stock, 20 minutes par session. **Hypothèse :**
+   le client web de GeForce NOW s'y charge et fonctionne, ce qui donnerait du
+   Steam en streaming sans rien souder. **La mesure qui la tuerait :** faire le
+   tour DNS et naviguer vers `play.geforcenow.com` dans ce navigateur — jamais
+   essayé.
+2. **L'exploit userland de Gezine** (chercheur PS5, annoncé juillet 2026) tourne
+   sur Switch 1 et 2, tout firmware, sans WebKit — mais reste **non publié**,
+   sandboxé, sans accès noyau. **Hypothèse :** s'il est un jour publié, ça
+   n'ira de toute façon pas jusqu'à un CFW complet. **La mesure :** surveiller
+   sa publication — rien à essayer avant. [Wayayeo](https://wayayeo.org/nintendo-switch-2-modding-early-homebrew-and-hack-news/)
+
+### Ce qui marche, mais coûte la console
+
+**Modchip Picofly** (RP2040) — 6 à 15 $ la puce seule, 95 à 150 $ posé par un
+professionnel, difficulté de soudure « milieu de l'échelle » sur la Lite.
+[Wayayeo](https://wayayeo.org/hwfly-modchip-install-repair/) Jamais commandé,
+jamais posé.
+
+**Récupérer l'écran seul** (LCD + digitizer, contrôleur universel 4-50 $) pour
+une machine Steam qui porte la coquille de la Switch — détruit la console comme
+console, contourne le BootROM en l'excluant entièrement de la boucle. Jamais
+tenté.
+
+---
+
+## 2026-08-26, 19 h 23 — la mise à jour signée est exercée pour de vrai, et le pan du soir est dans l'image
+
+Relevé fait à la demande de l'utilisateur (« met toi à jour »), sur la machine,
+vingt minutes après un redémarrage dont ce carnet n'avait encore rien dit.
+
+### Ce que le journal du démarrage précédent raconte
+
+```
+19:19:56  sudo bootc upgrade
+19:19:57  Fetching ostree-image-signed:docker://ghcr.io/gigigrenier86/s-os:latest
+19:19:58  layers already present: 128; layers needed: 21 (2.8 GB)
+19:21:54  Successfully imported image: ostree-image-signed:…
+19:22:20  Created deployment; checkout=10.8s composefs=13.3s etc=1.1s
+19:22:37  (redemarrage)
+19:23:07  (nouveau demarrage, sur le deploiement neuf)
+```
+
+**C'est un `bootc upgrade` lancé à la main par l'utilisateur, et c'est la
+première fois que ce chemin — pas `skopeo` à froid — passe sous la politique
+qui exige une signature.** `rpm-ostree status` le confirme : le déploiement
+booté porte `ostree-image-signed`, digest `c023642d…`, version
+`44.20260826.58439d2`.
+
+### Le pan Constellation du soir est dans l'image, vérifié fichier par fichier
+
+Le carnet affirmait, dans la même respiration que ce démarrage n'avait pas
+encore eu lieu, que « le ciel qui porte des fichiers, le clic droit et la
+barre latérale » tournaient depuis le dépôt et non depuis l'image. **Faux
+maintenant, et ça se vérifie sans supposer** : les onze fichiers touchés par
+le commit `9da4454` sont **identiques, octet pour octet**, entre le dépôt et
+`/usr` — `Constellation.qml`, `BarreLaterale.qml`, `EtoileReglage.qml`,
+`Anneau.qml`, `Theme.qml`, `noyau.py`, `regles-kwin.py`, `reglages.py`,
+`fenetres.js`, `s-constellation`.
+
+Et `s-constellation` (PID 2352) tourne **sans aucune des variables de
+détournement de développement** — `S_QML`, `S_NOYAU`, `S_BIN`, `S_LIB` sont
+absentes de son environnement. Ce n'est plus la seconde Constellation lancée à
+côté de la vraie que le carnet décrivait depuis le début de soirée : c'est la
+vraie, et elle sert le pan du soir depuis `/usr`.
+
+### L'état du reste, au même moment
+
+| | |
+|---|---|
+| Unités en échec | **aucune**, système et session |
+| `s-partage.service` | a relié le dossier partagé à 19 h 23 min 18 s, **onze secondes** après l'allumage |
+| `tailscaled` | actif depuis le démarrage |
+| Android | `STOPPED` — pas encore démarré sur ce boot |
+| `HEAD` du dépôt (`3d27913`) | ne touche aucun fichier de code, seulement ce carnet — **rien n'attend une construction** |
+
+### Ce que ça ne prouve pas
+
+- **`uupd` lui-même n'a toujours pas tourné sous la politique qui exige** — son
+  dernier passage automatique (04 h 09) précède le moment où elle est devenue
+  stricte, et son prochain est à 04 h 01 cette nuit. `bootc upgrade` partage le
+  même `policy.json`, mais ce n'est pas la même unité qui a été exercée.
+  Cette nuit tranchera.
+- **Aucun geste réel n'a été posé sur le ciel qui porte des fichiers, le clic
+  droit ou la barre latérale depuis ce démarrage.** Le code tourne depuis
+  l'image ; personne n'a encore cliqué dessus sur ce boot-ci.
+- **Android n'a pas été redémarré** depuis le redémarrage de la machine.
 
 ---
 
