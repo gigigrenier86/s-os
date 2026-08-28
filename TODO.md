@@ -235,6 +235,14 @@ retirer, c'est l'identité même de Constellation. À protéger dans tout futur
 chantier sur le bureau, au même titre que la règle « une couture ne montre
 jamais son moteur ».*
 
+**Code écrit pour 14, 15 et 16** — le 2026-08-27 au soir, sur la demande
+« commence avec ce que tu as maintenant » : clic droit sur les épinglées de
+la barre (n'existait pas du tout), « Executer en root » sur une étoile,
+sélection au glissement sur le ciel, réglage Android fenêtré/plein écran.
+Vérifié par le contrôle de construction sur cette machine (scène chargée,
+zéro avertissement, menu de la barre toujours à 9 articles) — **aucun clic
+réel, rien dans l'image.** Voir CLAUDE.md, 2026-08-27, soir.
+
 ---
 
 ## Questions 11 à 40 — en attente, gardées en mémoire pour une prochaine passe

@@ -205,6 +205,59 @@ ApplicationWindow {
             }
         }
 
+        // ── LE GLISSEMENT DE SELECTION, DEMANDE LE 2026-08-27 (reponse 16) ──
+        // « clic gauche et glisser pour selectionner des icones », comme sur
+        // n'importe quel bureau. Pose sur le CIEL, jamais sur une etoile : le
+        // DragHandler de chaque Astre (voir Astre.qml) tient le point des
+        // qu'un glissement commence SUR elle, donc celui-ci ne recoit que les
+        // glissements partis du vide — exactement la meme regle que le clic
+        // droit du fond, deux poignees plus haut.
+        DragHandler {
+            id: cadreGlissement
+            target: null
+            acceptedButtons: Qt.LeftButton
+            property point depart: Qt.point(0, 0)
+            onActiveChanged: {
+                if (active) {
+                    depart = centroid.position;
+                    ciel.choisirDans(null);
+                } else {
+                    ciel.choisirDans({
+                        x: Math.min(depart.x, centroid.position.x),
+                        y: Math.min(depart.y, centroid.position.y),
+                        w: Math.abs(centroid.position.x - depart.x),
+                        h: Math.abs(centroid.position.y - depart.y)
+                    });
+                }
+            }
+        }
+
+        Rectangle {
+            visible: cadreGlissement.active
+            x: Math.min(cadreGlissement.depart.x, cadreGlissement.centroid.position.x)
+            y: Math.min(cadreGlissement.depart.y, cadreGlissement.centroid.position.y)
+            width: Math.abs(cadreGlissement.centroid.position.x - cadreGlissement.depart.x)
+            height: Math.abs(cadreGlissement.centroid.position.y - cadreGlissement.depart.y)
+            radius: 2
+            color: Qt.rgba(1, 1, 1, 0.08)
+            border.width: 1
+            border.color: Theme.bordVif
+        }
+
+        // Choisit (ou vide, si « rect » est nul) les etoiles que le cadre
+        // touche. Vider AU DEPART du glissement plutot qu'a la fin : un
+        // simple clic sur le vide doit deselectionner tout, comme sur
+        // n'importe quel bureau — pas seulement un glissement qui aboutit.
+        function choisirDans(rect) {
+            for (var i = 0; i < ciel.children.length; i++) {
+                var c = ciel.children[i];
+                if (c.app === undefined) continue;
+                c.choisi = rect ? (c.x < rect.x + rect.w && c.x + c.width > rect.x &&
+                                    c.y < rect.y + rect.h && c.y + c.height > rect.y)
+                                : false;
+            }
+        }
+
         Repeater {
             objectName: "repeaterCiel"
             model: {
@@ -932,6 +985,19 @@ ApplicationWindow {
             }
         }
 
+        // ── « Executer en root », demandee le 2026-08-27 (reponse 16) ───────
+        // Sans objet pour un fichier : lui n'a pas de commande a relancer, un
+        // fichier s'ouvre par ce que le systeme choisit pour lui, jamais par
+        // sa propre ligne Exec.
+        SeparateurMenu { visible: !menuContextuel.estFichier
+                         height: visible ? implicitHeight : 0 }
+        ArticleMenu {
+            visible: !menuContextuel.estFichier
+            height: visible ? implicitHeight : 0
+            text: "Executer en root"
+            onTriggered: bureau.dire(pont.lancerEnRoot(menuContextuel.cible.id))
+        }
+
         // ── Les gestes qui n'ont de sens que sur un fichier ─────────────────
         SeparateurMenu { visible: menuContextuel.estFichier
                          height: visible ? implicitHeight : 0 }
@@ -1275,6 +1341,7 @@ ApplicationWindow {
                 "clic droit  epingler, poser sur le bureau",
                 "double-clic sur une etoile  ouvrir",
                 "glisser une etoile  la deplacer",
+                "glisser le fond  selectionner plusieurs etoiles",
                 "N  noms toujours visibles"
             ]
             delegate: Text {

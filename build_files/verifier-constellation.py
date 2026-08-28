@@ -127,6 +127,10 @@ class PontLeurre(QObject):
     def epingler(self, ident, oui):
         pass
 
+    @Slot(str, result=str)
+    def lancerEnRoot(self, ident):
+        return ident
+
     @Slot(str, float, float)
     def placer(self, ident, x, y):
         pass
@@ -200,8 +204,8 @@ class PontLeurre(QObject):
     def reglerRapide(self, cle, valeur):
         return cle
 
-    @Slot(QWindow, int, int, int, int, int)
-    def bornerBarre(self, fenetre, bande, mx, my, mw, mh):
+    @Slot(QWindow, int)
+    def bornerBarre(self, fenetre, sensible):
         # Meme raison que bornerLaterale : le leurre ne masque rien, il DECLARE.
         pass
 

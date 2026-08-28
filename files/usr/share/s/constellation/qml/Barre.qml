@@ -116,15 +116,18 @@ Window {
     // grande que ce qu'elle montre, et sans masque elle avalerait les clics du
     // bas de l'ecran sur toute sa hauteur. « setMask » part en
     // « wl_surface.set_input_region » — voir pont.bornerBarre.
+    // QUAND LE MENU EST OUVERT, TOUTE LA FENETRE DEVIENT SENSIBLE, et ce n'est
+    // pas de la generosite : c'est le seul moyen qu'un clic A COTE du menu nous
+    // parvienne. Le masque ne couvrait que la bande et le rectangle du menu ;
+    // un clic dans le vide entre les deux tombait donc a la fenetre du dessous,
+    // « CloseOnPressOutside » ne se declenchait jamais, et le menu restait
+    // ouvert jusqu'au changement de fenetre. Releve par l'utilisateur le
+    // 2026-08-27 : « la fenetre ne disparait que si je change d'onglet ».
     function borner() {
         if (typeof pont === "undefined" || !pont || !pont.bornerBarre)
             return;
-        var ouvert = menuFenetre.visible;
-        pont.bornerBarre(barre, barre.hauteur,
-                         ouvert ? Math.round(menuFenetre.x) : 0,
-                         ouvert ? Math.round(bande.y + menuFenetre.y) : 0,
-                         ouvert ? Math.round(menuFenetre.width) : 0,
-                         ouvert ? Math.round(menuFenetre.height) : 0);
+        pont.bornerBarre(barre, (menuFenetre.visible || menuEpinglee.visible)
+                                ? barre.height : barre.hauteur);
     }
 
     onWidthChanged: borner()
@@ -246,6 +249,21 @@ Window {
 
                     TapHandler {
                         onTapped: { bureau.dire(pont.lancer(parent.app.id)); bureau.relire(); }
+                    }
+
+                    // ── LE CLIC DROIT, QUI N'EXISTAIT PAS NON PLUS ICI ─────
+                    // Releve par l'utilisateur le 2026-08-27 (reponse 15) :
+                    // « aucuns clic droit ne fonctionnent sur les apps
+                    // epingles en bas ». Meme trou que celui ferme le
+                    // 2026-08-26 sur les fenetres ouvertes (menuFenetre,
+                    // plus bas) — jamais comble ici.
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        onTapped: function (point) {
+                            menuEpinglee.ouvrirPour(
+                                parent.app,
+                                parent.mapToItem(null, point.position.x, 0).x);
+                        }
                     }
                 }
             }
@@ -470,6 +488,20 @@ Window {
             background: Verre {
                 radius: 8
                 implicitWidth: 268
+
+                // ON SE DETOURNE DU MENU AUSSI SOUVENT QU'ON CLIQUE A COTE, et
+                // la fenetre de la barre ne couvre que le bas de l'ecran : un
+                // clic plus haut ne lui parvient pas. Le survol, lui, se sait
+                // toujours. Meme idiome que la barre laterale, meme raison.
+                HoverHandler {
+                    id: survolMenu
+                    onHoveredChanged: {
+                        if (hovered)
+                            fermetureMenu.stop();
+                        else if (menuFenetre.visible)
+                            fermetureMenu.restart();
+                    }
+                }
             }
 
             ArticleMenu {
@@ -534,6 +566,84 @@ Window {
                     onTriggered: barre.veilleChoisie(modelData.cle)
                 }
             }
+        }
+
+        // Un menu qu'on quitte des yeux se referme. Plus long que les 500 ms
+        // de la barre laterale : on lit un menu, on ne fait pas que le
+        // traverser.
+        Timer {
+            id: fermetureMenu
+            interval: 900
+            onTriggered: if (!survolMenu.hovered) menuFenetre.close()
+        }
+
+        // ── Le menu du clic droit sur une epinglee ────────────────────────
+        // MEME PATRON QUE « menuFenetre » CI-DESSUS, POUR LA MEME RAISON :
+        // dessine dans la fenetre de la barre (qui reste au-dessus), ouvert
+        // vers le haut, borne par « pont.bornerBarre ». Une epinglee n'est
+        // pas une fenetre ouverte — pas de « Ranger » ni de veille possible,
+        // seulement relancer, relancer en administrateur, ou desepingler.
+        Menu {
+            id: menuEpinglee
+            objectName: "menuEpinglee"
+            property var cible: null
+
+            onVisibleChanged: barre.borner()
+            onXChanged: barre.borner()
+            onYChanged: barre.borner()
+            onHeightChanged: barre.borner()
+            onWidthChanged: barre.borner()
+
+            function ouvrirPour(app, ex) {
+                cible = app;
+                popup(Math.max(4, Math.min(barre.width - implicitWidth - 4,
+                                           ex - implicitWidth / 2)),
+                      -implicitHeight - 6);
+            }
+
+            background: Verre {
+                radius: 8
+                implicitWidth: 232
+                HoverHandler {
+                    id: survolMenuEp
+                    onHoveredChanged: {
+                        if (hovered)
+                            fermetureMenuEp.stop();
+                        else if (menuEpinglee.visible)
+                            fermetureMenuEp.restart();
+                    }
+                }
+            }
+
+            ArticleMenu {
+                text: "Ouvrir"
+                onTriggered: {
+                    bureau.dire(pont.lancer(menuEpinglee.cible.id));
+                    bureau.relire();
+                }
+            }
+
+            ArticleMenu {
+                text: "Executer en root"
+                onTriggered: bureau.dire(pont.lancerEnRoot(menuEpinglee.cible.id))
+            }
+
+            SeparateurMenu { }
+
+            ArticleMenu {
+                grave: true
+                text: "Retirer de la barre"
+                onTriggered: {
+                    pont.epingler(menuEpinglee.cible.id, false);
+                    bureau.relire();
+                }
+            }
+        }
+
+        Timer {
+            id: fermetureMenuEp
+            interval: 900
+            onTriggered: if (!survolMenuEp.hovered) menuEpinglee.close()
         }
 
         // ── L'heure ───────────────────────────────────────────────────────

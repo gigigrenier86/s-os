@@ -368,6 +368,61 @@ def _basculer_android(actif):
                          ("Android demarre" if actif else "Android arrete"))
 
 
+# LE MODE D'AFFICHAGE D'ANDROID — DEMANDE DE L'UTILISATEUR (reponse 14 de
+# l'entretien du 2026-08-27) : « je prefere avoir le choix » entre fenetre et
+# plein ecran, plutot qu'un mode impose une fois pour toutes dans s-android.
+#
+# CE RELEVE N'A DE SENS QUE SESSION VIVANTE. « waydroid prop get/set » exige
+# la session — mesure du carnet, 2026-08-26 : sans elle il repond « WayDroid
+# session is stopped » plutot qu'une vraie valeur. Poser l'etoile quand meme
+# donnerait un etat invente.
+#
+# CE RELEVE NE DECIDE RIEN A CHAUD. Le carnet du 2026-08-25 l'a mesure :
+# « persist.waydroid.multi_windows » ne prend qu'au PROCHAIN demarrage du
+# conteneur, jamais a chaud. Changer ce reglage redemarre donc la session
+# Android — tout ce qui y tournait se ferme, exactement comme changer de
+# moniteur redemarrerait un serveur d'affichage.
+def _mode_android():
+    if not _outil("waydroid"):
+        return None
+    etat = _android()
+    if not etat or not etat.get("actif"):
+        return None
+    code, sortie = _lire(["waydroid", "prop", "get",
+                          "persist.waydroid.multi_windows"], delai=10)
+    if code != 0:
+        return None
+    return {"fenetre": sortie.strip().lower() == "true"}
+
+
+def _regler_mode_android(mode):
+    if not _outil("waydroid"):
+        return False, "Waydroid n'est pas sur cette machine"
+    fenetre = (mode == "fenetre")
+    code, _sortie = _lire(["waydroid", "prop", "set",
+                          "persist.waydroid.multi_windows",
+                          "true" if fenetre else "false"], delai=10)
+    if code != 0:
+        return False, "reglage refuse"
+    _oublier("mode-android")
+    _lire([_outil("waydroid"), "session", "stop"], delai=30)
+    # MEME GESTE QUE « _basculer_android(True) » : passer par s-android plutot
+    # que par « waydroid session start » directement, pour les memes raisons —
+    # il verse aussi les proprietes et la mise en veille, pas seulement la
+    # session.
+    geste = "/usr/bin/s-android"
+    if os.path.isfile(geste):
+        try:
+            subprocess.Popen([geste], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as err:
+            return False, str(err)
+    else:
+        _lire([_outil("waydroid"), "session", "start"], delai=30)
+    return True, ("Android en fenetres (redemarrage...)" if fenetre
+                 else "Android en plein ecran (redemarrage...)")
+
+
 def _capturer():
     outil = _outil("spectacle")
     if not outil:
@@ -461,6 +516,16 @@ def rapides():
                        "type": "bascule", "actif": an["actif"],
                        "detail": an["etat"].lower() or "arrete"})
 
+    mode = _cache("mode-android", _mode_android)
+    if mode is not None:
+        sortie.append({"cle": "mode-android", "nom": "Android : affichage",
+                       "ico": "i-tel", "type": "choix",
+                       "valeur": "fenetre" if mode["fenetre"] else "plein",
+                       "actif": True,
+                       "detail": "Fenetres" if mode["fenetre"] else "Plein ecran",
+                       "choix": [{"cle": "fenetre", "nom": "Fenetres"},
+                                 {"cle": "plein", "nom": "Plein ecran"}]})
+
     if _outil("spectacle"):
         sortie.append({"cle": "capture", "nom": "Capturer", "ico": "i-image",
                        "type": "action", "actif": True, "detail": "selection"})
@@ -491,6 +556,8 @@ def regler(cle, valeur):
         return _regler_energie(str(valeur))
     if cle == "android":
         return _basculer_android(bool(valeur))
+    if cle == "mode-android":
+        return _regler_mode_android(str(valeur))
     if cle == "capture":
         return _capturer()
     return False, "reglage inconnu : %s" % cle

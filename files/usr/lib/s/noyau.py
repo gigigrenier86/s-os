@@ -478,6 +478,34 @@ def lancer(entree):
     return True, "lancee"
 
 
+def lancer_en_root(entree):
+    """Relance la commande d'une etoile avec pkexec.
+
+    DEMANDE DE L'UTILISATEUR (entretien du 2026-08-27, reponse 16) : pouvoir
+    executer un logiciel pose au bureau avec des droits d'administration,
+    comme sur n'importe quel bureau normal — un outil de partitionnement, un
+    gestionnaire reseau bas niveau.
+
+    MEME GARDE-FOU QUE LES NEUF pkexec DE S (voir « s_root » dans s-monde) :
+    un « timeout --foreground » borne l'attente si personne ne repond a la
+    fenetre de polkit, plutot que de bloquer la coquille sans fin.
+    """
+    fichier = (entree or {}).get("fichier")
+    if not fichier:
+        return False, "cette etoile n'a pas de commande a relancer"
+    champs = lire_desktop(fichier) or {}
+    brut = re.sub(r"%[fFuUdDnNickvm]", "", champs.get("Exec", "")).strip()
+    if not brut:
+        return False, "aucune commande dans %s" % os.path.basename(fichier)
+    cmd = shlex.split(brut)
+    pkexec = chemin_executable("pkexec")
+    if not pkexec:
+        return False, "pkexec n'est pas sur cette machine"
+    timeout = chemin_executable("timeout")
+    argv = ([timeout, "--foreground", "120", pkexec] if timeout else [pkexec]) + cmd
+    return _lancer_detache(argv)
+
+
 GESTES_SESSION = {
     "verrouiller": ["loginctl", "lock-session"],
     "deconnecter": ["loginctl", "terminate-session", os.environ.get("XDG_SESSION_ID", "self")],

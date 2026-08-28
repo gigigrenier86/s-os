@@ -288,6 +288,110 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-27, soir — l'entretien reprend, et le clic droit avait un vrai trou
+
+Demande de l'utilisateur : reprendre l'entretien de `TODO.md` (questions 11 à
+40, en pause depuis dix réponses), puis « commence avec ce que tu as
+maintenant » — construire à partir des réponses déjà données plutôt que
+d'attendre la fin des trente questions.
+
+### Ce que les réponses 15 et 16 ont pointé, et qui s'est confirmé en lisant le code avant d'y toucher
+
+L'utilisateur : « le clic droit sur le bureau ou sur les icônes de la
+constellation donnent le même résultat, rien de pratique, et aucun clic droit
+ne fonctionne sur les apps épinglées en bas » — et, geste par geste :
+sélection par glissement, clic droit contextuel sur une étoile (retirer,
+placer, effacer, exécuter en root).
+
+**`Barre.qml` n'avait effectivement AUCUN gestionnaire de clic droit sur les
+icônes épinglées.** Comparé aux fenêtres ouvertes de la même barre, qui en ont
+un depuis le 2026-08-26 (`menuFenetre`) : les épinglées n'avaient qu'un
+`TapHandler` de clic gauche. Un vrai trou, pas une impression.
+
+**Le menu contextuel des étoiles (`menuContextuel`, Constellation.qml), lui,
+existait déjà et distinguait bien fichier / dossier / application posée ou
+non** — ce que le code montrait n'était donc pas « le même résultat partout »
+au sens littéral, mais il manquait un geste demandé : exécuter en root.
+
+### Quatre pièces ajoutées
+
+1. **`noyau.py` : `lancer_en_root(entree)`.** Relance la commande `Exec` d'une
+   étoile via `pkexec`, encadrée par `timeout --foreground 120` — le même
+   garde-fou que les neuf autres `pkexec` de S (`s_root` dans `s-monde`) :
+   un blocage sans fin sur une fenêtre de polkit à laquelle personne ne
+   répond ne doit jamais geler la coquille.
+2. **`s-constellation` : le slot `lancerEnRoot`.** Sans objet pour un
+   fichier — un fichier n'a pas de commande à relancer, seulement un ouvreur
+   que le système choisit pour lui.
+3. **`Constellation.qml` : deux ajouts.**
+   - « Executer en root » dans `menuContextuel`, masqué pour un fichier.
+   - **Le cadre de sélection au glissement**, sur le `ciel` : un
+     `DragHandler` sans cible, posé sur le vide — la même règle que le clic
+     droit du fond, deux poignées plus haut : « les étoiles gardent la
+     main », leur propre `DragHandler` (Astre.qml) tient le point dès qu'un
+     glissement commence SUR elles, donc celui-ci ne reçoit que les
+     glissements partis du vide, exactement le comportement d'un bureau
+     normal.
+4. **`Barre.qml` : un vrai clic droit sur les épinglées.** Menu « Ouvrir /
+   Executer en root / Retirer de la barre », posé sur le patron exact de
+   `menuFenetre` — fenêtre séparée qui reste au-dessus, ouverte vers le haut,
+   bornée par `pont.bornerBarre`. La fonction `borner()` compte désormais ce
+   second menu dans sa condition, sinon il se serait ouvert sans se laisser
+   cliquer, comme `menuFenetre` avant le 2026-08-26.
+
+### La réponse 14 — « je préfère avoir le choix »
+
+Ajouté `mode-android` dans `reglages.py`, sur le patron « choix » déjà
+existant pour l'énergie. **Honnête sur son coût, pas seulement sur son
+existence** : le carnet du 2026-08-25 a mesuré que
+`persist.waydroid.multi_windows` ne prend qu'au PROCHAIN démarrage du
+conteneur, jamais à chaud — le réglage arrête donc la session Android puis la
+relance par `s-android`, et tout ce qui y tournait se ferme. Le réglage ne
+s'affiche que si Android tourne déjà : pas d'état inventé quand la session
+est éteinte.
+
+### Éprouvé sur cette machine, avec le vrai contrôle de construction
+
+`lancerEnRoot` a d'abord manqué au leurre du contrôle de construction
+(`verifier-constellation.py`) — ajouté aussitôt, sinon la prochaine
+construction aurait échoué : c'est exactement ce que ce contrôle existe pour
+attraper. Rejoué ensuite pour de vrai, sur cette machine, avec le PySide6 de
+l'image (6.11.1) et une vraie session Wayland :
+
+```
+scene verifiee : files/usr/share/s/constellation/qml
+slots         : 23 au pont, tous declares par le leurre
+pont fenetres : 8 appel(s) QML, tous declares sur Fenetres
+menu barre    : 9 articles instancies, 9 attendus, 222 px ouverts pour 222 demandes
+scene QML     : chargee, menu ouvert, aucun avertissement
+ciel          : 5 etoiles instanciees, dont 3 jaunes
+```
+
+Le menu de la barre reste à 9 articles et 222 px : les changements de
+`Barre.qml` n'ont rien fait régresser sur ce qui existait déjà. Syntaxe
+Python des trois fichiers touchés vérifiée par `py_compile`, sans erreur.
+
+### Ce que cette passe ne prouve pas
+
+- **Aucun clic n'a été donné pour de vrai.** Le clic droit sur une épinglée,
+  le cadre de sélection, « Executer en root », le réglage Android : le
+  contrôle ci-dessus prouve que la scène charge et que le pont est complet —
+  pas que le geste fait à l'écran ce qu'il promet. C'est la même réserve que
+  ce carnet répète depuis le début : un contrôle hors écran n'a jamais valu
+  un vrai clic de souris.
+- **Rien de tout ceci n'est dans l'image.** Écrit dans le dépôt, pas
+  construit, pas redémarré dessus.
+- **`lancer_en_root` n'a jamais été exercé contre un vrai `.desktop` ni un
+  vrai `pkexec`.** Le chemin suit celui des neuf autres gestes root de S,
+  mais celui-ci est neuf et personne ne l'a vu réussir ou échouer en vrai.
+- **Le redémarrage d'Android que `mode-android` déclenche n'a jamais été
+  observé de bout en bout.** Le carnet du 25 août établit que le réglage ne
+  prend qu'au prochain démarrage du conteneur ; personne n'a mesuré CE geste
+  précis (arrêt, puis relance par `s-android`) sur la machine.
+- **Les questions 18 à 40 de l'entretien restent en attente**, inchangées.
+
+---
+
 ## 2026-08-27, 22 h 07 — PC Boost trouve fwupd, la vraie réponse Linux au « téléchargement de pilotes »
 
 Demande de l'utilisateur, après redémarrage sur l'image du soir : « tu peux

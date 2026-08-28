@@ -125,6 +125,18 @@ class Pont(QObject):
     def epingler(self, ident, oui):
         noyau.epingler(ident, oui)
 
+    @Slot(str, result=str)
+    def lancerEnRoot(self, ident):
+        # PAS DE SENS POUR UN FICHIER : un fichier n'a pas de commande a
+        # relancer, seulement un ouvreur que le systeme choisit pour lui.
+        if ident.startswith("fichier:"):
+            return "pas disponible pour un fichier"
+        apps = noyau.inventaire()
+        if ident not in apps:
+            return "inconnue : " + ident
+        ok, dit = noyau.lancer_en_root(apps[ident])
+        return (apps[ident]["nom"] + " (root)") if ok else dit
+
     @Slot(str, float, float)
     def placer(self, ident, x, y):
         x = min(1.0, max(0.0, float(x)))
@@ -302,9 +314,9 @@ class Pont(QObject):
         else:
             fenetre.setMask(QRegion(QRect(largeur - ligne, 0, ligne, hauteur)))
 
-    @Slot(QWindow, int, int, int, int, int)
-    def bornerBarre(self, fenetre, bande, mx, my, mw, mh):
-        """Ne rend sensible que la bande du bas, plus le menu s'il est ouvert.
+    @Slot(QWindow, int)
+    def bornerBarre(self, fenetre, sensible):
+        """Ne rend sensible que les « sensible » pixels du bas de la fenetre.
 
         POURQUOI LA FENETRE EST PLUS HAUTE QUE LA BARRE. Le menu du clic droit
         est un Popup : il est borne a la fenetre qui le contient. Tant que
@@ -325,10 +337,13 @@ class Pont(QObject):
         fenetre qui ne bouge jamais, et un masque qui decide de ce qui prend
         les clics.
 
-        LE MENU DOIT ENTRER DANS LE MASQUE, sinon il s'affiche sans se laisser
-        cliquer : il est dessine au-dessus de la bande, dans la partie que le
-        masque exclut. QML repasse donc son rectangle a chaque ouverture, et
-        des zeros quand il est ferme.
+        POURQUOI UNE SEULE HAUTEUR PLUTOT QUE DEUX RECTANGLES. La premiere
+        version masquait la bande PLUS le rectangle du menu. Le menu se laissait
+        alors cliquer, mais un clic dans le vide entre les deux tombait a la
+        fenetre du dessous : « CloseOnPressOutside » ne partait jamais et le
+        menu restait ouvert jusqu'au changement de fenetre. Releve a l'ecran le
+        2026-08-27. QML demande donc toute la hauteur pendant que le menu est
+        ouvert, et la bande seule le reste du temps.
         """
         if fenetre is None:
             return
@@ -341,12 +356,8 @@ class Pont(QObject):
             return
         if largeur <= 0 or hauteur <= 0:
             return
-        bande = max(1, min(int(bande), hauteur))
-        region = QRegion(QRect(0, hauteur - bande, largeur, bande))
-        if int(mw) > 0 and int(mh) > 0:
-            region = region.united(
-                QRegion(QRect(int(mx), int(my), int(mw), int(mh))))
-        fenetre.setMask(region)
+        sensible = max(1, min(int(sensible), hauteur))
+        fenetre.setMask(QRegion(QRect(0, hauteur - sensible, largeur, sensible)))
 
     @Slot(result=str)
     def dossierBureau(self):
