@@ -382,9 +382,33 @@ ApplicationWindow {
                     // l'utilisateur le 2026-08-26 — « plus du tout
                     // deplacables ». L'etoile reste donc ou la souris l'a mise,
                     // et la prochaine relecture lui rendra une liaison fraiche.
+                    var avantX = modelData.pos.x * ciel.width - diametre / 2;
+                    var avantY = modelData.pos.y * (ciel.height - 70) - diametre / 2;
+                    var dx = nx - avantX, dy = ny - avantY;
+
                     pont.placer(app.id,
                                 (nx + diametre / 2) / ciel.width,
                                 (ny + diametre / 2) / (ciel.height - 70));
+
+                    // DEPLACEMENT EN BLOC — demande de l'utilisateur le
+                    // 2026-08-28 : selectionner plusieurs etoiles ne servait
+                    // a rien tant qu'on ne pouvait pas les deplacer ensemble.
+                    // Celle qu'on glisse porte le delta ; les autres etoiles
+                    // CHOISIES le suivent, comparees par identifiant plutot
+                    // que par reference — un objet JS recree a chaque
+                    // « relire » ne serait jamais « === » a lui-meme.
+                    if (choisi) {
+                        for (var i = 0; i < ciel.children.length; i++) {
+                            var c = ciel.children[i];
+                            if (c.app === undefined || !c.choisi
+                                || c.app.id === app.id) continue;
+                            c.x += dx;
+                            c.y += dy;
+                            pont.placer(c.app.id,
+                                        (c.x + c.diametre / 2) / ciel.width,
+                                        (c.y + c.diametre / 2) / (ciel.height - 70));
+                        }
+                    }
                     liens.requestPaint();
                 }
                 onMenuDemande: function (ex, ey) { menuContextuel.ouvrirPour(app, ex, ey); }
@@ -1326,6 +1350,30 @@ ApplicationWindow {
     }
     Shortcut { sequence: "Escape"; onActivated: menuDemarrer.close() }
 
+    // EFFACER LA SELECTION — demande de l'utilisateur le 2026-08-28, dans le
+    // meme geste que le deplacement en bloc : une selection qui ne sait rien
+    // faire d'autre qu'exister ne sert a rien. Un fichier part a la
+    // corbeille (jamais « rm », voir noyau.corbeille) ; une application
+    // choisie est retiree du bureau, jamais desinstallee — « effacer » un
+    // raccourci n'efface pas le logiciel.
+    Shortcut {
+        sequence: "Delete"
+        onActivated: {
+            var n = 0;
+            for (var i = 0; i < ciel.children.length; i++) {
+                var c = ciel.children[i];
+                if (c.app === undefined || !c.choisi) continue;
+                if (bureau.estUnFichier(c.app.id)) pont.corbeille(c.app.id);
+                else pont.retirerDuBureau(c.app.id);
+                n += 1;
+            }
+            if (n > 0) {
+                bureau.dire(n > 1 ? n + " etoiles retirees" : "etoile retiree");
+                bureau.relire();
+            }
+        }
+    }
+
     // ══ 8. L'AIDE ═════════════════════════════════════════════════════════
     Column {
         anchors.right: parent.right
@@ -1340,8 +1388,9 @@ ApplicationWindow {
             model: [
                 "clic droit  epingler, poser sur le bureau",
                 "double-clic sur une etoile  ouvrir",
-                "glisser une etoile  la deplacer",
+                "glisser une etoile  la deplacer (et les choisies avec elle)",
                 "glisser le fond  selectionner plusieurs etoiles",
+                "Suppr  retirer les etoiles choisies",
                 "N  noms toujours visibles"
             ]
             delegate: Text {

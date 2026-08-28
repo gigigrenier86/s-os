@@ -149,6 +149,12 @@ Item {
         onTapped: function (evenement) {
             var p = astre.mapToItem(null, evenement.position.x, evenement.position.y);
             astre.menuDemande(p.x, p.y);
+            // SANS CECI, LE CIEL RECOIT LE MEME CLIC DROIT JUSTE APRES, ET
+            // OUVRE menuDuFond PAR-DESSUS menuContextuel — releve par
+            // l'utilisateur le 2026-08-28 : « les choix du clic droit sur le
+            // bureau et sur les etoiles sont les memes ». Un TapHandler ne
+            // consomme pas un point par defaut ; il faut le dire.
+            evenement.accepted = true;
         }
     }
 

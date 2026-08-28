@@ -288,6 +288,43 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-28, suite — le clic droit dupliqué, et la sélection qui ne servait à rien
+
+Une autre session travaillait au même moment sur `Barre.qml` (calendrier),
+`BarreLaterale.qml` et `s-constellation` (marges de la poignée) — convenu
+avec l'utilisateur de la laisser terminer. Deux défauts distincts touchés
+en attendant, aucun sur ces trois fichiers.
+
+**1. Le clic droit sur une étoile et sur le fond ouvraient le même menu.**
+Releve par l'utilisateur : « n'a pas de sens ». Cause, dans `Astre.qml` :
+un `TapHandler` ne consomme pas un point par défaut — le clic droit sur une
+étoile atteignait bien `menuContextuel` (via `astre.menuDemande`), mais
+remontait ENSUITE au `TapHandler` du `ciel`, qui ouvrait `menuDuFond`
+par-dessus. Corrigé par `evenement.accepted = true` dans le gestionnaire de
+l'étoile — le piège classique des Pointer Handlers de Qt Quick, aucun des
+deux handlers ne « sait » qu'un autre existe sans qu'on le dise.
+
+**2. La sélection au glissement (posée hier soir) ne faisait rien.**
+L'utilisateur : « fonctionne mais ne sert à rien, je ne peux même pas les
+déplacer en bloc, ou faire supprimer le raccourci ». Deux ajouts dans
+`Constellation.qml` :
+- **Déplacement en bloc** — glisser une étoile CHOISIE déplace toutes les
+  autres étoiles choisies du même delta, comparées par `app.id` (jamais par
+  référence JS, qui ne survit pas à un `relire()`).
+- **`Suppr` retire la sélection** — un fichier part à la corbeille, une
+  application est retirée du bureau (jamais désinstallée : « effacer » un
+  raccourci n'efface pas le logiciel).
+
+« Fusionner » les étoiles reste explicitement hors chantier — l'utilisateur
+l'a nommé comme une fonction future, pas pour ce soir.
+
+Vérifié par le contrôle de construction : scène chargée, zéro
+avertissement. **Rien de tout ceci n'a été cliqué pour de vrai, rien n'est
+dans l'image** — en attente que l'autre session termine avant toute
+construction.
+
+---
+
 ## 2026-08-28 — la barre latérale trouvée coincée ouverte, sur la machine, en direct
 
 L'utilisateur, sur la machine tout juste redémarrée sur `829fc03` : capture à
