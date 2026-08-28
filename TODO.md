@@ -240,8 +240,14 @@ jamais son moteur ».*
 la barre (n'existait pas du tout), « Executer en root » sur une étoile,
 sélection au glissement sur le ciel, réglage Android fenêtré/plein écran.
 Vérifié par le contrôle de construction sur cette machine (scène chargée,
-zéro avertissement, menu de la barre toujours à 9 articles) — **aucun clic
-réel, rien dans l'image.** Voir CLAUDE.md, 2026-08-27, soir.
+zéro avertissement, menu de la barre toujours à 9 articles). **Construit,
+publié, signé et déployé le 2026-08-28** (`44.20260828.829fc03`, machine
+redémarrée dessus, fichiers identiques au dépôt octet pour octet) — la
+construction distante a d'abord échoué deux fois sur un certificat TLS
+expiré côté F-Droid, sans rapport avec ce code, corrigé en route (voir
+l'addendum de CLAUDE.md). **Ce qui manque encore : aucun clic réel** — le
+déploiement est prouvé, pas le geste à l'écran. Voir CLAUDE.md, 2026-08-27,
+soir (et son addendum du lendemain).
 
 ---
 

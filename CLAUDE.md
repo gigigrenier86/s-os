@@ -476,6 +476,35 @@ octets, signature verifiee`, image `96977631325b` construite et amorçable
 (même contrôle que le CI). C'est ce correctif, et seulement lui, qui est
 poussé vers la construction distante suivante.
 
+**Et cette fois la construction distante a réussi.** Run `33146263475` :
+les onze étapes vertes, y compris les deux signatures. Publié, vérifié
+depuis cette machine avec `cosign verify --key /etc/pki/containers/s-os.pub`
+avant même de proposer `bootc upgrade` — signature valide, digest
+`sha256:2463fbc9…`.
+
+**`sudo bootc upgrade` a d'abord semblé n'avoir rien fait** (« rien à
+modifier », rapporté par l'utilisateur) — en réalité il avait déjà réussi la
+première fois : `rpm-ostree status`, sans droits, montrait un déploiement en
+attente portant exactement ce digest, `Diff: 1 upgraded`, pendant que la
+machine tournait encore sur celui de la veille. Il ne restait que le
+redémarrage.
+
+**Éprouvé après coup, sur la machine redémarrée :** `rpm-ostree status`
+confirme `44.20260828.829fc03` bootée (`●`) sur le digest signé.
+`s-constellation` tourne (PID relevé), aucune unité en échec — système et
+session. Les cinq fichiers touchés ce soir sont identiques, octet pour
+octet, entre le dépôt et `/usr` : `Constellation.qml`, `Barre.qml`,
+`noyau.py`, `reglages.py`, `s-constellation`. **C'est la première fois que
+le clic droit des épinglées, « Executer en root », le cadre de sélection et
+le réglage `mode-android` existent ailleurs que dans le dépôt.**
+
+**Ce qui reste vrai malgré tout ça, et qu'il ne faut pas se mentir :**
+aucun de ces gestes n'a encore été cliqué. La preuve ci-dessus est celle
+d'un déploiement réussi, pas celle d'une souris qui a vraiment glissé sur
+le ciel ou d'un clic droit qui a vraiment ouvert un menu sur une épinglée.
+C'est à l'utilisateur de les essayer maintenant, sur la machine, pour de
+vrai.
+
 ---
 
 ## 2026-08-27, 22 h 07 — PC Boost trouve fwupd, la vraie réponse Linux au « téléchargement de pilotes »
