@@ -686,18 +686,23 @@ Window {
             }
 
             readonly property var nomsMois: [
-                "Janvier", "Fevrier", "Mars", "Avril", "Mai", "Juin",
-                "Juillet", "Aout", "Septembre", "Octobre", "Novembre", "Decembre"
+                "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+                "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"
             ]
             readonly property var nomsJours: ["L", "M", "M", "J", "V", "S", "D"]
+            readonly property var nomsJoursCourts: [
+                "lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."
+            ]
 
             // « HH:mm » evite tout depend sur la locale du systeme pour la
             // date affichee en permanence dans la barre — un format ecrit ici
             // une seule fois, jamais devine par Qt.formatDate selon la langue
-            // active.
+            // active. LE MOIS EN TOUTES LETTRES, PAS TRONQUE A TROIS
+            // CARACTERES — l'utilisateur l'a trouvee « incomplete » avec
+            // « aoû » a la place d'« août ».
             function formaterDateCourte(quand) {
-                return String(quand.getDate()).padStart(2, "0") + " "
-                     + nomsMois[quand.getMonth()].substring(0, 3);
+                return nomsJoursCourts[decalageLundi(quand.getDay())] + " "
+                     + quand.getDate() + " " + nomsMois[quand.getMonth()].toLowerCase();
             }
 
             // Lundi = 0 ... Dimanche = 6 : la semaine francaise, pas celle de

@@ -288,6 +288,84 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-28, 14 h 06 — le Voyeur trouve trois vrais défauts dans le correctif d'il y a une heure
+
+Le correctif de 13 h 17 était poussé, construit, déployé — et l'utilisateur
+l'a testé sur la vraie machine. Verdict : la barre latérale se ferme
+maintenant (correctif de l'autre session), mais « les limites de zone
+d'apparition… ont toujours la barre par dessus, en haut, en bas », le
+calendrier ne fait rien, et « la date est pratiquement invisible et
+incomplète ». Rôle Voyeur invoqué — aller photographier les fenêtres réelles
+plutôt que deviner depuis le code.
+
+### Ce que la capture et le journal ont montré, pas supposé
+
+`grimoire/kwin-capturer-la-coquille.sh` sur les deux fenêtres réelles, et le
+journal de la coquille lu en même temps :
+
+```
+file:///usr/share/s/constellation/qml/Barre.qml:669: ReferenceError: popup is not defined
+```
+— quatre fois, une par clic sur l'horloge testé par l'utilisateur.
+
+**Trois défauts, trois causes distinctes, aucune n'était une supposition :**
+
+1. **Le calendrier ne s'ouvrait jamais.** `popup(x, y)` copié du menu voisin
+   (`menuEpinglee`) sans vérifier qu'il s'agit d'une méthode de **`Menu`**,
+   pas de **`Popup`** — ma déclaration `Popup { id: calendrier }` n'a pas
+   cette fonction. Chaque clic jetait une `ReferenceError`, jamais captée,
+   jamais affichée : le clic semblait ne rien faire. Corrigé en posant `x`/`y`
+   puis en appelant `open()`, l'API réelle de `Popup`.
+2. **La colonne déployée couvrait toujours les deux coins.** Le correctif de
+   13 h 17 n'avait borné que la *poignée* d'un pixel — ce qui déclenche
+   l'ouverture. La *colonne visible*, elle (`colonne` dans
+   `BarreLaterale.qml`), gardait `anchors.top/bottom: parent` — pleine
+   hauteur, du premier au dernier pixel, même une fois déployée. Une capture
+   de la fenêtre réelle le montrait sans ambiguïté : les icônes commencent à
+   `y=0`. Corrigé en donnant à `colonne` les mêmes `margeHaut`/`margeBas` que
+   la poignée — ce qu'on ne peut pas déclencher ne doit pas non plus s'y
+   afficher.
+3. **La date était réellement peu visible, et son format vraiment tronqué.**
+   `Theme.texte3` (34 % d'opacité) à 9 px sur fond sombre — la lecture du
+   code confirme le constat de l'utilisateur, ce n'était pas une impression.
+   Et `nomsMois[...].substring(0, 3)` rendait « Aoû » au lieu d'« août » —
+   tronqué sans y avoir été invité. Corrigé : `Theme.texte2` (62 %) à 10 px,
+   mois en toutes lettres, jour de semaine ajouté (« ven. 28 août »).
+
+### Un quatrième défaut, trouvé en corrigeant le troisième — pas cliqué, lu
+
+`anchors.right: parent.right` posé sur les deux `Text` **enfants d'un
+`Column`** ne fait rien : un `Column` positionne ses enfants lui-même, sans
+avertissement s'il ignore une ancre. L'heure et la date, de largeurs
+différentes, se seraient donc alignées à **gauche** l'une sous l'autre plutôt
+qu'à droite, sous l'horloge existante — jamais vu à l'écran par l'utilisateur,
+trouvé en relisant le code pendant la correction du problème de couleur.
+Corrigé en donnant au `Column` une largeur explicite et en alignant chaque
+`Text` par `horizontalAlignment: Text.AlignRight`, plutôt que de lutter
+contre le positionnement du `Column`.
+
+### Éprouvé, dans la mesure où l'outil de ce projet le permet
+
+`verifier-constellation.py`, pointé sur le dépôt : « aucun avertissement »,
+après les quatre correctifs. **Ce qu'il ne teste pas** : le pont de ce
+contrôleur est un leurre, il n'exerce jamais `calendrier.open()` pour de vrai
+ni ne clique sur l'horloge — la preuve que `popup()` plantait vient du
+journal d'une vraie session, pas de cet outil, et c'est délibérément noté ici
+pour ne pas laisser croire le contraire.
+
+### Ce que cette passe ne prouve pas
+
+- **Aucun des quatre correctifs n'a été cliqué pour de vrai** sur la machine
+  après cette réparation — seule la version d'avant l'a été, et c'est elle
+  qui a produit les trois plaintes traitées ici.
+- **Les marges (48 px / 52 px) restent les mêmes valeurs non mesurées à
+  l'écran** qu'à 13 h 17 — seule leur application à `colonne` est neuve, pas
+  leur justesse.
+- **Rien de tout ceci n'est dans l'image** — corrigé dans le dépôt, pas
+  encore construit ni redémarré dessus.
+
+---
+
 ## 2026-08-28, 13 h 17 — la barre latérale gagne ses vrais coins morts, et l'horloge un calendrier
 
 Demande de l'utilisateur, capture d'écran à l'appui : « je veux que les deux
