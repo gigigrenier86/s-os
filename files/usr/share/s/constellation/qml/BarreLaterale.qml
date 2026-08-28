@@ -188,8 +188,15 @@ Window {
     Verre {
         id: colonne
         anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
+        // LES MEMES MARGES QUE LA POIGNEE, CETTE FOIS SUR CE QU'ON VOIT.
+        // Le premier correctif du 2026-08-28 n'avait borne que la ligne d'un
+        // pixel qui declenche l'ouverture — la colonne deployee, elle,
+        // continuait de couvrir les deux coins jusqu'au bord de l'ecran.
+        // Releve par l'utilisateur : « ont toujours la barre par dessus, en
+        // haut, en bas ». Une zone qu'on ne peut pas declencher ne doit pas
+        // non plus s'y afficher.
+        y: laterale.margeHaut
+        height: parent.height - laterale.margeHaut - laterale.margeBas
         width: laterale.largeurBarre
         radius: 0
         // Elle glisse depuis le bord droit : cela dit d'ou elle vient et ou

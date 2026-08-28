@@ -665,10 +665,17 @@ Window {
             onWidthChanged: barre.borner()
 
             function ouvrirPour(ex) {
+                // « popup(x, y) » N'EXISTE QUE SUR « Menu », PAS SUR « Popup ».
+                // Copie du patron de menuEpinglee sans verifier que c'est une
+                // methode de Menu, pas de la classe de base — chaque clic
+                // rendait « ReferenceError: popup is not defined » dans le
+                // journal, jamais ouvert. « Popup » se positionne par ses
+                // propres x/y, puis « open() ».
                 moisAffiche = new Date();
-                popup(Math.max(4, Math.min(barre.width - implicitWidth - 4,
-                                           ex - implicitWidth / 2)),
-                      -implicitHeight - 6);
+                x = Math.max(4, Math.min(barre.width - implicitWidth - 4,
+                                         ex - implicitWidth / 2));
+                y = -implicitHeight - 6;
+                open();
             }
 
             function moisPrecedent() {
@@ -829,25 +836,41 @@ Window {
         // espace qu'occupait l'heure seule.
         Column {
             id: horlogeEtDate
+            // LARGEUR EXPLICITE, PAS DES ANCRES SUR LES ENFANTS — un Column
+            // positionne ses enfants lui-meme (x=0, empiles verticalement) ;
+            // « anchors.right » dessus est ignore en silence, aucun
+            // avertissement pour le dire. C'est la MEME famille de piege que
+            // l'ancrage casse trouve en testant ce correctif : deux enfants
+            // de largeurs differentes se seraient retrouves alignes a
+            // gauche l'un sous l'autre plutot qu'alignes a droite comme
+            // prevu. La largeur se fixe une fois, sur le plus large des deux.
+            width: Math.max(horloge.implicitWidth, dateDuJour.implicitWidth)
             anchors.right: parent.right
             anchors.rightMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 0
+            spacing: 1
 
             Text {
                 id: horloge
-                anchors.right: parent.right
-                color: Theme.texte2
+                width: parent.width
+                horizontalAlignment: Text.AlignRight
+                color: Theme.texte
                 font.family: Theme.policeMono
                 font.pixelSize: 12
                 text: "--:--"
             }
             Text {
                 id: dateDuJour
-                anchors.right: parent.right
-                color: Theme.texte3
+                width: parent.width
+                horizontalAlignment: Text.AlignRight
+                // TEXTE2, PAS TEXTE3 — demande de l'utilisateur le
+                // 2026-08-28 : « la date est pratiquement invisible ». A
+                // 34 % d'opacite (texte3) sur fond sombre, a 9 px, elle
+                // l'etait. texte2 (62 %) et 10 px restent plus discrets que
+                // l'heure sans disparaitre.
+                color: Theme.texte2
                 font.family: Theme.policeMono
-                font.pixelSize: 9
+                font.pixelSize: 10
                 text: "--"
             }
 
