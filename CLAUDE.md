@@ -288,6 +288,96 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-27, 22 h 07 — PC Boost trouve fwupd, la vraie réponse Linux au « téléchargement de pilotes »
+
+Demande de l'utilisateur, après redémarrage sur l'image du soir : « tu peux
+implanter une détection matérielle, téléchargement de pilotes etc, je veux
+que tout fonctionne, que ça soit sur S ou sur windows ». Rôle Wizard invoqué
+à nouveau, modèle Opus.
+
+### Chercher avant d'écrire : la question avait déjà une réponse, maintenue par l'amont
+
+« Téléchargement de pilotes » sous Windows = Windows Update + Catalogue
+Microsoft, ce que `DriverUpdateService` fait déjà. Sous Linux, l'équivalent
+n'est pas à inventer : **`fwupd` est déjà dans l'image de S** (2.1.7, hérité
+de Bazzite), et c'est le mécanisme que tout le bureau Linux utilise pour les
+mises à jour de firmware — BIOS, contrôleurs, disques — via le LVFS (Linux
+Vendor Firmware Service). Vérifié en direct sur cette machine :
+
+```
+fwupdmgr get-devices --json   -> 11 appareils reels : CPU, TPM, SSD WDC SN730,
+                                  Management Engine, quatre regions SPI (BIOS,
+                                  Gigabit Ethernet, IFD, ME)...
+fwupdmgr get-updates          -> « UEFI firmware can not be updated in legacy
+                                  BIOS mode » — la M720q demarre en BIOS
+                                  legacy, pas en UEFI. Aucune mise a jour
+                                  disponible actuellement — code retour 2.
+```
+
+**Une vraie trouvaille au passage, non cherchée :** cette machine démarre en
+BIOS legacy, pas en UEFI — jamais noté nulle part dans ce carnet jusqu'ici.
+Ça n'empêche rien (GRUB démarre très bien en legacy), mais ça explique
+pourquoi le plugin `uefi_capsule` de fwupd, celui qui poserait un vrai BIOS
+à jour, ne s'active pas ici.
+
+### Pourquoi ce n'est PAS entré dans le pont matériel existant
+
+Mesuré avant d'écrire une ligne : le même SSD porte `NVME\VEN_15B7&DEV_5006`
+côté fwupd et `PCI\VEN_15B7&DEV_5006` côté `lspci` (le pont matériel de
+16 h 20). **Deux identifiants différents pour le même disque, jamais le
+même.** Forcer une correspondance entre les deux aurait été deviner, pas
+mesurer — exactement l'erreur que ce carnet punit ailleurs. `fwupd` reste
+donc un pont à part : `outils-linux/pilotes-linux.py`, écrit dans
+`pilotes-linux.json`, jamais fondu dans `linux-materiel.json`.
+
+### Ce qui a été forgé, en suivant le patron déjà éprouvé
+
+- `outils-linux/pilotes-linux.py` — appelle `fwupdmgr get-devices` et
+  `get-updates` en JSON, écrit un relevé propre. **Ne pose jamais rien** :
+  `fwupdmgr update` écrirait un vrai firmware, potentiellement
+  irréversible ; ce script lit, il n'installe jamais.
+- `Models/Drivers/FirmwareReport.cs` — trois `record` neufs
+  (`FirmwareDevice`, `FirmwareUpdateCandidate`, `FirmwareReport`).
+- `Services/Drivers/IFirmwareUpdateService.cs` /
+  `LinuxFirmwareUpdateService.cs` — lit le pont, rend `FwupdPresent=false`
+  proprement si Wine n'est pas détecté ou si le fichier manque.
+- `App.xaml.cs` — un service de plus, à côté de `IDriverUpdateService`,
+  jamais fondu dedans pour la raison des identifiants ci-dessus.
+- `s-pcboost-lancer` gagne un quatrième étage : régénère `pilotes-linux.json`
+  à chaque lancement, même geste que le pont matériel.
+
+### Éprouvé en direct, pas juste compilé
+
+```
+22:07:16  Environnement : Wine détecté — inventaire matériel via le pont Linux.
+22:07:17  VERIF : FirmwareUpdateService = present=True, appareils=11, maj=0
+```
+
+**Le compte est identique à la mesure manuelle** — 11 appareils, 0 mise à
+jour — faite quinze minutes plus tôt directement avec `fwupdmgr`. Le service
+lit exactement ce que la machine sait, rien de plus, rien de moins.
+
+### Ce que cette passe ne prouve pas, et c'est plus large que d'habitude
+
+- **Aucune mise à jour n'a pu être proposée pour de vrai** — cette machine
+  n'en a aucune disponible en ce moment. Le chemin « il y a une mise à jour,
+  l'utilisateur clique, elle s'installe » reste **entièrement non éprouvé**,
+  et il le restera tant qu'un appareil de cette machine n'aura pas de vraie
+  mise à jour à proposer.
+- **Aucune installation de firmware n'est câblée, et c'est voulu.** Ce pont
+  ne fait que lire. Déclencher une vraie écriture de firmware depuis PC
+  Boost — donc depuis Wine, vers `fwupdmgr update`, potentiellement avec
+  authentification polkit — est un chantier à part, pas commencé, et qui
+  mérite sa propre prudence : un firmware mal posé est plus difficile à
+  défaire qu'un pilote Windows.
+- **Aucun écran de PC Boost n'affiche ce relevé.** Le service existe et
+  répond, aucune page ni `ViewModel` ne le consomme encore — même réserve
+  que pour les trois services étendus à 16 h 33.
+- **Rien de tout ceci n'entre dans une construction de S.**
+- **Le dépôt PC Boost n'a reçu aucun commit.**
+
+---
+
 ## 2026-08-27, 16 h 33 — l'extension du pont, et le verdict sur ce qui ne se porte pas
 
 Demande de l'utilisateur : « on étend au max pour que TOUT fonctionne ! ».

@@ -138,6 +138,26 @@ de reprise, tel que confirmé dans la conversation :
    `WmiServiceManager` rend 11 entrées dont 0 présente. Voir CLAUDE.md,
    2026-08-27, 16 h 33. **Aucun écran de PC Boost n'a été regardé** — tout
    passe par le journal.
+2quater. [x] **fwupd, la vraie réponse Linux au « téléchargement de
+   pilotes »** — fait le 2026-08-27 à 22 h 07, demande explicite (« implante
+   une détection matérielle, téléchargement de pilotes... »), rôle Wizard,
+   modèle Opus. `fwupd` était déjà dans l'image (hérité de Bazzite) — pas
+   réinventé, juste ponté : `outils-linux/pilotes-linux.py` lit
+   `fwupdmgr get-devices`/`get-updates`, `LinuxFirmwareUpdateService.cs` le
+   sert à PC Boost. **Ne fonde PAS avec le pont matériel existant** : le SSD
+   porte `NVME\VEN_15B7&DEV_5006` côté fwupd et `PCI\VEN_15B7&DEV_5006` côté
+   `lspci` — deux identifiants pour le même disque, jamais mesurés
+   identiques, donc jamais forcés en une seule correspondance. Éprouvé en
+   direct : le journal de PC Boost confirme 11 appareils, 0 mise à jour —
+   identique à la mesure manuelle par `fwupdmgr`. **Trouvaille au passage :
+   la M720q démarre en BIOS legacy, pas en UEFI**, jamais noté avant.
+   **Ce qui manque, et c'est large :** aucune mise à jour réelle n'existe sur
+   cette machine en ce moment, donc le chemin « clic → installation » n'a
+   jamais pu être éprouvé et ne le sera pas tant qu'un vrai appareil n'a pas
+   de mise à jour à proposer. Rien n'installe de firmware — lecture seule,
+   volontairement, un firmware mal posé étant plus dur à défaire qu'un
+   pilote Windows. Aucun écran de PC Boost n'affiche encore ce relevé. Voir
+   CLAUDE.md, 2026-08-27, 22 h 07.
 3. **Après le redémarrage, revérifier ce qui a été touché ce soir** — RapidO
    (`StartupWMClass` corrigé), PC Boost (lanceur et étoile posés), et la barre
    latérale, tous corrigés dans le dépôt mais mesurés au mieux une fois avant
@@ -148,18 +168,81 @@ de reprise, tel que confirmé dans la conversation :
 
 ---
 
+## Réponses — reprise du 2026-08-27
+
+**11. Usage concret d'Android sur S — quelles applications, quel usage ?**
+> Toutes les applications, Android dispose de plusieurs apps très intéressantes.
+
+*Réflexion : réponse large, sans application précise nommée — ce qui laisse
+les questions 12 et 13 faire le vrai travail de précision (quelles
+applications survivent au glitch d'affichage jamais diagnostiqué, lesquelles
+parmi les 32 déjà installées comptent vraiment au quotidien). Ce qui compte
+déjà : Android n'est pas traité comme un monde annexe ou un test ponctuel ici,
+c'est un usage large — au même titre que RapidO côté Linux (réponse 7). Ça
+confirme la réponse 5 : la valeur de S vient des trois mondes réunis, et
+Android y tient sa vraie place dans l'usage, pas seulement dans
+l'architecture.*
+
+**13. Le Play Store est enregistré, 32 applications installées — il en manque ?**
+> Non mais j'ai installé Cap Player, qui fonctionne et est connecté, mais le
+> menu de recherche est inefficace, je ne vois rien, exactement ce que je ne
+> veux pas.
+
+*Réflexion : rien ne manque au catalogue, mais un défaut concret apparaît —
+Cap Player se connecte et fonctionne, et sa recherche interne ne rend rien.
+Reste à établir si c'est un défaut de l'application elle-même (recherche
+côté serveur cassée) ou un symptôme de l'environnement Waydroid — à vérifier
+plutôt qu'à supposer. Nouveau chantier, jamais listé jusqu'ici.*
+
+**14. Mode fenêtré ou plein écran préféré au quotidien ?**
+> Je préfère avoir le choix.
+
+*Réflexion : ne tranche pas en faveur d'un mode fixe — ça demande un réglage
+accessible. Le carnet du 2026-08-25 a déjà établi que les deux modes sont
+mutuellement exclusifs au niveau de Waydroid (`multi_windows` true/false,
+sans variante intermédiaire), et que changer de mode exige un redémarrage de
+la session Android, pas un simple clic. « Avoir le choix » veut donc dire un
+réglage exposé quelque part (barre latérale ?), pas un choix par
+application.*
+
+**15. Le ciel qui porte des fichiers, le clic droit, la barre latérale — essayés depuis le redémarrage de ce soir ?**
+> Oui, mais le clic droit sur le bureau ou sur les icônes de la constellation
+> donnent le même résultat, rien de pratique, et aucun clic droit ne
+> fonctionne sur les apps épinglées en bas.
+
+*Réflexion : le clic droit existe (posé le 2026-08-25) mais seulement pour le
+bureau lui-même — jamais contextualisé par étoile, et complètement absent sur
+la barre des tâches. C'est exactement le trou que nomme la réponse 16 :
+retirer une étoile, la replacer, l'effacer, l'exécuter en root sont des
+gestes qui devraient dépendre de CE sur quoi on clique, pas d'un menu
+générique répété partout.*
+
+**16. Un geste courant sur un bureau normal qui manque encore à Constellation ?**
+> Clic gauche et glisser pour sélectionner des icônes, clic droit sur les
+> étoiles pour retirer ou placer sur le bureau, effacer, exécuter en root.
+
+*Réflexion : quatre gestes nommés, tous absents aujourd'hui — la sélection
+par glissement (rectangle de sélection), et un clic droit vraiment
+contextuel par étoile (retirer/placer, effacer, exécuter en root) plutôt que
+le menu unique et générique relevé à la réponse 15. Liste de travail
+concrète pour Constellation, pas une plainte vague.*
+
+**17. Le rangement des étoiles (grossir à l'usage, fusionner en amas) — vraiment utile, ou gadget ?**
+> C'est ce qui donne son charme à ce bureau et qui le rend unique.
+
+*Réflexion : verdict net — ce mécanisme n'est pas un gadget à simplifier ou
+retirer, c'est l'identité même de Constellation. À protéger dans tout futur
+chantier sur le bureau, au même titre que la règle « une couture ne montre
+jamais son moteur ».*
+
+---
+
 ## Questions 11 à 40 — en attente, gardées en mémoire pour une prochaine passe
 
 **Android**
-11. Usage concret d'Android sur S — quelles applications, quel usage ?
 12. Le glitch d'affichage jamais diagnostiqué — encore gênant, ou contourné ?
-13. Le Play Store est enregistré, 32 applications installées — il en manque ?
-14. Mode fenêtré ou plein écran préféré au quotidien ?
 
 **Constellation — le bureau**
-15. Le ciel qui porte des fichiers, le clic droit, la barre latérale — essayés depuis le redémarrage de ce soir ?
-16. Un geste courant sur un bureau normal qui manque encore à Constellation ?
-17. Le rangement des étoiles (grossir à l'usage, fusionner en amas) — vraiment utile, ou gadget ?
 18. Constellation doit ressembler à quelque chose de précis, ou son identité actuelle convient ?
 19. La barre latérale à 76px, ses neuf réglages — il en manque un ?
 
@@ -200,4 +283,5 @@ de reprise, tel que confirmé dans la conversation :
 
 ---
 
-*Entretien en pause après 10 questions sur 40 — reprise possible à tout moment.*
+*Entretien en pause après 16 questions sur 40 — reprise possible à tout moment
+(la 12 reste ouverte, voir la note de clarification datée du 2026-08-27).*
