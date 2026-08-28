@@ -429,6 +429,53 @@ exécution de CI »). Sans jeton d'API pour rejouer le run directement
 `--retry-all-errors` lui-même — un vrai changement, pas un prétexte — qui
 sert de second déclencheur.
 
+**Et ce second déclencheur a rerouté vers le même mur.** La construction
+distante a échoué une seconde fois, toujours à « Construire l'image »,
+toujours 7 minutes de podman avant l'échec — donc toujours tard, donc
+probablement le même endroit. `--retry-all-errors` n'a pas suffi, et
+mesurer pourquoi a changé le diagnostic du tout au tout.
+
+**Neuf tentatives d'un seul appel `curl --retry`, toutes identiques.**
+`curl --retry 8 --retry-all-errors` contre `f-droid.org` a échoué neuf fois
+de suite, avec le même message, en onze secondes. Un seul processus curl
+garde sa résolution DNS — ou sa connexion — pour toute la durée de ses
+propres retries : retomber sur le même nœud à chaque fois n'a rien
+d'étonnant, c'est le mécanisme même du retry intra-processus.
+
+**`getent ahosts f-droid.org` a tranché la question au lieu de la deviner :
+six adresses (trois v4, trois v6), sondées une à une avec `curl --resolve` :**
+
+| Adresse | Résultat |
+|---|---|
+| `2a00:c6c0:0:153:3::1` | injoignable depuis cette machine (0 ms) |
+| `2a00:c6c0:0:155:1::1` | injoignable depuis cette machine (0 ms) |
+| `2a01:4f9:3b:546d::2` | injoignable depuis cette machine (0 ms) |
+| `37.218.243.72` | certificat expiré |
+| `37.218.247.73` | certificat expiré |
+| `65.21.79.229` | **valide — et lent** : 12,4 Mo en deux minutes |
+
+**Une boucle de vingt processus séparés — mieux, toujours un tirage au
+sort.** Chaque nouveau `curl` force une résolution neuve, ce qui explique la
+variation observée plus tôt (200 puis 60 sur deux appels consécutifs) — mais
+avec un seul nœud bon sur six, dix-sept échecs de suite restent possibles
+(0,83¹⁷ ≈ 5 %) et ont été mesurés en vrai dans la foulée.
+
+**Le correctif retenu : énumérer, pas tirer au sort.** `telecharger_avec_
+reprises()` liste les adresses avec `getent ahosts` et essaie chacune une
+fois avec `curl --resolve` — les nœuds morts ou au certificat périmé
+échouent en quelques secondes, et le nœud sain, s'il existe parmi les
+adresses connues, est forcément atteint. Un piège de plus s'est révélé en
+mesurant : un `--max-time` trop court (15 s, puis 90 s) coupait le nœud
+sain **avant la fin d'un téléchargement simplement lent** — `--max-time 240`
+lui laisse la place, sans rien changer pour les nœuds morts, qui échouent
+de toute façon en une poignée de secondes.
+
+**Éprouvé en local, la construction complète, avec le journal qui le dit
+lui-même :** `f-droid.org : recupere via 65.21.79.229`, `F-Droid : 12426276
+octets, signature verifiee`, image `96977631325b` construite et amorçable
+(même contrôle que le CI). C'est ce correctif, et seulement lui, qui est
+poussé vers la construction distante suivante.
+
 ---
 
 ## 2026-08-27, 22 h 07 — PC Boost trouve fwupd, la vraie réponse Linux au « téléchargement de pilotes »

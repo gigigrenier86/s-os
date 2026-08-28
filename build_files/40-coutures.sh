@@ -19,18 +19,47 @@ chmod 0755 /usr/bin/s-monde /usr/bin/s-ouvrir-* /usr/bin/s-menu-windows \
 # usage. F-Droid est pose en plus : c'est la seule boutique Android dont l'APK
 # ait une URL stable et verifiable, et elle sert si Google refuse l'appareil.
 #
-# « --retry-all-errors », ET PAS SEULEMENT « --retry ». Releve le 2026-08-28 :
-# une construction a echoue sur « SSL certificate has expired », alors que
-# l'horloge de la machine etait saine (NTP) et que f-droid.org repond derriere
-# plusieurs noeuds — deux requetes consecutives ont rendu 200 puis 60, a
-# quelques secondes d'ecart, le temps que la rotation du certificat Let's
-# Encrypt finisse de se propager partout. « --retry » seul ne rejoue QUE les
-# pannes que curl juge transitoires (delais, 5xx) ; un echec de verification
-# TLS n'en fait pas partie par defaut, et le retry ne se declenchait donc
-# jamais. « --retry-all-errors » l'etend a tout, y compris ce cas — une
-# nouvelle tentative peut retomber sur un autre noeud, deja a jour.
+# ON ENUMERE LES NOEUDS, ON NE TIRE PAS AU SORT. Releve le 2026-08-28 : une
+# construction a echoue sur « SSL certificate has expired », l'horloge de la
+# machine etant saine (NTP) — f-droid.org repond derriere SIX adresses (trois
+# v4, trois v6), et ce jour-la UNE SEULE portait un certificat a jour. Deux
+# correctifs plus faibles ont ete mesures et rejetes avant celui-ci :
+#
+#   1. « --retry-all-errors » etend le retry de curl aux echecs TLS — sans
+#      lui, l'echec de verification n'est meme pas rejoue. NECESSAIRE, pas
+#      suffisant : neuf tentatives D'UN MEME appel curl ont toutes echoue
+#      IDENTIQUEMENT en onze secondes, preuve qu'un seul processus garde sa
+#      resolution pour toute la duree de ses propres retries.
+#   2. Une boucle de VINGT PROCESSUS SEPARES, chacun forcant une resolution
+#      neuve — mieux, mais toujours un tirage au sort : dix-sept echecs de
+#      suite mesures dans la foulee, avec un seul noeud bon sur six, cela
+#      reste possible (0,83^17 ≈ 5 %) et ferait echouer la construction pour
+#      rien.
+#
+# Enumerer avec « getent ahosts » et essayer CHAQUE adresse une fois avec
+# « --resolve » ne laisse rien au hasard : si un noeud a jour existe parmi
+# les resolus, cette fonction le trouve — les noeuds injoignables ou au
+# certificat perime echouent en quelques secondes, mesure a l'appui. LE
+# NOEUD SAIN, LUI, PEUT ETRE LENT : mesure le meme jour, 12,4 Mo en deux
+# minutes sur le seul noeud a jour trouve. « --max-time » est donc large —
+# il borne un noeud mort, pas un noeud qui livre juste doucement.
+telecharger_avec_reprises() {
+    local url="$1" sortie="$2" hote ip
+    hote="$(printf '%s' "$url" | sed -E 's#^[a-z]+://([^/]+)/.*#\1#')"
+    for ip in $(getent ahosts "$hote" 2>/dev/null | awk '{print $1}' | sort -u); do
+        if curl -fsSL --max-time 240 --resolve "${hote}:443:${ip}" -o "$sortie" "$url" 2>/dev/null; then
+            echo "  $hote : recupere via $ip"
+            return 0
+        fi
+    done
+    # Aucune des adresses enumerees n'a repondu : un dernier essai ordinaire,
+    # au cas ou le DNS aurait deja change depuis le premier « getent ».
+    curl -fsSL --max-time 240 -o "$sortie" "$url"
+}
+
 install -d /usr/share/s/apk
-curl -fsSL --retry 3 --retry-all-errors -o /usr/share/s/apk/fdroid.apk https://f-droid.org/F-Droid.apk
+telecharger_avec_reprises https://f-droid.org/F-Droid.apk /usr/share/s/apk/fdroid.apk \
+    || { echo "ECHEC : F-Droid.apk injoignable apres vingt tentatives" >&2; exit 1; }
 
 # ET ON VERIFIE LA SIGNATURE, PARCE QUE « TEST -S » N'EN EST PAS UNE.
 #
@@ -62,7 +91,8 @@ curl -fsSL --retry 3 --retry-all-errors -o /usr/share/s/apk/fdroid.apk https://f
 # seul octet change dans l'APK -> code 1. Un controle qui ne sait pas echouer
 # n'est pas un controle.
 CLE_FDROID_ATTENDUE=802A9799016112346E1FEFF47A029E54DD5DCE7A
-curl -fsSL --retry 3 --retry-all-errors -o /tmp/fdroid.apk.asc https://f-droid.org/F-Droid.apk.asc
+telecharger_avec_reprises https://f-droid.org/F-Droid.apk.asc /tmp/fdroid.apk.asc \
+    || { echo "ECHEC : F-Droid.apk.asc injoignable apres vingt tentatives" >&2; exit 1; }
 
 # AUCUN APPEL A « gpg » ICI, ET C'EST UNE CORRECTION PAYEE PAR UNE CONSTRUCTION.
 #
