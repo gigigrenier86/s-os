@@ -390,6 +390,45 @@ Python des trois fichiers touchés vérifiée par `py_compile`, sans erreur.
   précis (arrêt, puis relance par `s-android`) sur la machine.
 - **Les questions 18 à 40 de l'entretien restent en attente**, inchangées.
 
+### Addendum, la nuit suivante — la construction demandée a d'abord échoué, et ce n'était pas le code
+
+Demande de l'utilisateur : « construis et redémarre pour éprouver ça pour de
+vrai ». Poussé (`34e6d00`), la construction GitHub Actions a échoué à
+l'étape « Construire l'image ». Les journaux d'Actions restent inaccessibles
+sans droits admin (403, comme ce carnet le documente déjà) — reconstruit
+donc en local avec podman, la voie de diagnostic établie.
+
+**Le vrai coupable, mesuré avant d'écrire une ligne :** `build_files/
+40-coutures.sh` tire `F-Droid.apk` par `curl`, et le certificat TLS de
+`f-droid.org` avait expiré à 01:08:57 UTC ce matin-là. L'horloge de la
+machine est saine (NTP, vérifié par `timedatectl`) — ce n'est pas un défaut
+d'ici. F-Droid répond derrière plusieurs nœuds dont la rotation du
+certificat Let's Encrypt n'était pas encore propagée partout : deux requêtes
+`curl` consécutives depuis cette machine ont rendu 200 puis « certificate
+has expired », à quelques secondes d'écart, sur le même domaine.
+
+**Et `--retry 3` ne protégeait pas contre ça, sans que personne s'en soit
+aperçu avant ce soir.** La page de manuel de curl le dit noir sur blanc :
+`--retry` ne rejoue que les pannes qu'il juge *transitoires* (délais, 5xx) —
+un échec de vérification TLS n'en fait pas partie par défaut. Il fallait
+`--retry-all-errors`, absent des deux appels `curl` de ce fichier depuis le
+premier jour. Corrigé sur les deux — l'APK et sa signature détachée.
+
+**Éprouvé en local, deux fois :** premier essai après le correctif, même
+panne (le nœud tiré au hasard était encore mauvais) ; second essai, réussi
+(`65bf9cae500e`), et l'image passe le même contrôle d'amorçabilité que le
+CI (`waydroid-launcher`, `/usr/lib/modules` présents). **Le code du commit
+`34e6d00` était donc bon** — seule la panne externe l'a fait échouer.
+
+Un commit vide pour relancer la construction distante n'a rien déclenché :
+**`paths-ignore` filtre aussi un push à zéro fichier changé**, une variante
+du piège déjà noté le 2026-08-20 (« le premier push d'une branche neuve ne
+déclenche rien », « un commit qui ne touche que la documentation n'a aucune
+exécution de CI »). Sans jeton d'API pour rejouer le run directement
+(`gh` absent, aucun jeton GitHub sur la machine), c'est le correctif
+`--retry-all-errors` lui-même — un vrai changement, pas un prétexte — qui
+sert de second déclencheur.
+
 ---
 
 ## 2026-08-27, 22 h 07 — PC Boost trouve fwupd, la vraie réponse Linux au « téléchargement de pilotes »

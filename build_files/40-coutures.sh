@@ -18,8 +18,19 @@ chmod 0755 /usr/bin/s-monde /usr/bin/s-ouvrir-* /usr/bin/s-menu-windows \
 # Le Play Store arrive avec l'image GAPPS de Waydroid, telechargee au premier
 # usage. F-Droid est pose en plus : c'est la seule boutique Android dont l'APK
 # ait une URL stable et verifiable, et elle sert si Google refuse l'appareil.
+#
+# « --retry-all-errors », ET PAS SEULEMENT « --retry ». Releve le 2026-08-28 :
+# une construction a echoue sur « SSL certificate has expired », alors que
+# l'horloge de la machine etait saine (NTP) et que f-droid.org repond derriere
+# plusieurs noeuds — deux requetes consecutives ont rendu 200 puis 60, a
+# quelques secondes d'ecart, le temps que la rotation du certificat Let's
+# Encrypt finisse de se propager partout. « --retry » seul ne rejoue QUE les
+# pannes que curl juge transitoires (delais, 5xx) ; un echec de verification
+# TLS n'en fait pas partie par defaut, et le retry ne se declenchait donc
+# jamais. « --retry-all-errors » l'etend a tout, y compris ce cas — une
+# nouvelle tentative peut retomber sur un autre noeud, deja a jour.
 install -d /usr/share/s/apk
-curl -fsSL --retry 3 -o /usr/share/s/apk/fdroid.apk https://f-droid.org/F-Droid.apk
+curl -fsSL --retry 3 --retry-all-errors -o /usr/share/s/apk/fdroid.apk https://f-droid.org/F-Droid.apk
 
 # ET ON VERIFIE LA SIGNATURE, PARCE QUE « TEST -S » N'EN EST PAS UNE.
 #
@@ -51,7 +62,7 @@ curl -fsSL --retry 3 -o /usr/share/s/apk/fdroid.apk https://f-droid.org/F-Droid.
 # seul octet change dans l'APK -> code 1. Un controle qui ne sait pas echouer
 # n'est pas un controle.
 CLE_FDROID_ATTENDUE=802A9799016112346E1FEFF47A029E54DD5DCE7A
-curl -fsSL --retry 3 -o /tmp/fdroid.apk.asc https://f-droid.org/F-Droid.apk.asc
+curl -fsSL --retry 3 --retry-all-errors -o /tmp/fdroid.apk.asc https://f-droid.org/F-Droid.apk.asc
 
 # AUCUN APPEL A « gpg » ICI, ET C'EST UNE CORRECTION PAYEE PAR UNE CONSTRUCTION.
 #
