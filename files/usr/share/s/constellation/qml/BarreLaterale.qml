@@ -190,10 +190,16 @@ Window {
         Timer {
             id: fermeture
             interval: 500
-            // On verifie TOUT au declenchement : la souris a pu passer de la
-            // ligne a la colonne, ou de la colonne aux possibilites d'un choix.
+            // ON VERIFIE LE SURVOL, JAMAIS LA VISIBILITE — c'est le defaut
+            // trouve le 2026-08-28 : « !glissiere.visible » ne redevient
+            // jamais vrai une fois la glissiere ouverte (rien dans ce fichier
+            // ne la referme d'elle-meme), donc ce minuteur refusait de fermer
+            // pour toujours des qu'on avait clique une seule jauge. La souris
+            // a pu passer de la ligne a la colonne, ou de la colonne aux
+            // possibilites d'un choix ou d'une glissiere : c'est leur survol
+            // qui doit suspendre la fermeture, pas leur presence a l'ecran.
             onTriggered: if (!survolColonne.hovered && !survolLigne.hovered
-                             && !choix.visible && !glissiere.visible)
+                             && !survolChoix.hovered && !survolGlissiere.hovered)
                              laterale.deploye = false
         }
 
@@ -287,6 +293,7 @@ Window {
         }
 
         HoverHandler {
+            id: survolGlissiere
             onHoveredChanged: if (!hovered && laterale.deploye) fermeture.restart()
         }
 
@@ -384,6 +391,7 @@ Window {
         }
 
         HoverHandler {
+            id: survolChoix
             onHoveredChanged: if (!hovered && laterale.deploye) fermeture.restart()
         }
 

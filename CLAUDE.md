@@ -288,6 +288,35 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-28 — la barre latérale trouvée coincée ouverte, sur la machine, en direct
+
+L'utilisateur, sur la machine tout juste redémarrée sur `829fc03` : capture à
+l'appui, « la petite fenêtre de réglages ne se ferme pas ». Rôle Voyeur.
+
+**Le popup ouvert est la glissière de `BarreLaterale.qml`** (jauge de volume
+90 %, ouverte par un clic sur l'étoile-réglage — `EtoileReglage.qml` :
+`onTapped → glissiereDemandee()`, jamais par survol).
+
+**La boucle fermée, lue dans le code avant tout correctif :** le minuteur
+`fermeture` (500 ms) est la seule route de fermeture, et sa condition
+testait `!glissiere.visible`. Rien dans ce fichier ne remettait
+`glissiere.visible` à `false` de lui-même — seule l'ouverture du panneau
+« choix » (mutuellement exclusif) ou `deploye = false` le faisait, et ce
+dernier dépendait justement de ce test. Une fois une seule jauge cliquée,
+plus aucun survol ne pouvait jamais refermer la barre.
+
+**Corrigé :** la condition teste maintenant le SURVOL de la glissière et du
+panneau « choix » (`survolGlissiere.hovered`, `survolChoix.hovered` — deux
+`HoverHandler` jusque-là anonymes, nommés pour l'occasion), pas leur
+visibilité. Éprouvé par le contrôle de construction sur cette machine :
+scène chargée, zéro avertissement.
+
+**Ce que ça ne prouve pas :** pas encore reconstruit, pas encore redéployé
+— le correctif est dans le dépôt, pas encore sur la machine qui a le
+défaut sous les yeux.
+
+---
+
 ## 2026-08-27, soir — l'entretien reprend, et le clic droit avait un vrai trou
 
 Demande de l'utilisateur : reprendre l'entretien de `TODO.md` (questions 11 à
