@@ -199,6 +199,19 @@ ApplicationWindow {
         TapHandler {
             acceptedButtons: Qt.RightButton
             onTapped: function (evenement) {
+                // UNE ETOILE NE « GARDE PAS LA MAIN » TOUTE SEULE — c'etait
+                // une hypothese, pas une mesure, et elle etait fausse.
+                // Releve par l'utilisateur le 2026-08-28 : le clic droit sur
+                // une etoile ouvrait quand meme ce menu-ci, exactement les
+                // memes options que sur le fond. Ce TapHandler ecoute tout
+                // le ciel, etoiles comprises, puisqu'une etoile est un
+                // DESCENDANT du ciel — « evenement.accepted » sur le
+                // TapHandler de l'etoile ne l'empeche pas de s'activer aussi.
+                // On verifie donc soi-meme ce qu'il y a sous le point, plutot
+                // que de compter sur une consommation d'evenement qui ne
+                // marchait pas.
+                var cible = ciel.childAt(evenement.position.x, evenement.position.y);
+                if (cible && cible.app !== undefined) return;
                 var p = ciel.mapToItem(null, evenement.position.x,
                                        evenement.position.y);
                 menuDuFond.ouvrirA(p.x, p.y);
@@ -207,21 +220,36 @@ ApplicationWindow {
 
         // ── LE GLISSEMENT DE SELECTION, DEMANDE LE 2026-08-27 (reponse 16) ──
         // « clic gauche et glisser pour selectionner des icones », comme sur
-        // n'importe quel bureau. Pose sur le CIEL, jamais sur une etoile : le
-        // DragHandler de chaque Astre (voir Astre.qml) tient le point des
-        // qu'un glissement commence SUR elle, donc celui-ci ne recoit que les
-        // glissements partis du vide — exactement la meme regle que le clic
-        // droit du fond, deux poignees plus haut.
+        // n'importe quel bureau.
+        //
+        // « LES ETOILES GARDENT LA MAIN » ETAIT UNE HYPOTHESE, PAS UNE
+        // MESURE — ET ELLE ETAIT FAUSSE. Trouve le 2026-08-28, apres que
+        // l'utilisateur a mesure le meme defaut sur le clic droit : ce
+        // DragHandler est pose sur « ciel », qui couvre TOUT — y compris les
+        // etoiles, ses descendantes. Un glissement demarre sur une etoile
+        // active donc CE poignee-ci EN MEME TEMPS que le DragHandler de
+        // l'etoile (Astre.qml), et « ciel.choisirDans(null) » videnge la
+        // selection au moment meme ou l'on tente de deplacer un groupe.
+        // Mesure par l'utilisateur : « seulement celle que je deplace
+        // bouge » — la selection etait deja vide quand onDeplacee lisait
+        // « choisi ». On verifie donc explicitement, au depart du
+        // glissement, ce qu'il y a sous le doigt.
         DragHandler {
             id: cadreGlissement
             target: null
             acceptedButtons: Qt.LeftButton
             property point depart: Qt.point(0, 0)
+            // Vrai si CE glissement a demarre sur une etoile : dans ce cas,
+            // toute la logique de selection ci-dessous se tait, au depart
+            // comme a l'arrivee — c'est un deplacement, pas une selection.
+            property bool surUneEtoile: false
             onActiveChanged: {
                 if (active) {
                     depart = centroid.position;
-                    ciel.choisirDans(null);
-                } else {
+                    var cible = ciel.childAt(depart.x, depart.y);
+                    surUneEtoile = cible !== null && cible.app !== undefined;
+                    if (!surUneEtoile) ciel.choisirDans(null);
+                } else if (!surUneEtoile) {
                     ciel.choisirDans({
                         x: Math.min(depart.x, centroid.position.x),
                         y: Math.min(depart.y, centroid.position.y),
@@ -233,7 +261,7 @@ ApplicationWindow {
         }
 
         Rectangle {
-            visible: cadreGlissement.active
+            visible: cadreGlissement.active && !cadreGlissement.surUneEtoile
             x: Math.min(cadreGlissement.depart.x, cadreGlissement.centroid.position.x)
             y: Math.min(cadreGlissement.depart.y, cadreGlissement.centroid.position.y)
             width: Math.abs(cadreGlissement.centroid.position.x - cadreGlissement.depart.x)

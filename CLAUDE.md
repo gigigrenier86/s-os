@@ -366,6 +366,59 @@ propres tous les deux).
 
 ---
 
+## 2026-08-28, encore — mon propre correctif était faux, et c'était la même hypothèse les deux fois
+
+Construit, publié, déployé, redémarré sur `aeb74e5` (groupé avec le
+correctif de l'autre session, calendrier compris). L'utilisateur teste :
+« rien n'a changé », pour les deux défauts de l'entrée précédente.
+
+**Confirmé un par un, pas supposé :**
+1. Sélection au glissement : « oui les icônes font comme tu dis » (grossissent,
+   halo) — la sélection elle-même fonctionne. « Mais si je tente de
+   déplacer, seulement celle que je déplace bouge » — le déplacement en
+   bloc ne fonctionne pas.
+2. Clic droit sur une étoile : « exactement les options du bureau, aucun
+   changement » — `evenement.accepted = true` n'a rien changé.
+
+**La cause commune, trouvée en relisant plutôt qu'en re-essayant à
+l'aveugle :** l'hypothèse écrite dans le commentaire de `Constellation.qml`
+depuis l'ajout du glissement de sélection — « les étoiles gardent la main »
+— n'a jamais été mesurée, seulement supposée par analogie avec le clic
+droit. Et le clic droit lui-même le dément déjà : `ciel.childAt()` n'existe
+pas par magie, mais la logique de propagation des Pointer Handlers de Qt
+Quick ne privilégie pas automatiquement le descendant. Un `TapHandler` (ou
+un `DragHandler`) posé sur `ciel` et un autre posé sur une étoile —
+descendante de `ciel` — écoutent tous les DEUX le même point dès qu'un
+geste démarre sur cette étoile. `evenement.accepted` sur celui de l'étoile
+ne préempte pas celui de `ciel`.
+
+**Ce que ça coûtait, exactement, pour le glissement :**
+`cadreGlissement.onActiveChanged` appelait `ciel.choisirDans(null)` au
+DÉPART de tout glissement sur `ciel` — y compris un glissement démarré sur
+une étoile déjà choisie, pour la déplacer. La sélection était donc vidée à
+l'instant même où l'utilisateur commençait à déplacer le groupe ; par le
+temps où `onDeplacee` lisait `choisi`, elle valait déjà `false`. L'étoile
+glissée bougeait quand même (son propre `DragHandler`, `target: astre`,
+n'a besoin de rien d'autre), ce qui explique exactement « seulement celle
+que je déplace bouge ».
+
+**Le correctif, sur le même patron pour les deux :** vérifier explicitement
+avec `ciel.childAt(x, y)` ce qu'il y a sous le point de départ, plutôt que
+de compter sur une consommation d'événement qui ne marche pas entre
+ancêtre et descendant. Le clic droit du fond se tait si la cible est une
+étoile (`cible.app !== undefined`). Le glissement de sélection gagne une
+propriété `surUneEtoile`, posée une fois au départ du geste, qui fait
+taire toute la logique de sélection (vider, dessiner le cadre, choisir à
+l'arrivée) pour ce glissement-là.
+
+Vérifié par le contrôle de construction : scène chargée, zéro
+avertissement. **Toujours pas cliqué pour de vrai** — c'est un correctif
+sur un correctif qui n'avait jamais été éprouvé à l'écran non plus, et la
+leçon vaut d'être écrite : la première fois, j'ai conclu qu'« accepter »
+l'événement suffisait sans le vérifier sur la machine. Ça ne suffisait pas.
+
+---
+
 ## 2026-08-28, suite — le clic droit dupliqué, et la sélection qui ne servait à rien
 
 Une autre session travaillait au même moment sur `Barre.qml` (calendrier),
