@@ -42,6 +42,24 @@ Window {
     // toujours, sans viser un pixel precis a l'oeil.
     readonly property int epaisseurLigne: 1
 
+    // LA POIGNEE NE COUVRE PLUS TOUTE LA HAUTEUR DE L'ECRAN — demande de
+    // l'utilisateur le 2026-08-27, capture a l'appui : pousser la souris vers
+    // les boutons de fenetre d'une application (coin haut-droit) ou vers
+    // l'horloge de la barre des taches (coin bas-droit) declenchait la barre
+    // laterale sans le vouloir, puisque la poignee de 1 px s'etendait sur
+    // TOUTE la hauteur, y compris ces deux coins.
+    //
+    //   margeHaut  Espace ou une fenetre applicative pose d'ordinaire ses
+    //              boutons (reduire/agrandir/fermer) — coin haut-droit,
+    //              convention de bureau bien etablie, pas une fenetre en
+    //              particulier.
+    //   margeBas   La HAUTEUR EXACTE de la barre des taches (Barre.qml,
+    //              hauteur: 52) : l'horloge y vit, dans le coin bas-droit.
+    //              Meme valeur des deux cotes, jamais recopiee a l'oeil —
+    //              une des deux dériverait sinon sans que l'autre bouge.
+    readonly property int margeHaut: 48
+    readonly property int margeBas: 52
+
     property bool deploye: false
     // Un jeu en plein ecran fait disparaitre la barre ENTIEREMENT. Demande de
     // l'utilisateur, mot pour mot : « apparaissant quand nous ne sommes pas en
@@ -109,8 +127,9 @@ Window {
     Rectangle {
         id: ligne
         anchors.right: parent.right
+        y: laterale.margeHaut
         width: laterale.epaisseurLigne
-        height: parent.height
+        height: parent.height - laterale.margeHaut - laterale.margeBas
         opacity: laterale.deploye ? 0 : 1
         Behavior on opacity { NumberAnimation { duration: 180 } }
 

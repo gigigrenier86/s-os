@@ -288,6 +288,84 @@ c'est la première fois qu'elle tient debout.
 
 ---
 
+## 2026-08-28, 13 h 17 — la barre latérale gagne ses vrais coins morts, et l'horloge un calendrier
+
+Demande de l'utilisateur, capture d'écran à l'appui : « je veux que les deux
+encadrés ne déclenchent PAS la barre latérale et dans celui du bas où il y a
+l'heure, je veux voir la date tout le temps et un calendrier au clic gauche ».
+La capture montrait deux coins entourés en rose — le coin haut-droit (où une
+application pose d'ordinaire ses boutons de fenêtre) et le coin bas-droit
+(où vit l'horloge de la barre des tâches).
+
+### Le mécanisme du défaut, trouvé en lisant avant de corriger
+
+La poignée de la barre latérale (1 px depuis le correctif du 2026-08-26)
+avait `height: parent.height` — **toute la hauteur de l'écran**, du premier au
+dernier pixel. Viser les boutons d'une fenêtre en haut à droite, ou l'horloge
+en bas à droite, traversait donc cette colonne d'un pixel et ouvrait la barre
+latérale sans le vouloir, puisque rien n'excluait ces deux coins.
+
+**Corrigé par deux marges, jamais par un cas particulier** :
+`margeHaut: 48` (l'espace où une fenêtre pose ses boutons — une convention de
+bureau, pas une application précise) et `margeBas: 52` — **exactement** la
+hauteur de `Barre.qml`, lue comme une constante nommée plutôt que recopiée à
+l'œil, pour que les deux ne divergent jamais silencieusement. La poignée
+QML **et** le masque `wl_region` côté Python (`bornerLaterale`, qui lit ces
+deux marges comme il lit déjà `epaisseurLigne`) ont été corrigés ensemble —
+un seul aurait laissé l'autre mentir.
+
+### L'horloge : la date en permanence, et un calendrier écrit à la main
+
+**`Qt.labs.calendar` n'existe pas sur cette image** — vérifié avant d'écrire
+une ligne, `find /usr/lib64/qt6/qml -iname "*calendar*"` ne rend rien. Pas de
+composant à réutiliser ; la grille du mois est donc écrite en QML/JS pur,
+sur le patron déjà éprouvé de `menuEpinglee` — dessinée dans la fenêtre de la
+barre, ouverte vers le haut, bornée par `pont.bornerBarre` (dont la
+condition inclut maintenant `calendrier.visible`).
+
+L'horloge devient une colonne de deux lignes — l'heure, puis la date en
+plus petit, **toujours affichée**, pas seulement au survol. Un clic gauche
+ouvre le calendrier : mois courant, aujourd'hui surligné, navigation par
+flèches. Les noms de mois et de jours sont écrits en dur plutôt que confiés
+à `Qt.formatDate` — ce projet a déjà payé des surprises de format ailleurs
+(le pluriel de « jour » recopié à la main dans la veille des fenêtres), pas
+la peine d'ouvrir la même porte ici.
+
+### Éprouvé, dans les deux sens qui comptaient
+
+Le premier essai du contrôleur de construction (`verifier-constellation.py`,
+pointé sur le dépôt et non sur l'image) a **échoué**, et c'est exactement ce
+qu'il existe pour faire : `QML Row: Cannot anchor to an item that isn't a
+parent or sibling` — en enveloppant l'horloge dans une nouvelle colonne,
+j'avais cassé un ancrage préexistant ailleurs dans le fichier (la liste des
+fenêtres ouvertes, ancrée sur `horloge.left`, qui n'était plus une sœur
+directe). Corrigé en ancrant sur la colonne (`horlogeEtDate.left`) plutôt
+que sur l'élément qu'elle contient désormais. Rejoué : « aucun avertissement ».
+
+Le calcul du calendrier vérifié contre le vrai calendrier de la machine
+(`cal 8 2026`) : le 1er août 2026 tombe un samedi, ISO jour 6 — la formule
+`(getDay() + 6) % 7` rend bien 5 (colonne « sa », zéro-indexée depuis lundi),
+exactement ce que `cal` montre.
+
+Syntaxe Python de `s-constellation` revérifiée (`py_compile` et `ast.parse`,
+propres tous les deux).
+
+### Ce que cette passe ne prouve pas
+
+- **Aucun clic n'a été donné pour de vrai** — ni sur les deux coins qui ne
+  doivent plus déclencher la barre, ni sur l'horloge, ni dans le calendrier.
+  Le contrôleur prouve que la scène charge sans avertissement ; il ne prouve
+  pas qu'un geste à l'écran fait ce qu'il promet — la même réserve que ce
+  carnet répète depuis le début.
+- **Rien de tout ceci n'est dans l'image.** Corrigé dans le dépôt, pas encore
+  construit ni redémarré dessus.
+- **Les marges (48 px en haut, 52 px en bas) sont un choix raisonné, pas
+  mesuré à l'écran** — 52 correspond exactement à `Barre.qml`, 48 est une
+  estimation de la hauteur habituelle des boutons de fenêtre, jamais vérifiée
+  contre une vraie application maximisée.
+
+---
+
 ## 2026-08-28, suite — le clic droit dupliqué, et la sélection qui ne servait à rien
 
 Une autre session travaillait au même moment sur `Barre.qml` (calendrier),

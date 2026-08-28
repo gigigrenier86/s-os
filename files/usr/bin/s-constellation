@@ -303,6 +303,15 @@ class Pont(QObject):
             largeur = int(fenetre.width())
             hauteur = int(fenetre.height())
             ligne = int(fenetre.property("epaisseurLigne") or 5)
+            # LES DEUX COINS SONT EXCLUS DE LA POIGNEE REPLIEE — demande de
+            # l'utilisateur le 2026-08-27, capture a l'appui : le coin
+            # haut-droit (ou une application pose ses boutons de fenetre) et
+            # le coin bas-droit (ou vit l'horloge de la barre des taches,
+            # Barre.qml) declenchaient la barre laterale sans le vouloir.
+            # Lues depuis QML plutot que recopiees ici : deux sources
+            # divergeraient sans que rien ne le signale.
+            marge_haut = int(fenetre.property("margeHaut") or 0)
+            marge_bas = int(fenetre.property("margeBas") or 0)
         except (RuntimeError, TypeError, ValueError) as err:
             print("s-constellation : zone sensible non bornee : %s" % err,
                   file=sys.stderr)
@@ -312,7 +321,9 @@ class Pont(QObject):
         if deploye:
             fenetre.setMask(QRegion(QRect(0, 0, largeur, hauteur)))
         else:
-            fenetre.setMask(QRegion(QRect(largeur - ligne, 0, ligne, hauteur)))
+            hauteur_ligne = max(0, hauteur - marge_haut - marge_bas)
+            fenetre.setMask(QRegion(
+                QRect(largeur - ligne, marge_haut, ligne, hauteur_ligne)))
 
     @Slot(QWindow, int)
     def bornerBarre(self, fenetre, sensible):

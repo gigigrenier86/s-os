@@ -126,7 +126,8 @@ Window {
     function borner() {
         if (typeof pont === "undefined" || !pont || !pont.bornerBarre)
             return;
-        pont.bornerBarre(barre, (menuFenetre.visible || menuEpinglee.visible)
+        pont.bornerBarre(barre, (menuFenetre.visible || menuEpinglee.visible
+                                  || calendrier.visible)
                                 ? barre.height : barre.hauteur);
     }
 
@@ -290,7 +291,7 @@ Window {
             id: ouvertes
             anchors.left: coupure.right
             anchors.leftMargin: 12
-            anchors.right: horloge.left
+            anchors.right: horlogeEtDate.left
             anchors.rightMargin: 12
             anchors.verticalCenter: parent.verticalCenter
             spacing: 6
@@ -646,19 +647,227 @@ Window {
             onTriggered: if (!survolMenuEp.hovered) menuEpinglee.close()
         }
 
-        // ── L'heure ───────────────────────────────────────────────────────
-        Text {
-            id: horloge
+        // ── LE CALENDRIER, AU CLIC SUR L'HORLOGE ────────────────────────────
+        // MEME PATRON QUE « menuEpinglee » : dessine dans la fenetre de la
+        // barre, ouvert vers le haut, borne par « pont.bornerBarre ». Pas de
+        // « Qt.labs.calendar » sur cette image — verifie le 2026-08-27,
+        // aucun module « calendar » sous /usr/lib64/qt6/qml — donc une grille
+        // ecrite a la main, sans dependance neuve.
+        Popup {
+            id: calendrier
+            objectName: "calendrier"
+            property date moisAffiche: new Date()
+
+            onVisibleChanged: barre.borner()
+            onXChanged: barre.borner()
+            onYChanged: barre.borner()
+            onHeightChanged: barre.borner()
+            onWidthChanged: barre.borner()
+
+            function ouvrirPour(ex) {
+                moisAffiche = new Date();
+                popup(Math.max(4, Math.min(barre.width - implicitWidth - 4,
+                                           ex - implicitWidth / 2)),
+                      -implicitHeight - 6);
+            }
+
+            function moisPrecedent() {
+                moisAffiche = new Date(moisAffiche.getFullYear(), moisAffiche.getMonth() - 1, 1);
+            }
+            function moisSuivant() {
+                moisAffiche = new Date(moisAffiche.getFullYear(), moisAffiche.getMonth() + 1, 1);
+            }
+
+            readonly property var nomsMois: [
+                "Janvier", "Fevrier", "Mars", "Avril", "Mai", "Juin",
+                "Juillet", "Aout", "Septembre", "Octobre", "Novembre", "Decembre"
+            ]
+            readonly property var nomsJours: ["L", "M", "M", "J", "V", "S", "D"]
+
+            // « HH:mm » evite tout depend sur la locale du systeme pour la
+            // date affichee en permanence dans la barre — un format ecrit ici
+            // une seule fois, jamais devine par Qt.formatDate selon la langue
+            // active.
+            function formaterDateCourte(quand) {
+                return String(quand.getDate()).padStart(2, "0") + " "
+                     + nomsMois[quand.getMonth()].substring(0, 3);
+            }
+
+            // Lundi = 0 ... Dimanche = 6 : la semaine francaise, pas celle de
+            // JavaScript qui commence le dimanche (getDay() rend 0 pour
+            // dimanche, 1 pour lundi...).
+            function decalageLundi(jourJs) {
+                return (jourJs + 6) % 7;
+            }
+
+            background: Verre {
+                radius: 8
+                implicitWidth: 216
+            }
+
+            contentItem: Column {
+                spacing: 10
+                width: 216 - 24
+
+                // ── En-tete : mois, annee, navigation ───────────────────
+                Row {
+                    width: parent.width
+                    height: 22
+
+                    Text {
+                        text: "‹"
+                        color: Theme.texte2
+                        font.pixelSize: 16
+                        width: 24
+                        horizontalAlignment: Text.AlignHCenter
+                        TapHandler { onTapped: calendrier.moisPrecedent() }
+                    }
+                    Text {
+                        width: parent.width - 48
+                        horizontalAlignment: Text.AlignHCenter
+                        color: Theme.texte
+                        font.family: Theme.police
+                        font.pixelSize: 12
+                        text: calendrier.nomsMois[calendrier.moisAffiche.getMonth()]
+                              + " " + calendrier.moisAffiche.getFullYear()
+                    }
+                    Text {
+                        text: "›"
+                        color: Theme.texte2
+                        font.pixelSize: 16
+                        width: 24
+                        horizontalAlignment: Text.AlignHCenter
+                        TapHandler { onTapped: calendrier.moisSuivant() }
+                    }
+                }
+
+                // ── Jours de la semaine ──────────────────────────────────
+                Row {
+                    width: parent.width
+                    Repeater {
+                        model: calendrier.nomsJours
+                        delegate: Text {
+                            required property string modelData
+                            width: (216 - 24) / 7
+                            horizontalAlignment: Text.AlignHCenter
+                            color: Theme.texte3
+                            font.family: Theme.policeMono
+                            font.pixelSize: 10
+                            text: modelData
+                        }
+                    }
+                }
+
+                // ── La grille des jours ───────────────────────────────────
+                Grid {
+                    width: parent.width
+                    columns: 7
+
+                    Repeater {
+                        // 42 cases = six semaines completes, assez pour tout
+                        // mois quel que soit son premier jour.
+                        model: 42
+                        delegate: Item {
+                            required property int index
+                            readonly property int premierJour: calendrier.decalageLundi(
+                                new Date(calendrier.moisAffiche.getFullYear(),
+                                         calendrier.moisAffiche.getMonth(), 1).getDay())
+                            readonly property int joursDansMois: new Date(
+                                calendrier.moisAffiche.getFullYear(),
+                                calendrier.moisAffiche.getMonth() + 1, 0).getDate()
+                            readonly property int numero: index - premierJour + 1
+                            readonly property bool dansMois: numero >= 1 && numero <= joursDansMois
+                            readonly property bool estAujourdhui: dansMois
+                                && numero === new Date().getDate()
+                                && calendrier.moisAffiche.getMonth() === new Date().getMonth()
+                                && calendrier.moisAffiche.getFullYear() === new Date().getFullYear()
+
+                            width: (216 - 24) / 7
+                            height: 24
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: 20; height: 20
+                                radius: 10
+                                color: estAujourdhui ? Theme.lienVif : "transparent"
+                                visible: dansMois
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: dansMois ? numero : ""
+                                    color: estAujourdhui ? Theme.espace : Theme.texte2
+                                    font.family: Theme.policeMono
+                                    font.pixelSize: 11
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HoverHandler {
+                    id: survolCalendrier
+                    onHoveredChanged: {
+                        if (hovered)
+                            fermetureCalendrier.stop();
+                        else if (calendrier.visible)
+                            fermetureCalendrier.restart();
+                    }
+                }
+            }
+        }
+
+        Timer {
+            id: fermetureCalendrier
+            interval: 900
+            onTriggered: if (!survolCalendrier.hovered) calendrier.close()
+        }
+
+        // ── L'heure ET LA DATE, TOUJOURS LES DEUX ───────────────────────────
+        // Demande de l'utilisateur le 2026-08-27 : « je veux voir la date
+        // tout le temps », pas seulement au clic. Deux lignes compactes —
+        // l'heure au-dessus, la date en dessous, plus petite — dans le meme
+        // espace qu'occupait l'heure seule.
+        Column {
+            id: horlogeEtDate
             anchors.right: parent.right
             anchors.rightMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            color: Theme.texte2
-            font.family: Theme.policeMono
-            font.pixelSize: 12
-            text: "--:--"
+            spacing: 0
+
+            Text {
+                id: horloge
+                anchors.right: parent.right
+                color: Theme.texte2
+                font.family: Theme.policeMono
+                font.pixelSize: 12
+                text: "--:--"
+            }
+            Text {
+                id: dateDuJour
+                anchors.right: parent.right
+                color: Theme.texte3
+                font.family: Theme.policeMono
+                font.pixelSize: 9
+                text: "--"
+            }
+
             Timer {
                 interval: 1000; running: true; repeat: true; triggeredOnStart: true
-                onTriggered: horloge.text = Qt.formatTime(new Date(), "HH:mm")
+                onTriggered: {
+                    var maintenant = new Date();
+                    horloge.text = Qt.formatTime(maintenant, "HH:mm");
+                    dateDuJour.text = calendrier.formaterDateCourte(maintenant);
+                }
+            }
+
+            // UN CLIC GAUCHE OUVRE LE CALENDRIER — demande de l'utilisateur,
+            // meme geste. HoverHandler existe deja partout dans ce fichier
+            // pour le survol ; ici c'est un TapHandler, comme les etoiles et
+            // les epinglees.
+            TapHandler {
+                acceptedButtons: Qt.LeftButton
+                onTapped: calendrier.ouvrirPour(
+                    horlogeEtDate.x + horlogeEtDate.width / 2)
             }
         }
     }
