@@ -35,6 +35,7 @@
 # Ce module ne fait rien en s'important : ni connexion, ni ecriture.
 import os
 import subprocess
+import sys
 import time
 
 import gbinder
@@ -204,36 +205,69 @@ class Plateforme:
 
 # --- se connecter, en attendant ce qu'il faut attendre -----------------------
 
+def _connexion_directe():
+    """Une connexion complete, dans CE processus. None si Android ne repond
+    pas encore. C'est la brique que obtenir() finit toujours par appeler ;
+    la sonde ci-dessous ne fait que decider QUAND l'appeler."""
+    sm = gestionnaire()
+    if not sm.is_present():
+        return None
+    remote, _statut = sm.get_service_sync(NOM_SERVICE)
+    if not remote:
+        return None
+    plateforme = Plateforme(remote)
+    return plateforme if plateforme.pret() else None
+
+
+def _pret_dans_un_processus_neuf():
+    """Vrai si Android repond MAINTENANT — mesure dans un processus JETABLE,
+    jamais dans celui-ci.
+
+    CE QUE LE PREMIER CORRECTIF (reprendre « remote » a chaque tour, voir le
+    commit precedent) N'A PAS REPARE — mesure le 2026-08-29 au soir, sur un
+    second demarrage a froid, APRES ce premier correctif : le meme symptome
+    exact s'est reproduit — bloque dans hrtimer_nanosleep, 0 % CPU, alors
+    qu'une connexion ouverte a cet instant DEPUIS UN AUTRE PROCESSUS
+    repondait instantanement (is_present=True, pret()=True). Le handle
+    « remote » n'etait donc pas seul en cause : « sm » lui-meme
+    (gbinder.ServiceManager, la connexion a /dev/binder) restait cree UNE
+    fois avant la boucle et jamais renouvele.
+
+    L'hypothese la plus probable — jamais confirmee au niveau de gbinder-glib
+    lui-meme, faute d'acces a sa source depuis ce banc — est qu'une longue
+    serie de time.sleep() PYTHON, qui ne fait tourner aucune boucle GLib,
+    laisse la connexion binder du processus se degrader avec le temps. Ce qui
+    EST mesure, en revanche, et qui a tenu toute la soiree sans une seule
+    exception : une connexion neuve, dans un processus qui vient de naitre,
+    a TOUJOURS repondu — presse-papiers et demon d'icones compris, qui eux
+    tournent en continu mais sous une vraie boucle GLib (GLib.MainLoop().run()),
+    jamais sous time.sleep(). Le correctif est donc naif mais eprouve : ne
+    JAMAIS laisser un seul processus dormir-et-retenter en boucle. Chaque
+    sondage est un processus a part, qui nait, verifie, et meurt."""
+    chemin = os.path.dirname(os.path.abspath(__file__))
+    code = (
+        "import sys; sys.path.insert(0, %r); import android_plateforme as ap; "
+        "sys.exit(0 if ap._connexion_directe() else 1)"
+    ) % chemin
+    r = subprocess.run([sys.executable or "/usr/bin/python3", "-c", code],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return r.returncode == 0
+
+
 def obtenir(delai=0.0):
     """La plateforme, ou None si elle n'a pas repondu dans « delai » secondes.
 
-    Trois attentes successives, chacune bornee par le meme delai global :
-    le gestionnaire de services binder (« servicemanager » d'Android, qui
-    n'existe que conteneur en marche), puis le service waydroidplatform
-    (system_server, quelques secondes apres), puis sys.boot_completed —
-    « RUNNING » cote lxc veut dire « /init a demarre », pas « Android repond »
-    (la course mesuree le 2026-08-29 : pm list 3 s apres /init, « Can't
-    find service: package »). Aucun privilege sur tout ce chemin.
-
-    LE HANDLE EST REPRIS A CHAQUE TOUR, JAMAIS GARDE — mesure du 2026-08-29
-    au soir, sur le tout premier demarrage a froid apres redemarrage de la
-    machine. La premiere version resolvait « remote » UNE fois puis
-    reinterrogeait toujours le meme objet Plateforme : un handle obtenu tot
-    dans le demarrage d'Android (avant que system_server ne se stabilise)
-    restait perime pour le reste de l'attente — chaque « pret() » suivant
-    echouait silencieusement (ErreurAndroid capturee, rendu False), et la
-    boucle epuisait tout son delai (240 s) alors qu'une connexion FRAICHE,
-    ouverte au meme instant depuis un autre processus, repondait
-    instantanement. « sm.get_service_sync » coute 0,3 ms mesure : le
-    reprendre a chaque seconde ne coute rien et rend la boucle resiliente
-    a un service qui se (re)enregistre en cours de route."""
+    Deux attentes successives, chacune bornee par le meme delai global : que
+    la sonde jetable dise Android pret (voir _pret_dans_un_processus_neuf),
+    puis une connexion reelle DANS ce processus pour rendre un objet
+    utilisable — prise seulement une fois la sonde positive, donc jamais
+    apres un long sommeil qui aurait pu la faner."""
     fin = time.monotonic() + delai
-    sm = gestionnaire()
     while True:
-        if sm.is_present():
-            remote, _statut = sm.get_service_sync(NOM_SERVICE)
-            if remote and Plateforme(remote).pret():
-                return Plateforme(remote)
+        if _pret_dans_un_processus_neuf():
+            plateforme = _connexion_directe()
+            if plateforme is not None:
+                return plateforme
         if time.monotonic() >= fin:
             return None
         time.sleep(1)

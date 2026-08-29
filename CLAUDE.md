@@ -195,23 +195,88 @@ sondage partageait un handle unique. La veille est bien appliquee
 (`screen_off_timeout = 2147483647`, relu par IPlatform), le marqueur F-Droid
 est intact, 19 lanceurs sont au menu.
 
+### Deuxieme addendum, la meme nuit — le premier correctif etait insuffisant, et la vraie cause etait plus basse
+
+Construction verte (`cbe0331`), signature verifiee, redemarrage : le premier
+correctif d'`obtenir()` (reprendre le handle `remote` a chaque tour) est
+bien entre dans l'image. **Et le meme symptome s'est reproduit a
+l'identique** sur ce second vrai demarrage a froid : `s-android-demarrer.
+service` bloque dans `hrtimer_nanosleep`, 0 % CPU, pendant qu'une connexion
+ouverte au meme instant depuis un processus separe repondait
+instantanement (`is_present=True`, `pret()=True`).
+
+**Le premier correctif visait le mauvais niveau.** Il reprenait `remote`
+(le handle vers le service `waydroidplatform`) a chaque tour, mais `sm`
+(l'objet `gbinder.ServiceManager`, la connexion elle-meme a `/dev/binder`)
+restait cree **une seule fois** avant la boucle et jamais renouvele. Une
+mesure a l'ecran, pendant que le processus etait bloque, l'a confirme : une
+connexion neuve — nouveau `sm` compris — repondait tout de suite depuis un
+autre processus, au meme instant que le processus bloque n'obtenait
+toujours rien.
+
+**L'hypothese retenue, jamais confirmee au niveau de la bibliotheque
+elle-meme** (source de `gbinder-glib` non consultee ce soir) : une longue
+serie de `time.sleep()` Python, qui ne fait tourner aucune boucle GLib,
+laisse la connexion binder du processus se degrader. Ce qui EST mesure,
+sans exception toute la soiree : `android-presse-papiers.py` et
+`android-applications.py`, qui tournent en continu depuis des heures sous
+une vraie `GLib.MainLoop().run()` (jamais sous `time.sleep()`), n'ont
+jamais montre ce symptome — et chaque connexion neuve, dans un processus
+qui vient de naitre, a toujours repondu.
+
+**Le correctif retenu est naif mais eprouve** : `obtenir()` ne retente plus
+dans son propre processus. Chaque tour de sondage lance un **processus
+jetable** (`python3 -c "..."`, sortie ignoree, seul le code de sortie
+compte) qui se connecte, verifie, et meurt — jamais de connexion qui
+survit a un `time.sleep()`. Une fois la sonde positive, une seule connexion
+**reelle**, dans le processus appelant, rend l'objet utilisable — prise
+juste apres le succes de la sonde, donc jamais apres un long sommeil qui
+aurait pu la faner.
+
+**Ce que cette passe ne prouve toujours pas :** que l'hypothese de la
+boucle GLib soit la vraie cause — seulement que le correctif marche.
+Aucune connexion longue-vie-et-retente n'a plus sa place nulle part dans ce
+depot pour parler a Android ; c'est la regle a retenir, la cause exacte
+reste ouverte.
+
+### Troisieme addendum, la meme nuit — plus une seule bulle a l'ouverture de session
+
+Demande explicite de l'utilisateur : « met le chargement de waydroid en
+tache de fond, je ne veux pas le voir du tout ». Releve avant de corriger :
+seule la phrase « Demarrage… » etait dejà gardee derriere
+`[ "$MODE" = "--silencieux" ]` — six autres `s_dire` du meme script
+(reglage de l'affichage, redemarrage pour appliquer les reglages,
+avertissement de depassement du demarrage, echec de la veille, installation
+et echec de F-Droid) pouvaient encore surgir a l'ouverture de session, sans
+qu'aucune d'elles n'ait ete cliquee pour le savoir — un rattrapage au cas
+par cas en aurait fatalement oublie une.
+
+**Un seul point de passage plutot que sept gardes eparses** :
+`_dire_android()`, une fonction locale a `s-android` qui verifie `$MODE` une
+fois et route soit vers `s_dire` (bulle + journal), soit vers le journal
+seul. Les sept appels du script passent desormais par elle. Les echecs
+francs (`s_echec`, sur une machine sans images Android ou un conteneur qui
+ne demarre vraiment pas) restent visibles dans tous les modes — l'utilisateur
+a demande a ne plus voir le *chargement*, pas a ne plus etre prevenu d'une
+vraie panne.
+
 ### Ce que cette passe ne prouve pas
 
 - **Le rappel binder `packageStateChanged` n'a jamais ete vu appele par
   Android** — seule la resynchronisation periodique (30 s) a ete exercee.
   Si le rappel ne vient jamais, une installation depuis « Magasin Android »
   attendra jusqu'a 30 s avant que l'icone apparaisse — mesure a faire.
-- **Le correctif d'`obtenir()` n'a pas encore ete reconstruit dans l'image**
-  — eprouve depuis le depot (`S_LIB`), pas encore sur la machine qui a
-  montre le bogue. Une construction et un `bootc upgrade` de plus sont
-  necessaires pour qu'un vrai demarrage a froid en beneficie.
+- **Le deuxieme correctif d'`obtenir()` (sondage par processus jetable) et
+  le silence complet de `s-android` n'ont pas encore ete reconstruits dans
+  l'image** — eprouves depuis le depot (`S_LIB`) et sur un redemarrage
+  manuel du conteneur (8,6 s), pas encore sur un vrai demarrage a froid de
+  la machine, qui est le seul test qui a fait echouer les deux versions
+  precedentes.
 - **Le Play Store et « Magasin Android » n'ont pas ete recliques depuis ce
   redemarrage.**
 - **La bascule Android et son mode fenetre dans la barre laterale de
   Constellation** (`reglages.py`) ont ete relus et corriges sur le meme
   patron (`--no-ask-password` avant `pkexec`), pas cliques.
-- **Rien de tout ceci n'est dans l'image.** Ecrit et eprouve depuis le
-  depot, pas encore construit ni redemarre dessus.
 - **Le gouffre du telechargement d'Android pour une machine neuve reste
   entier** — inchange par cette passe.
 

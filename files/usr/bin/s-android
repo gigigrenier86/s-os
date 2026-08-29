@@ -34,6 +34,24 @@ LANCEUR="${S_BIN:-/usr/bin}/s-android-lancer"
 [ -x "$LANCEUR" ] || LANCEUR=/usr/bin/s-android-lancer
 MODE="${1:-}"
 
+# EN MODE SILENCIEUX (l'ouverture de session), AUCUNE BULLE — demande de
+# l'utilisateur le 2026-08-29 : « je ne veux pas le voir du tout ». Avant
+# cette fonction, seule la phrase « Demarrage… » etait gardee ; six autres
+# s_dire de ce script (reglage d'affichage, redemarrage, avertissement de
+# depassement, veille, F-Droid) pouvaient encore surgir a l'ouverture de
+# session — un rattrapage au cas par cas aurait fini par en oublier une,
+# exactement le genre de garde disperse que ce depot regrette ailleurs. Un
+# seul point de passage : le journal recoit toujours la phrase
+# (« journalctl --user -u s-android-demarrer » reste le recours), la bulle
+# jamais en mode silencieux.
+_dire_android() {
+    if [ "$MODE" = "--silencieux" ]; then
+        printf '%s — %s\n' "$1" "${2:-}" >&2
+        return 0
+    fi
+    s_dire "$@"
+}
+
 s_verrou android
 
 # --- Premiere utilisation : IL N'Y A PLUS DE TELECHARGEMENT -----------------
@@ -175,7 +193,7 @@ if [ -n "$S_FEN_L" ]; then
     [ "$(s_android_prop_lire persist.waydroid.height)" = "$S_FEN_H" ] || manque=1
 fi
 if [ "$manque" = 1 ]; then
-    s_dire "Android" "Reglage de l'affichage — un mot de passe va etre demande, une seule fois." phone
+    _dire_android "Android" "Reglage de l'affichage — un mot de passe va etre demande, une seule fois." phone
     ANDROID_ETAIT_LA="$(s_android_etat)"
     if [ -n "$S_FEN_L" ]; then
         s_android_prop_ecrire \
@@ -194,7 +212,7 @@ if [ "$manque" = 1 ]; then
     # que s'il tournait deja (sinon la section suivante le demarrera avec le
     # fichier deja a jour, un seul redemarrage au lieu de deux).
     if [ "$ANDROID_ETAIT_LA" = "RUNNING" ]; then
-        s_dire "Android" "Redemarrage pour appliquer les reglages…" phone
+        _dire_android "Android" "Redemarrage pour appliquer les reglages…" phone
         s_android_service restart
     fi
 fi
@@ -211,14 +229,14 @@ fi
 # sans mot de passe ; s_android_service retombe sur pkexec si la regle
 # manque (machine pas encore a jour), comme avant.
 if [ "$(s_android_etat)" != "RUNNING" ]; then
-    [ "$MODE" = "--silencieux" ] || s_dire "Android" "Demarrage…" phone
+    _dire_android "Android" "Demarrage…" phone
     s_android_service start
 fi
 [ "$(s_android_etat)" = "RUNNING" ] || \
     s_echec "Android n'a pas demarre" "Voir : sudo journalctl -u s-android.service"
 
 if ! "$LANCEUR" --attendre 240; then
-    s_dire "Android" \
+    _dire_android "Android" \
 "Le conteneur tourne mais Android n'a pas annonce la fin de son demarrage \
 en 240 s. La suite peut echouer." dialog-warning
 fi
@@ -251,7 +269,7 @@ fi
 # binder lit et ecrit sans privilege : on relit a chaque demarrage, rien a
 # garder cote hote.
 "$LANCEUR" --veille || \
-    s_dire "Android" "La mise en veille d'Android n'a pas pu etre desarmee — le reseau Android pourra tomber apres un gel." dialog-warning
+    _dire_android "Android" "La mise en veille d'Android n'a pas pu etre desarmee — le reseau Android pourra tomber apres un gel." dialog-warning
 
 # --- Poser le magasin, une seule fois PAR JEU DE DONNEES --------------------
 #
@@ -276,7 +294,7 @@ if [ "$(cat "$MARQUE" 2>/dev/null)" != "$EMPREINTE_DONNEES" ]; then
     if "$LANCEUR" --present org.fdroid.fdroid; then
         FDROID_LA=1
     elif [ -f "$APK_MAISON/fdroid.apk" ]; then
-        s_dire "Android" "Installation du magasin F-Droid…" phone
+        _dire_android "Android" "Installation du magasin F-Droid…" phone
         "$LANCEUR" --installer "$APK_MAISON/fdroid.apk" 2>&1 | s_tee "$S_ETAT/android-init.log"
         "$LANCEUR" --present org.fdroid.fdroid && FDROID_LA=1
     fi
@@ -285,7 +303,7 @@ if [ "$(cat "$MARQUE" 2>/dev/null)" != "$EMPREINTE_DONNEES" ]; then
     else
         # Pas de marqueur : le prochain lancement reessaiera, plutot que de
         # croire le travail fait.
-        s_dire "Android" "F-Droid n'a pas pu etre pose cette fois — S reessaiera au prochain lancement." dialog-warning
+        _dire_android "Android" "F-Droid n'a pas pu etre pose cette fois — S reessaiera au prochain lancement." dialog-warning
     fi
 fi
 
@@ -298,7 +316,7 @@ fi
 # et une session qui s'ouvre sur une demande de mot de passe pour Google
 # n'est pas ce qu'on veut. Il attend le premier clic « Play Store ».
 if [ "$MODE" = "--magasin" ] && [ ! -f "$S_ETAT/android-certifie" ]; then
-    s_dire "Play Store" "Google demande a connaitre cet appareil. Un mot de passe va etre demande, une seule fois."
+    _dire_android "Play Store" "Google demande a connaitre cet appareil. Un mot de passe va etre demande, une seule fois."
     s-play-store && touch "$S_ETAT/android-certifie" || true
 fi
 
@@ -314,5 +332,5 @@ case "$MODE" in
             s_echec "Aucun magasin" "Ni le Play Store ni F-Droid ne sont installes dans Android."
         ;;
     --silencieux) ;;
-    *) s_dire "Android" "Android est pret : ses applications sont au menu." phone ;;
+    *) _dire_android "Android" "Android est pret : ses applications sont au menu." phone ;;
 esac
