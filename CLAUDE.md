@@ -44,6 +44,47 @@ lancement).
 
 ---
 
+## 2026-08-29, matin — la construction GitHub a echoue, et deux causes, pas une
+
+**PREUVE :** commit `fb631cf` (celui qui rend le montage SELinux
+reproductible) a echoue en construction — verifie via l'API publique de
+GitHub (`api.github.com/repos/gigigrenier86/s-os/actions/runs`, aucune
+authentification requise, `gh` n'est toujours pas sur cette machine).
+Reproduit et corrige en local avec `podman run` sur l'image de base,
+sans attendre une deuxieme construction distante pour le savoir.
+
+**Cause 1 — `dev-binderfs.mount` n'est PAS une brique independante de
+Bazzite.** Elle est livree PAR le paquet `waydroid` (`rpm -ql waydroid` le
+montrait depuis le debut de la nuit, relu trop vite). `20-android.sh`
+retire le paquet avant que `47-android-selinux.sh` ne verifie la presence
+du fichier — la construction locale a rendu l'erreur en clair : "ECHEC :
+dev-binderfs.mount absent". Corrige en le recopiant comme fichier a nous
+(`files/usr/lib/systemd/system/dev-binderfs.mount`, contenu capture depuis
+l'image de base avant suppression) : trois lignes generiques, rien de
+propre a Waydroid dans son contenu, seulement dans sa provenance.
+
+**Cause 2 — `core.filemode = false` sur ce depot.** `chmod +x` sur les
+scripts avait ete fait sur les copies DEPLOYEES (`/usr/lib/s/...`), jamais
+sur les fichiers du depot (`files/usr/lib/s/...`) avant de les committer —
+et meme la ou ca avait ete fait, ce reglage du depot fait que git IGNORE
+tout changement de mode execute par un `chmod` ordinaire. `git ls-files -s`
+rendait `100644` (pas executable) pour `android-lancer.sh`,
+`android-net.sh` et `android-presse-papiers.py`, silencieusement, sans
+qu'aucun `git status` ne le signale. La seule commande qui marche ici :
+`git update-index --chmod=+x <fichier>`, qui force le mode dans l'index
+independamment du reglage du depot.
+
+**Methode a retenir :** reproduire une panne de construction en local avec
+`podman run` sur l'image de base amont, en rejouant juste les scripts
+touches (`podman exec ... bash /build_files/XX.sh`), est beaucoup plus
+rapide qu'attendre une deuxieme construction distante de dix minutes pour
+voir si le correctif tient — et l'API publique de GitHub Actions donne le
+verdict (`status`, `conclusion`, la liste des etapes) sans qu'aucun droit
+admin ne soit necessaire, seul le telechargement des journaux bruts
+l'exige (`403 Must have admin rights`).
+
+---
+
 ## 2026-08-28, fin de nuit — le "pont input" n'a jamais existé a construire, et le test ultime passe
 
 **PREUVE :** Mike s'est connecté a son vrai compte Google dans le Play Store,
