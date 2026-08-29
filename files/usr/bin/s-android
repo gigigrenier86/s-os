@@ -233,13 +233,40 @@ fi
 # s-android.service lui-meme, pas ce script, porte lxc-start — rien de ce
 # geste ne reste attache au verrou de « s_verrou android » au-dela de la
 # duree normale de CE script.
+#
+# DEMARRER ET ATTENDRE QU'ANDROID SOIT PRET, DANS UNE SEULE ELEVATION.
+#
+# LA COURSE, MESUREE LE 2026-08-29 SUR LA MACHINE FRAICHEMENT REDEMARREE :
+# conteneur lance a 14:29:33, « pm list packages » a 14:29:36 — trois
+# secondes plus tard, avant que le gestionnaire de paquets d'Android
+# n'existe (« cmd: Can't find service: package » au journal). Le geste a
+# conclu « F-Droid absent », tente une reinstallation trop tot elle aussi,
+# et ecrit son marqueur quand meme. « RUNNING » cote lxc veut dire « /init
+# a demarre », pas « Android est utilisable » ; le seul temoin fiable est
+# « sys.boot_completed », qui ne se lit que dans le conteneur, donc en root.
+#
+# On le lit donc dans LA MEME elevation que le demarrage : un seul mot de
+# passe pour les deux, et tout ce qui suit (pm, settings, appops, am start)
+# trouve un Android qui repond.
 if [ "$(s_android_etat)" != "RUNNING" ]; then
     s_dire "Android" "Demarrage…" phone
-    s_root systemctl start s-android.service
-    for _ in $(seq 1 60); do
-        [ "$(s_android_etat)" = "RUNNING" ] && break
-        sleep 2
-    done
+    s_root --limite 240 /usr/bin/sh -c '
+        systemctl start s-android.service || exit 1
+        for _ in $(seq 1 100); do
+            pret="$(lxc-attach -P /var/lib/waydroid/lxc -n android -- \
+                    getprop sys.boot_completed 2>/dev/null | tr -d "\r")"
+            [ "$pret" = "1" ] && exit 0
+            sleep 2
+        done
+        exit 2
+    '
+    case $? in
+        0) ;;
+        2) s_dire "Android" \
+"Le conteneur tourne mais Android n'a pas annonce la fin de son demarrage \
+en 200 s. La suite peut echouer." dialog-warning ;;
+        *) : ;;   # echec du start : la verification ci-dessous le dira
+    esac
 fi
 
 [ "$(s_android_etat)" = "RUNNING" ] || \
@@ -359,10 +386,20 @@ fi
 DONNEES_ANDROID="$HOME/.local/share/waydroid/data"
 EMPREINTE_DONNEES="$(stat -c %i "$DONNEES_ANDROID" 2>/dev/null || echo aucune)"
 if [ "$(cat "$MARQUE" 2>/dev/null)" != "$EMPREINTE_DONNEES" ]; then
-    if [ -f "$APK_MAISON/fdroid.apk" ] && \
-       ! s_android_dans pm list packages 2>/dev/null | grep -q 'org\.fdroid\.fdroid'; then
+    # LE MARQUEUR NE S'ECRIT QUE SI F-DROID EST REELLEMENT LA A LA FIN — pas
+    # parce qu'on est passe par ici. Le 2026-08-29 le bloc a ecrit son
+    # marqueur apres une reinstallation lancee trop tot et echouee (voir la
+    # course plus haut) : « pose » sans rien de pose.
+    FDROID_LA=0
+    if s_android_dans pm list packages 2>/dev/null | grep -q 'org\.fdroid\.fdroid'; then
+        FDROID_LA=1
+    elif [ -f "$APK_MAISON/fdroid.apk" ]; then
         s_dire "Android" "Installation du magasin F-Droid…" phone
-        s_android_installer "$APK_MAISON/fdroid.apk" 2>&1 | s_tee "$S_ETAT/android-init.log" || true
+        # tee depuis CE shell (jamais une redirection donnee a lxc-attach), et
+        # le verdict se lit dans la sortie de pm : « Success », rien d'autre.
+        SORTIE_INSTALL="$(s_android_installer "$APK_MAISON/fdroid.apk" 2>&1 \
+                          | tee -a "$S_ETAT/android-init.log")"
+        case "$SORTIE_INSTALL" in *Success*) FDROID_LA=1 ;; esac
     fi
 
     # AUTORISER F-DROID A INSTALLER, PAR AVANCE.
@@ -384,13 +421,18 @@ if [ "$(cat "$MARQUE" 2>/dev/null)" != "$EMPREINTE_DONNEES" ]; then
     # cette application ? », dessinee par le meme composant. Le chemin qui
     # n'ouvre aucune boite du tout est « Magasin Android » (s-magasin-android),
     # qui installe depuis l'hote.
-    s_android_dans cmd appops set org.fdroid.fdroid \
-        REQUEST_INSTALL_PACKAGES allow 2>&1 | s_tee "$S_ETAT/android-init.log" || \
-        s_dire "Android" \
+    if [ "$FDROID_LA" = 1 ]; then
+        s_android_dans cmd appops set org.fdroid.fdroid \
+            REQUEST_INSTALL_PACKAGES allow 2>&1 | s_tee "$S_ETAT/android-init.log" || \
+            s_dire "Android" \
 "F-Droid n'a pas pu recevoir l'autorisation d'installer. Utiliser plutot \
 « Magasin Android », qui installe sans passer par Android." dialog-warning
-
-    printf '%s\n' "$EMPREINTE_DONNEES" > "$MARQUE"
+        printf '%s\n' "$EMPREINTE_DONNEES" > "$MARQUE"
+    else
+        # Pas de marqueur : le prochain lancement reessaiera, plutot que de
+        # croire le travail fait.
+        s_dire "Android" "F-Droid n'a pas pu etre pose cette fois — S reessaiera au prochain lancement." dialog-warning
+    fi
 fi
 
 # --- Le Play Store : une seule declaration, imposee par Google --------------

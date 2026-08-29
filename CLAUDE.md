@@ -120,6 +120,23 @@ appliquee au seul endroit du code neuf qui redirigait
   disparait sans regression : il n'avait jamais rien fait, et le mecanisme
   qui l'aurait lu n'existe plus.
 
+**Addendum, 14 h 35 — eprouve depuis l'IMAGE, et une course de plus.**
+Construction verte (`652b5a5`), signature verifiee, `rpm-ostree upgrade`
+puis redemarrage : binderfs a `0666` des le premier demarrage (la reserve
+de midi tombe), les cinq fichiers identiques entre depot et `/usr`, et
+l'utilisateur a clique « Android » depuis l'image — accueil rendu, capture
+`android-image.png`. La chronologie pkexec de ce clic a montre une COURSE :
+conteneur lance a 14:29:33, `pm list packages` a 14:29:36, trois secondes
+plus tard — « Can't find service: package », « F-Droid absent » conclu a
+tort, reinstallation trop tot, marqueur ecrit quand meme. « RUNNING » cote
+lxc veut dire « /init a demarre », pas « Android repond ». Corrige : le
+demarrage et l'attente de `sys.boot_completed` tiennent dans UNE elevation,
+et le marqueur ne s'ecrit que si F-Droid est reellement la. Remesure a
+froid : `pm list` 19 s apres le start, apres boot_completed, zero erreur ;
+et `s-play-store` a tourne pour de vrai en chemin (marqueur absent) — sa
+requete sqlite par `lxc-attach` a rendu l'identifiant Google. Il ne reste
+rien de « non rejoue » dans la liste ci-dessous, sauf ce qui est un chantier.
+
 **Ce que cette passe ne prouve pas :**
 
 - **Une machine NEUVE ne peut plus obtenir Android du tout.** `waydroid init`
@@ -132,9 +149,8 @@ appliquee au seul endroit du code neuf qui redirigait
   (AppsService) qui posait un `.desktop` par installation est parti avec le
   paquet. `s-magasin-android` ouvre desormais l'application juste apres
   l'avoir installee, mais rien ne survit dans le menu. Chantier a part.
-- **`s-play-store` n'a pas ete rejoue** (marqueur `android-certifie` en
-  place) — son mecanisme est le meme `s_android_dans sh -c` eprouve
-  ailleurs, mais sa requete sqlite precise n'a pas retourne sur cette passe.
+- ~~**`s-play-store` n'a pas ete rejoue**~~ — rejoue a 14 h 34, identifiant
+  rendu (voir l'addendum).
 - **La bascule et le mode d'affichage de la barre laterale** (`reglages.py`)
   sont reecrits et leurs fonctions de lecture mesurees en direct
   (`_android()` → RUNNING sur le conteneur vivant, `_mode_android()` lit le
