@@ -1,0 +1,18 @@
+[Unit]
+Description=S - Android natif (lxc-start minimal, sans l'outillage Waydroid)
+Documentation=man:lxc-start(1)
+# Meme rootfs et meme /data que waydroid-container.service (voir
+# android-lancer.sh) : les deux ne doivent JAMAIS tourner en meme temps, ils
+# s'ecriraient dessus et se disputeraient le role de gestionnaire de contexte
+# binder. Conflicts= fait arreter l'un quand l'autre demarre.
+Conflicts=waydroid-container.service
+Wants=dev-binderfs.mount
+After=dev-binderfs.mount
+
+[Service]
+# UNE SEULE ligne ExecStart=, volontairement : voir l'entete de
+# android-lancer.sh pour la raison SELinux (waydroid_exec_t n'est mappe que
+# sur ce fichier, une ligne ExecStartPre= separee retomberait en init_t et
+# perdrait le droit d'executer waydroid-net.sh / lxc-start).
+ExecStart=/usr/lib/s/android-lancer.sh
+UMask=0022

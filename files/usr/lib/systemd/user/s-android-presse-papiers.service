@@ -1,0 +1,12 @@
+[Unit]
+Description=S - presse-papiers Linux <-> Android
+Documentation=man:python3(1)
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/lib/s/android-presse-papiers.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

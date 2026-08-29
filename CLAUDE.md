@@ -44,6 +44,316 @@ lancement).
 
 ---
 
+## 2026-08-28, fin de nuit — le "pont input" n'a jamais existé a construire, et le test ultime passe
+
+**PREUVE :** Mike s'est connecté a son vrai compte Google dans le Play Store,
+sous `s-android.service`, clavier et souris compris — sans qu'une seule ligne
+de code d'entree n'ait ete ecrite ce soir.
+
+**Correction d'une hypothese tenue toute la soiree.** Les « trois ponts »
+nommes au debut (Init/Zygote, Graphique, Input) n'en etaient reellement que
+deux a construire. Le pont graphique (`hwcomposer.waydroid.so`, a l'interieur
+de `system.img`, jamais touche — un des "depots utiles" que Mike a demande de
+garder) parle le protocole Wayland complet, pas seulement l'affichage :
+clavier et souris en font partie de base, au meme titre que les surfaces de
+rendu. En gardant cette bibliotheque intacte plutot que de la remplacer, le
+pont input est venu gratuitement avec le pont graphique. Rien a batir la —
+juste ne pas casser ce qui etait deja la.
+
+**Bilan de la nuit, dans l'ordre :**
+1. `s-android.service` (lxc-start direct, domaine SELinux `s_android_t`
+   renomme depuis `waydroid_t`) fait booter Android en entier.
+2. Le presse-papiers a ete porte (`android-presse-papiers.py`), verifie
+   depuis Android.
+3. `waydroid`/`waydroid-selinux` retires (`rpm-ostree override remove`,
+   pose, en attente d'un redemarrage).
+4. Un vrai test a froid : donnees Android entierement effacees, redemarrage,
+   Play Store et les services Google presents nativement (image GAPPS),
+   aucune app tierce reinstallee.
+5. Bug reseau trouve et corrige : `dnsmasq` mourait a chaque arret du
+   service (meme cgroup que `lxc-start`), le fichier temoin de
+   `android-net.sh` survivait dans `/run` et faisait sauter le vrai
+   redemarrage du DHCP au tour suivant — corrige en verifiant le PID du
+   processus, pas seulement l'existence du fichier.
+6. La fenetre systeme generique d'Android (classe exacte `Waydroid`) est
+   retiree de la barre des taches/Alt-Tab/pager (`skiptaskbar`+`skipswitcher`+
+   `skippager`, Force) — KWin ne permet pas de forcer un titre ni une icone
+   apres coup, seulement de filtrer dessus, mesure a plusieurs reprises.
+7. Mike s'est connecte a son compte Google — la preuve finale, et elle n'a
+   demande aucun code d'entree.
+
+---
+
+---
+
+## 2026-08-28, nuit — Android tourne sous s-android.service, Waydroid n'est plus dans l'image
+
+**PREUVE :** le 2026-08-28 vers 23h, `s-android.service` (root, `lxc-start` direct)
+a fait booter Android en entier — `zygote`/`zygote64`/tous les HAL confirmés
+par `ps -A` dans le conteneur — et une vraie capture d'écran a montré le
+clavier Android rendu par Constellation. Le pont presse-papiers a été porté
+(`android-presse-papiers.py`, service utilisateur) et vérifié : `service list`
+depuis Android montre `waydroidclipboard: [lineageos.waydroid.IClipboard]`
+sans qu'aucun code du paquet `waydroid` ne tourne. `rpm-ostree override remove
+waydroid waydroid-selinux` est posé (attend un redémarrage).
+
+**Ce qui a fait marcher `s-android.service`, dans l'ordre où les murs sont
+tombés — utile si ça recasse :**
+
+1. **`lxc-start` reste le moteur**, jamais `systemd-nspawn` : le module
+   SELinux de Waydroid transitionne `lxc-start` vers `container_runtime_t`
+   (binder/dma/graphics deja autorises) ; `systemd-nspawn` n'a aucune
+   transition dediee, verifie via `seinfo -t`.
+2. **Une seule ligne `ExecStart=`, jamais plusieurs `ExecStartPre=`.**
+   `waydroid_exec_t` (devenu `s_android_exec_t`) n'est mappe que sur UN
+   fichier ; chaque ligne `Exec*=` separee est relancee par `init_t`, qui n'a
+   pas le droit d'entrer dans ce domaine. D'ou `android-lancer.sh` : un seul
+   script qui prepare, appelle le pont reseau, puis `exec lxc-start`.
+3. **`find`/readdir sur `/run/user/1000` est refuse** au domaine
+   (`userdom_search_user_tmp_dirs` donne "search", pas "read") — on teste des
+   noms de socket connus (`wayland-0`, `wayland-1`) au lieu de lister le
+   dossier.
+4. **`/var/lib/waydroid/rootfs` est un squelette vide** tant que `system.img`
+   et `vendor.img` ne sont pas montes (+ overlay `system`/`vendor`) — c'est
+   `tools/helpers/images.py::mount_rootfs()` qui le fait chez Waydroid, jamais
+   appele puisqu'on saute son Python. Traduit en `mount(8)` direct dans
+   `android-lancer.sh`.
+5. **Toujours repartir d'un rootfs demonte** (`umount -R` en tete de script)
+   plutot que de deviner l'etat avec `mountpoint -q` : un overlay monte deux
+   fois sur lui-meme rend "bad superblock".
+6. **`waydroid.prop` existe deja** dans `vendor.img` (place-holder de 19
+   octets) — pas de `touch` avant le bind, l'overlay vendor est en lecture
+   seule.
+
+**Le module SELinux `s_android` (voir `files/usr/share/selinux/s-android/`)**
+est une renomination mecanique de `waydroid.te` (`sed s/waydroid/s_android/g`)
+— memes regles, domaine a nous. Compile avec
+`selinux-policy-devel`/`checkpolicy` (installes en overlay `/usr` transitoire
+pour ce soir, **pas encore dans le Containerfile**).
+
+**Ce qui reste, et ce n'est pas cosmetique :**
+
+- **Le Containerfile ne construit pas encore ce chantier.** Tout ce soir a
+  ete fait en direct sur la machine (`bootc usr-overlay`, copies a la main).
+  `build_files/20-android.sh` installe et verifie encore l'ancien Waydroid ;
+  il faut le reecrire pour construire `s_android.pp` a l'image et deployer
+  `android-lancer.sh`/`android-net.sh`/`android-presse-papiers.py` depuis
+  `files/`. Sans ca, le prochain `bootc upgrade` qui tire une image
+  fraichement construite **peut faire revenir Waydroid** — l'override
+  `rpm-ostree` posé ce soir n'est pas garanti de survivre a une image
+  entierement neuve.
+- **Pont 3 (input) non commence.**
+- **Pas d'arret propre** dans `android-lancer.sh` : les montages
+  `system.img`/`vendor.img` restent actifs si le service s'arrete mal
+  (`umount -R` en tete de script les nettoie au demarrage suivant, mais rien
+  ne les demonte a l'arret).
+- **Renommage visuel fait a moitie** : la fenetre systeme generique
+  (`wmclass=Waydroid`) est forcee vers le titre « S » via `regles-kwin.py`,
+  mais seulement pour une fenetre qui n'existe pas encore — celle deja
+  ouverte au moment de la regle garde son ancien titre jusqu'a sa prochaine
+  ouverture. Les fenetres d'applis gardent leur vrai nom (YouTube reste
+  YouTube), par choix explicite de Mike.
+
+---
+
+## 2026-08-28, tard le soir — Mike veut retirer LXC de Waydroid, et la source dit pourquoi ce pont n'existe pas comme il le croit
+
+Changement de cap de Mike : au lieu d'utiliser le noyau natif déjà en place
+(entrée précédente), il veut maintenant que S se passe de Waydroid *comme
+gestionnaire*, jugé responsable d'avoir cassé le clavier et la résolution et
+d'avoir coûté du temps sur YouTube. Objectif annoncé : trois ponts à isoler —
+(1) lancement Init/Zygote directement par `systemd`, sans LXC ; (2) pont
+graphique (gralloc → Wayland) géré nativement par Constellation ; (3) pont
+input (`evdev` → Android) « hardcodé » sans passer par la config Waydroid.
+
+**Sur le pont 1, la source de Waydroid elle-même referme la piste telle que
+posée.** `/usr/lib/waydroid/tools/helpers/lxc.py`, fonction `start()` :
+
+```python
+command = ["lxc-start", "-P", tools.config.defaults["lxc"],
+           "-F", "-n", "waydroid", "--", "/init"]
+```
+
+**Zygote ne dépend déjà de rien qui vienne de LXC ou de Waydroid.** Une fois
+`/init` lancé, c'est `init.rc` d'Android lui-même — livré par l'image système
+Android, pas par Waydroid — qui démarre Zygote. « Faire démarrer Zygote sans
+LXC » n'est donc pas une extraction à faire : Zygote démarre déjà tout seul.
+Ce que LXC fournit, et que retirer LXC obligerait à reconstruire ailleurs,
+c'est visible dans `generate_nodes_lxc_config()` du même fichier : près de 40
+points de montage (binder/hwbinder/vndbinder, `/dev/ashmem`, les nœuds GPU,
+`/dev/fb*`, le socket Wayland de la session, le socket Pulse, les données
+utilisateur, les permissions vendor…) **dans un espace de noms de montage et
+un espace de noms PID privés**, plus un profil AppArmor (`lxc-waydroid`) et un
+profil seccomp dédiés.
+
+**Pourquoi ces deux espaces de noms ne sont pas une option.** L'`init`
+d'Android suppose être PID 1 de son propre arbre de processus, avec son
+propre `/proc`, sa propre hiérarchie de cgroups, et son propre point de
+montage racine construit sur mesure par les ~40 entrées ci-dessus. Le PID 1
+de la machine, c'est déjà `systemd`. Deux `init` ne peuvent pas être PID 1 du
+même espace de noms — il faut un espace de noms PID séparé pour que `/init`
+d'Android s'y croie seul. **Retirer LXC ne retire donc pas une couche
+d'isolation superflue : ça retire l'espace de noms sans lequel `/init`
+d'Android ne peut pas tourner du tout**, sauf à réécrire cet `init` — projet
+sans rapport avec « le sortir du conteneur ».
+
+**Ce qui est vraiment séparable, et c'est la bonne reformulation du chantier :**
+remplacer l'outillage Python de Waydroid (`lxc-start`/`lxc-attach`, écriture de
+fichiers `.cfg` LXC) par un service `systemd` qui fait le même `unshare`
+mount+pid directement (`systemd-nspawn` fait déjà exactement ça, en plus
+minimal que LXC) — ce n'est pas « zéro conteneur », c'est « un conteneur plus
+petit, tenu par `systemd` plutôt que par le démon `lxc` et le script Python de
+Waydroid ». C'est un chantier réel ; « Zygote sans isolation du tout » n'en
+est pas un.
+
+**Pas encore regardé :** le pont graphique (`hwcomposer.waydroid.so`, déjà
+partiellement documenté plus bas dans ce carnet) et le pont input (aucune
+référence à `uinput`/`evdev`/`/dev/input` trouvée dans `/usr/lib/waydroid/` —
+`grep -rl` y rend vide, donc soit ce pont vit ailleurs, soit Waydroid ne fait
+pas de traduction input du tout et compte sur les nœuds `/dev/input`
+directement visibles dans le conteneur — hypothèse non vérifiée).
+
+**La mesure qui trancherait la suite :** `find / -xdev -iname '*.so' -exec sh
+-c 'nm -D {} 2>/dev/null | grep -qi uinput && echo {}' \;` limité à
+`/usr/lib/waydroid` et au rootfs Android, pour trouver qui, côté Waydroid ou
+côté Android, ouvre réellement les nœuds `/dev/input`.
+
+---
+
+## 2026-08-28, soir — le Wizard cherche le noyau à recompiler pour binder/ashmem/PSI, et deux des trois existent déjà
+
+Mike voulait recompiler nativement binder, ashmem et PSI pour s'affranchir d'un
+conteneur comme Waydroid. La recherche déplace le problème plus qu'elle ne le
+résout : deux des trois cibles sont déjà des réglages actifs du noyau qui
+tourne, pas des modules à construire — et ce carnet définissait déjà Waydroid
+comme non-émulé dès sa première section (lignes 22-24 : « Android *est* Linux,
+son espace utilisateur partage le noyau hôte »). Binder et PSI *sont* déjà
+cette couche native.
+
+**Hypothèse — binder est compilé en dur (`=y`) dans `7.2.0-ogc6.1.fc44`, pas en
+module : rien à recompiler.**
+*Source :* `/usr/lib/modules/$(uname -r)/config` sur cette machine, lu le
+2026-08-28 : `CONFIG_ANDROID_BINDER_IPC=y`, `CONFIG_ANDROID_BINDERFS=y`.
+*Ce que ça impliquerait ici :* « recompiler binder en module » n'a pas de
+cible — il faudrait recompiler le noyau entier pour en changer quoi que ce soit.
+*La mesure qui la tue :* `ls -la /dev/binderfs/` → mesuré, `binder`,
+`binder-control`, `hwbinder`, `vndbinder` déjà présents en `crw-rw-rw-`.
+
+**Hypothèse — PSI est déjà actif et n'a jamais été un module « Android ».**
+*Source :* même fichier : `CONFIG_PSI=y`, `CONFIG_PSI_DEFAULT_DISABLED` absent.
+C'est une fonctionnalité mainline depuis Linux 4.20 ; Android (`lmkd`) la
+consomme via `/proc/pressure/`, il ne la fournit pas.
+*Ce que ça impliquerait ici :* aucune compilation possible ni nécessaire.
+*La mesure qui la tue :* `cat /proc/pressure/memory` → mesuré, rempli
+(`avg10=… avg60=… avg300=… total=…`), sur `cpu`, `io`, `irq`, `memory`.
+
+~~**Hypothèse — ashmem n'a plus d'option dans ce noyau, et Waydroid ne le
+charge pas parce que son propre userspace ne le demande plus.**~~
+*Source :* `grep -i ashmem` sur le config embarqué rend vide ; `/dev/ashmem*`
+absent. Le pilote `ashmem.c` est sorti de l'arbre mainline vers la 5.x au
+profit de `memfd_create`, qu'Android émule depuis la version 10.
+
+**Mesurée le 2026-08-28, confirmée.** `strings
+/var/lib/waydroid/rootfs/system/lib64/libcutils.so | grep -i ashmem` a d'abord
+semblé la contredire : le code réel d'`ashmem_create_region` etc. est bien lié
+dans `libcutils.so`, aux côtés du chemin `memfd`. Ce n'était pas encore la
+preuve — `strings` montre ce qui est *compilé*, pas ce qui *s'exécute* ; la
+bascule entre les deux chemins dépend de `ro.vndk.version` (chaîne trouvée sur
+la machine : *« device VNDK version (%s) is less than Q. Use ashmem only »*).
+Le Voyeur a nommé la vraie mesure, prise dans la foulée :
+
+```
+waydroid shell getprop ro.vndk.version
+→ 33
+```
+
+33 ≥ 29 (Q) : le chemin `memfd_create` est celui qui tourne, pas `ashmem`.
+
+**Confirmation plus forte, trouvée le 2026-08-28 dans la source même de
+Waydroid** (`/usr/lib/waydroid/tools/helpers/lxc.py`, fonction
+`make_base_props`) : ce n'est pas une déduction depuis le VNDK, c'est écrit en
+clair —
+
+```python
+if not os.path.exists("/dev/ashmem"):
+    props.append("sys.use_memfd=true")
+```
+
+Waydroid détecte lui-même l'absence de `/dev/ashmem` côté hôte et **force**
+la propriété Android `sys.use_memfd=true` avant même que le conteneur démarre.
+La même fonction montre aussi que `/dev/ashmem` fait partie de la liste de
+nœuds que `generate_nodes_lxc_config` tente de lier (`make_entry("/dev/ashmem")`,
+ligne 50) — silencieusement ignoré ici puisque `check=True` par défaut et que
+le fichier n'existe pas sur l'hôte.
+
+**Aucun pilote ashmem à recompiler pour ce Waydroid.** Les trois cibles
+d'origine (binder, ashmem, PSI) sont donc closes sans une ligne de C : binder
+et PSI sont déjà natifs dans `7.2.0-ogc6.1.fc44`, et ashmem est émulé par le
+userspace Android que Waydroid installe. Le seul chantier qui resterait est de
+*patcher* binder ou PSI eux-mêmes — un projet différent de « recompiler les
+modules Android », voir la source OGC plus bas.
+
+**Hypothèse — `7.2.0-ogc6.1.fc44` n'est pas un noyau Fedora patché par
+Bazzite : c'est celui de l'Open Gaming Collective (OGC), un consortium formé
+courant 2026 (Bazzite/Universal Blue, ASUS Linux, ShadowBlip, PikaOS, Fyra
+Labs, ChimeraOS, Nobara, Playtron), et sa source est publique et taguée.**
+*Source :* `rpm -qi kernel-core` → `Vendor: The Linux Community and OGC
+maintainer(s)`, `URL: https://opengamingcollective.org`, `Source RPM:
+kernel-core-7.2.0-ogc6.1.fc44.src.rpm`. Recherche web du 2026-08-28 :
+`github.com/OpenGamingCollective/linux` (fork mainline, tag `v7.2-ogc6`
+présent) et `github.com/OpenGamingCollective/kernel-packages` (le vrai
+générateur : `fedora/kernel.spec` + fragments `config/ogc.config.set` /
+`.unset`, `.github/workflows/fedora.yaml` qui construit avec
+`rpmbuild --define "_topdir $TOPDIR" -ba ./fedora/kernel.spec` dans un
+conteneur `fedora:44`).
+*Ce que ça impliquerait ici :* aucune COPR ni dépôt dnf actif sur la machine
+ne sert ce noyau — seul `bieszczaders:kernel-cachyos-addons` est actif et ne
+fournit que des akmods complémentaires (v4l2loopback, xone…), pas le noyau. Il
+arrive déjà empaqueté dans `ghcr.io/ublue-os/bazzite:stable`, en amont de S
+(le `Containerfile` de S ne le touche jamais — vérifié, `grep -i kernel
+Containerfile build_files/*.sh` ne rend rien).
+*La mesure qui la tue :* cloner `v7.2-ogc6`, tirer `fedora/kernel.spec` de
+`kernel-packages`, et vérifier que son `Release:`/`%changelog` produit bien
+`ogc6.1` pour une cible Fedora 44 → si ça ne correspond pas exactement, il faut
+remonter au run de `fedora.yaml` précis (le numéro de build y est compté par
+job), pas se fier au tag seul.
+
+**Hypothèse — les en-têtes exacts pour compiler un module hors-arbre sont déjà
+installés, sans rien télécharger.**
+*Source :* `rpm -qa | grep kernel-devel` → `kernel-devel-7.2.0-ogc6.1.fc44` et
+`kernel-devel-matched-7.2.0-ogc6.1.fc44` déjà posés ; `/usr/src/kernels/7.2.0-ogc6.1.fc44.x86_64/`
+existe, arbre complet.
+*Ce que ça impliquerait ici :* pour un module hors-arbre contre ce noyau précis
+(ashmem via `anbox-modules`, par exemple, si l'hypothèse ashmem ci-dessus est
+confirmée nécessaire), ni conteneur ni outil ublue-os spécifique ne sont
+requis : `make -C /usr/src/kernels/$(uname -r) M=$PWD modules` tourne dans le
+shell utilisateur, sans toucher `/usr` (lecture seule) ni l'image OSTree.
+*La mesure qui la tue :* `test -e /usr/src/kernels/$(uname -r)/Makefile` →
+mesuré, présent. Un build réel sur un module bidon (`obj-m += vide.o`)
+confirmerait que la chaîne aboutit ; **non fait pendant cette passe**, c'est le
+travail de l'Alchimiste.
+
+**Le Code Noir à nommer avant de cloner quoi que ce soit :**
+`kernel-packages` publie sa clé (`public.key` à la racine) et annonce des
+« signed OCI images » — provenance d'un consortium de neuf organisations
+connues, pas d'un mainteneur isolé. Mais `rpm -qi kernel-core` sur cette
+machine rend `Signature : (none)`, cohérent avec ce que ce carnet a déjà
+tranché sur les paquets Fedora/COPR (l'en-tête RPM ne retient jamais la
+signature, même légitime — voir plus bas dans ce fichier, le faux Code Noir du
+2026-08-25). *Ne pas confondre absence de signature RPM et absence de
+provenance vérifiable :* la mesure qui trancherait vraiment est `cosign
+verify` sur l'image OCI que `kernel-packages` publie, contre `public.key` — pas
+l'en-tête RPM, qui ne le dira jamais.
+
+**Verdict, mesuré le 2026-08-28 :** les trois cibles d'origine sont closes,
+aucune ne demande de compilation. Binder et PSI tournent déjà nativement dans
+`7.2.0-ogc6.1.fc44` ; ashmem est émulé par `memfd_create` côté userspace
+Android (`ro.vndk.version` = 33 sur ce Waydroid, confirmé au-dessus). Le noyau
+complet OGC (`github.com/OpenGamingCollective/linux`, tag `v7.2-ogc6`) ne
+redevient utile que si le but glisse vers *modifier* binder/PSI eux-mêmes
+plutôt que les utiliser — un chantier sans rapport avec « recompiler un
+module Android ».
+
 ---
 
 ## Où on en est — 2026-08-26, soir

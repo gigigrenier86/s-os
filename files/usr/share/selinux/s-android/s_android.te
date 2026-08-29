@@ -1,0 +1,178 @@
+
+policy_module(s_android, 1.0)
+
+require {
+	type unconfined_t;
+	type unconfined_service_t;
+	type dma_device_t;
+	type binder_device_t;
+	type binderfs_t;
+	type abrt_t;
+	type bin_t;
+	type var_lib_t;
+	type proc_t;
+	type mount_exec_t;
+	type mount_t;
+	type uhid_device_t;
+	type tun_tap_device_t;
+	type tmp_t;
+	type http_cache_port_t;
+	type rpm_script_t;
+	role rpm_script_roles;
+	type iptables_t;
+	type systemd_systemctl_exec_t;
+}
+
+# Define domain
+type s_android_t;
+type s_android_exec_t;
+init_daemon_domain(s_android_t, s_android_exec_t)
+
+# Execute python
+allow s_android_t bin_t:file { map execute };
+allow s_android_t proc_t:file read_file_perms;
+gnome_search_gconf_data_dir(s_android_t)
+auth_read_passwd(s_android_t)
+miscfiles_read_generic_certs(s_android_t)
+
+# Manage s_android fifos
+type s_android_var_run_t;
+files_pid_file(s_android_var_run_t)
+files_pid_filetrans(s_android_t, s_android_var_run_t, fifo_file, "s_android-remote_init_output")
+manage_files_pattern(s_android_t, s_android_var_run_t, s_android_var_run_t)
+manage_fifo_files_pattern(s_android_t, s_android_var_run_t, s_android_var_run_t)
+manage_dirs_pattern(s_android_t, s_android_var_run_t, s_android_var_run_t)
+
+# Manage /var/lib/s_android
+type s_android_data_t;
+files_type(s_android_data_t)
+filetrans_pattern(s_android_t, var_lib_t, s_android_data_t, dir, "s_android")
+filetrans_pattern(unconfined_t, var_lib_t, s_android_data_t, dir, "s_android")
+manage_dirs_pattern(s_android_t, s_android_data_t, s_android_data_t)
+manage_files_pattern(s_android_t, s_android_data_t, s_android_data_t)
+manage_lnk_files_pattern(s_android_t, s_android_data_t, s_android_data_t)
+
+# Execute lxc commands, domain transition
+container_runtime_domtrans(s_android_t)
+
+# Execute misc utils
+exec_files_pattern(s_android_t, bin_t, bin_t)
+domtrans_pattern(s_android_t, mount_exec_t, mount_t)
+corecmd_exec_shell(s_android_t)
+modutils_domtrans_kmod(s_android_t)
+
+# Waydroid init from the container daemon
+dev_read_sysfs(s_android_t)
+storage_getattr_fuse_dev(s_android_t)
+getattr_chr_files_pattern(s_android_t, device_t, { uhid_device_t tun_tap_device_t })
+fs_search_cgroup_dirs(s_android_t)
+allow s_android_t tmp_t:dir read;
+allow s_android_t self:process setfscreate;
+allow s_android_t self:tcp_socket create_socket_perms;
+allow s_android_t http_cache_port_t:tcp_socket name_connect;
+sysnet_dns_name_resolve(s_android_t)
+corenet_sendrecv_http_client_packets(s_android_t)
+corenet_tcp_connect_http_port(s_android_t)
+# No need to run systemctl. It is only used to determine apparmor status
+dontaudit s_android_t systemd_systemctl_exec_t:file { getattr execute };
+
+# s_android-net.sh
+type s_android_net_exec_t;
+files_type(s_android_net_exec_t)
+domtrans_pattern(s_android_t, s_android_net_exec_t, container_runtime_t)
+domain_entry_file(container_runtime_t, s_android_net_exec_t)
+manage_fifo_files_pattern(iptables_t, s_android_t, s_android_t)
+
+# Read android rootfs
+type s_android_rootfs_t;
+files_type(s_android_rootfs_t)
+read_files_pattern(s_android_t, s_android_rootfs_t, s_android_rootfs_t)
+
+# Read android data
+allow s_android_t self:capability { dac_read_search };
+
+# Upgrade from app
+allow s_android_t self:capability dac_override;
+read_files_pattern(s_android_t, data_home_t, data_home_t)
+delete_files_pattern(s_android_t, data_home_t, data_home_t)
+list_dirs_pattern(s_android_t, s_android_data_t, s_android_rootfs_t)
+delete_files_pattern(s_android_t, { s_android_data_t s_android_rootfs_t }, { s_android_data_t s_android_rootfs_t })
+delete_dirs_pattern(s_android_t, { s_android_data_t s_android_rootfs_t }, { s_android_data_t s_android_rootfs_t })
+allow s_android_t self:unix_dgram_socket { create setopt getopt };
+
+# Use binder devices
+allow s_android_t binderfs_t:dir search_dir_perms;
+allow s_android_t binder_device_t:chr_file { getattr setattr ioctl map open read write };
+allow s_android_t container_runtime_t:binder { call transfer };
+allow container_runtime_t s_android_t:binder call;
+allow container_runtime_t self:binder { call set_context_mgr transfer };
+allow container_runtime_t self:capability2 mac_admin;
+allow container_runtime_t unconfined_service_t:binder call;
+allow container_runtime_t unconfined_t:binder { call transfer };
+allow unconfined_service_t container_runtime_t:binder { call transfer };
+allow unconfined_t container_runtime_t:binder { call transfer };
+
+# Graphics
+dev_setattr_generic_dirs(s_android_t)
+dev_getattr_dri_dev(s_android_t)
+dev_setattr_dri_dev(s_android_t)
+dev_getattr_framebuffer_dev(s_android_t)
+dev_setattr_framebuffer_dev(s_android_t)
+getattr_chr_files_pattern(s_android_t, device_t, dma_device_t)
+setattr_chr_files_pattern(s_android_t, device_t, dma_device_t)
+allow s_android_t self:capability fsetid;
+
+# Video
+dev_getattr_video_dev(s_android_t)
+dev_setattr_video_dev(s_android_t)
+
+# Search shared sockets
+userdom_search_user_tmp_dirs(s_android_t)
+allow s_android_t user_tmp_t:sock_file getattr;
+
+# RPM upgrade scriptlets
+container_runtime_run(rpm_script_t, rpm_script_roles)
+filetrans_pattern(rpm_script_t, var_lib_t, s_android_data_t, dir, "s_android")
+
+# For when we crash
+allow abrt_t binder_device_t:chr_file { open read };
+
+# Attach to the container
+allow container_runtime_t self:process2 { nnp_transition };
+exec_files_pattern(container_runtime_t, s_android_rootfs_t, s_android_rootfs_t)
+domain_entry_file(container_runtime_t, s_android_rootfs_t)
+
+# tmp
+type s_android_tmp_t;
+files_tmp_file(s_android_tmp_t)
+manage_dirs_pattern(s_android_t, s_android_tmp_t, s_android_tmp_t)
+manage_files_pattern(s_android_t, s_android_tmp_t, s_android_tmp_t)
+manage_sock_files_pattern(s_android_t, s_android_tmp_t, s_android_tmp_t)
+files_tmp_filetrans(s_android_t, s_android_tmp_t, { dir file sock_file })
+can_exec(s_android_t, s_android_tmp_t)
+
+# tmpfs
+type s_android_tmpfs_t;
+files_tmpfs_file(s_android_tmpfs_t)
+manage_dirs_pattern(s_android_t, s_android_tmpfs_t, s_android_tmpfs_t)
+manage_files_pattern(s_android_t, s_android_tmpfs_t, s_android_tmpfs_t)
+fs_tmpfs_filetrans(s_android_t, s_android_tmpfs_t, { dir file })
+
+# Python multiprocessing spawn
+allow s_android_t s_android_t:unix_stream_socket connectto;
+
+# DBus
+dbus_system_bus_client(s_android_t)
+dbus_connect_system_bus(s_android_t)
+policykit_dbus_chat(s_android_t)
+unconfined_dbus_chat(s_android_t)
+unconfined_signal(s_android_t)
+allow s_android_t self:capability kill;
+
+# Snap
+optional_policy(`
+	require {
+		type snappy_var_lib_t;
+	}
+	dontaudit s_android_t snappy_var_lib_t:dir search_dir_perms;
+')

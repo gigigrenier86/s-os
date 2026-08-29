@@ -40,6 +40,14 @@ TITRE_BULLE = "S - notification"
 TITRE_BARRE = "S - barre"
 TITRE_LATERALE = "S - barre laterale"
 
+# LA SEULE FENETRE ANDROID QU'ON TRAITE A PART. Les fenetres d'applis (classe
+# « waydroid.<paquet> ») affichent deja leur vrai nom (YouTube, Gmail...) et
+# le gardent. Mais la fenetre systeme generique -- clavier virtuel, popups --
+# porte litteralement la classe « Waydroid » (majuscule, sans point) : c'est
+# la seule fuite de marque visible, mesuree le 2026-08-28 par une capture
+# d'ecran reelle. Son sort : plus bas dans `regles()`, sous
+# "s-android-systeme".
+
 LARGEUR_BULLE = 380
 MARGE_BULLE = 24
 HAUTEUR_BARRE = 52
@@ -183,8 +191,41 @@ def regles(largeur, hauteur):
         "types": "1",
     }
 
+    # LA FENETRE SYSTEME GENERIQUE D'ANDROID (clavier, popups) -- classe
+    # EXACTEMENT « Waydroid », jamais « waydroid.<quelquechose> ». D'ou
+    # wmclassmatch=1 (exact) et non 2 (sous-chaine) : la regle "s-android"
+    # ci-dessus deja capte la sous-chaine "waydroid." en minuscules, celle-ci
+    # ne doit surtout pas la recouper.
+    #
+    # PAS DE FORCE SUR LE TITRE -- ESSAYE ET ABANDONNE LE 2026-08-28. Un
+    # conteneur relance a froid, regle deja posee avant la creation de la
+    # fenetre : le titre restait « Waydroid » quand meme, et forcer
+    # `caption` depuis un script kwin (contournement direct) n'a rien fait
+    # non plus -- la propriete est en lecture seule. KWin sait FILTRER sur un
+    # titre, jamais le REECRIRE : ce n'est pas une capacite qu'il offre.
+    #
+    # LA VRAIE REPONSE : Mike ne veut pas d'un nom different, il veut « un
+    # simple outil inexistant » -- rien a renommer, une fenetre qui ne se
+    # presente nulle part comme une chose a part. skiptaskbar/skipswitcher/
+    # skippager en Force (memes cles que COMMUN) la retirent de la barre des
+    # taches, d'Alt-Tab et du selecteur : son titre interne reste
+    # « Waydroid », mais plus aucun endroit ou Mike le croiserait ne
+    # l'affiche.
+    android_systeme = {
+        "Description": "S - la fenetre systeme d'Android, invisible comme outil",
+        "wmclass": "Waydroid",
+        "wmclasscomplete": "false",
+        "wmclassmatch": "1",
+        "skiptaskbar": "true",
+        "skiptaskbarrule": "2",
+        "skippager": "true",
+        "skippagerrule": "2",
+        "skipswitcher": "true",
+        "skipswitcherrule": "2",
+    }
+
     return {"s-bulle": bulle, "s-barre": barre, "s-laterale": laterale,
-            "s-android": android}
+            "s-android": android, "s-android-systeme": android_systeme}
 
 
 def poser(largeur, hauteur):

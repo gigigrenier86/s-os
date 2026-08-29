@@ -1,0 +1,72 @@
+# S - Android natif, sans l'outillage Waydroid.
+# Fusion statique de ce que Waydroid avait deja genere sur cette machine :
+# /var/lib/waydroid/lxc/waydroid/{config,config_nodes}, captures le
+# 2026-08-28 (voir CLAUDE.md, "Mike veut retirer LXC de Waydroid").
+# lxc-start reste le moteur : il herite du domaine SELinux container_runtime_t
+# deja audite pour binder/dma/graphics par le module waydroid.te. Le remplacer
+# perdrait ces regles en silence (verifie : systemd-nspawn n'a aucune
+# transition de domaine dediee sur cette machine).
+
+lxc.rootfs.path = /var/lib/waydroid/rootfs
+lxc.arch = x86_64
+lxc.autodev = 0
+
+lxc.cap.keep = audit_control sys_nice wake_alarm setpcap setgid setuid sys_ptrace sys_admin wake_alarm block_suspend sys_time net_admin net_raw net_bind_service kill dac_override dac_read_search fsetid mknod syslog chown sys_resource fowner ipc_lock sys_chroot
+
+lxc.mount.auto = cgroup:ro sys:ro proc
+
+lxc.console.path = none
+
+lxc.hook.post-stop = /dev/null
+
+lxc.uts.name = android
+
+lxc.seccomp.profile = /usr/lib/s/android/android.seccomp
+
+lxc.no_new_privs = 1
+
+lxc.init.cmd = /init
+
+# Le pont waydroid0 (bridge, iptables, DHCP) marche deja et n'est pas dans les
+# trois ponts que Mike a nommes -- on ne le touche pas.
+lxc.net.0.type = veth
+lxc.net.0.flags = up
+lxc.net.0.link = s-android0
+lxc.net.0.name = eth0
+lxc.net.0.hwaddr = 00:16:3e:f9:d3:03
+lxc.net.0.mtu = 1500
+
+lxc.pty.max = 10
+lxc.seccomp.allow_nesting = 1
+
+# Noeuds materiels : mesures reelles sur CETTE machine (GPU Intel,
+# /dev/dri/renderD128), pas une detection generique refaite a chaque demarrage.
+lxc.mount.entry = tmpfs dev tmpfs nosuid 0 0
+lxc.mount.entry = /dev/zero dev/zero none bind,create=file,optional 0 0
+lxc.mount.entry = /dev/null dev/null none bind,create=file,optional 0 0
+lxc.mount.entry = /dev/full dev/full none bind,create=file,optional 0 0
+lxc.mount.entry = /dev/fuse dev/fuse none bind,create=file,optional 0 0
+lxc.mount.entry = /dev/tty dev/tty none bind,create=file,optional 0 0
+lxc.mount.entry = /dev/char dev/char none bind,create=dir,optional 0 0
+lxc.mount.entry = /dev/dri/renderD128 dev/dri/renderD128 none bind,create=file,optional 0 0
+lxc.mount.entry = /dev/video2 dev/video2 none bind,create=file,optional 0 0
+lxc.mount.entry = /dev/video1 dev/video1 none bind,create=file,optional 0 0
+lxc.mount.entry = /dev/video0 dev/video0 none bind,create=file,optional 0 0
+lxc.mount.entry = /dev/dma_heap/system dev/dma_heap/system none bind,create=file,optional 0 0
+lxc.mount.entry = /dev/binder dev/binder none bind,create=file,optional 0 0
+lxc.mount.entry = /dev/vndbinder dev/vndbinder none bind,create=file,optional 0 0
+lxc.mount.entry = /dev/hwbinder dev/hwbinder none bind,create=file,optional 0 0
+lxc.mount.entry = none dev/pts devpts defaults,mode=644,ptmxmode=666,create=dir 0 0
+lxc.mount.entry = /dev/uhid dev/uhid none bind,create=file,optional 0 0
+lxc.mount.entry = /dev/net/tun dev/tun none bind,create=file,optional 0 0
+lxc.mount.entry = /var/lib/waydroid/host-permissions vendor/etc/host-permissions none bind,optional 0 0
+lxc.mount.entry = /sys/kernel/debug sys/kernel/debug none rbind,create=dir,optional 0 0
+lxc.mount.entry = tmpfs mnt_extra tmpfs nodev 0 0
+lxc.mount.entry = tmpfs tmp tmpfs nodev 0 0
+lxc.mount.entry = tmpfs var tmpfs nodev 0 0
+lxc.mount.entry = tmpfs run tmpfs nodev 0 0
+
+# La seule partie qui change a chaque connexion (sockets Wayland/Pulse) :
+# regeneree par android-lancer.sh dans le fichier writable ci-dessous.
+# Jamais ecrite ici, /usr est en lecture seule.
+lxc.include = /var/lib/waydroid/lxc/android/config_session
