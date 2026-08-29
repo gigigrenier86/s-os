@@ -187,76 +187,45 @@ os.replace(tmp, chemin)
 PY
 }
 
-# --- Installer et lancer, forges depuis les outils AOSP standards -----------
+# --- Le service : le seul privilege qui reste ------------------------------
 #
-# « waydroid app install » et « waydroid app launch »/« show-full-ui »
-# n'avaient rien de magique cote Android : ils appelaient deja les memes
-# outils qu'on rappelle ici directement — pm, am, cmd — livres par
-# system.img, jamais touches par le retrait du paquet waydroid. FORGE LE
-# 2026-08-29, JAMAIS EPROUVE SUR CETTE MACHINE : la syntaxe exacte peut
-# demander un reglage au premier essai reel.
+# start / stop / restart de s-android.service. Sans mot de passe grace a
+# /usr/share/polkit-1/rules.d/50-s-android.rules (wheel actif, cette unite,
+# ces trois verbes) ; repli sur pkexec si la regle manque — une machine qui
+# n'a pas encore l'image demande alors un mot de passe, comme avant, au lieu
+# d'echouer en silence. « --no-ask-password » fait echouer la premiere forme
+# TOUT DE SUITE quand polkit refuse, plutot que d'ouvrir une seconde demande
+# par l'agent avant celle de pkexec.
+s_android_service() {
+    local verbe="$1"
+    systemctl --no-ask-password "$verbe" s-android.service 2>/dev/null && return 0
+    s_root systemctl "$verbe" s-android.service
+}
 
-# Installe un APK SANS le faire quitter l'hote : « pm install -S <taille> »
-# SANS argument de chemin lit le paquet depuis son entree standard, ce qui
-# evite d'avoir a rendre le fichier visible dans l'espace de montage du
-# conteneur. PAS de « - » final : mesure du 2026-08-29 sur cette image
-# (Android 13/LineageOS 20), le parseur de pm le rejette — « Unknown
-# option - » — la ou « -S <taille> » seul va jusqu'a parser les octets
-# recus. C'est la meme forme que celle d'« adb install » en flux.
+# --- Installer et lancer : PAR LE SERVICE BINDER, PLUS PAR lxc-attach --------
+#
+# CE QUI A CHANGE LE 2026-08-29 AU SOIR, ET POURQUOI. La version precedente
+# de ces deux verbes passait par lxc-attach (pm install -S en flux, cmd
+# package resolve-activity + setprop + am start) — donc par pkexec, un mot de
+# passe par clic. Le service binder « waydroidplatform » de system.img (celui
+# que l'outillage Python de Waydroid appelait pour EXACTEMENT ces gestes)
+# repond depuis la session sans aucun privilege : voir
+# /usr/lib/s/android_plateforme.py et s-android-lancer. Les mesures de
+# l'ancienne forme (le tiret refuse par pm, le code 0 d'am start, la
+# propriete waydroid.active_apps lue par hwcomposer) restent vraies et sont
+# gardees au Grimoire (android-piloter-sans-waydroid.sh) pour le jour ou
+# lxc-attach serait de nouveau le seul chemin.
+#
+# IL N'Y A PLUS DE « s_android_accueil » : c'etait la seule fonction de S
+# qui ouvrait l'interface complete d'Android (waydroid.active_apps=Waydroid),
+# et l'utilisateur ne veut plus voir cette fenetre. Aucun geste ne doit la
+# recreer.
 s_android_installer() {
-    local apk="$1" taille
-    taille="$(stat -c%s "$apk")" || return 1
-    s_root --limite 180 /usr/bin/sh -c \
-        "lxc-attach -P '$S_ANDROID_LXCPATH' -n android -- pm install -S '$taille'" \
-        < "$apk"
+    "${S_BIN:-/usr/bin}/s-android-lancer" --installer "$1" 2>/dev/null \
+        || /usr/bin/s-android-lancer --installer "$1"
 }
 
-# Lance une application par son paquet — l'equivalent de « waydroid app
-# launch ». Deux gestes indissociables, mesures dans le binaire du
-# compositeur le 2026-08-29 (« strings » sur hwcomposer.waydroid.so extrait
-# de vendor.img : « waydroid.active_apps » y est en clair) :
-#
-#   1. setprop waydroid.active_apps <paquet> — c'est CETTE propriete que
-#      hwcomposer lit pour decider QUELLE fenetre Wayland creer (ses modes :
-#      closed / single_window / multi_window / full_ui). Sans elle, une
-#      activite peut tourner au premier plan d'Android SANS qu'aucune
-#      fenetre n'apparaisse a l'ecran — conteneur RUNNING, ecran vide,
-#      exactement le symptome qu'on repare. L'ancien outillage la posait a
-#      chaque « app launch » ; on la pose pareil.
-#   2. am start — met vraiment l'activite au premier plan.
-#
-# UN SEUL lxc-attach pour le tout, et ce n'est pas une optimisation
-# gratuite : chaque s_android_dans est un pkexec, donc UNE demande de mot de
-# passe — des appels separes en feraient plusieurs d'affilee pour un clic.
-# Le paquet passe en argument positionnel du sh interne, jamais interpole
-# dans le texte du script : rien de ce qui vient du dehors n'y entre.
-# « am start » SORT EN 0 MEME QUAND IL ECHOUE — mesure du 2026-08-29 :
-# « Error: Activity not started, unable to resolve Intent », code 0. Le
-# verdict se lit donc dans sa SORTIE, pas dans son code : toute ligne
-# « Error » fait rendre 1.
 s_android_lancer() {
-    s_android_dans sh -c '
-        paquet="$1"
-        resolu="$(cmd package resolve-activity --brief "$paquet" 2>/dev/null | tail -1)"
-        case "$resolu" in
-            */*) ;;
-            *) echo "aucune activite de lancement pour $paquet" >&2; exit 1 ;;
-        esac
-        setprop waydroid.active_apps "$paquet"
-        sortie="$(am start -n "$resolu" 2>&1)"
-        printf "%s\n" "$sortie"
-        case "$sortie" in *Error*) exit 1 ;; esac
-        exit 0
-    ' lanceur "$1"
-}
-
-# L'interface complete d'Android (lanceur, barre d'etat) — l'equivalent de
-# « waydroid show-full-ui ». La valeur sentinelle « Waydroid » est celle que
-# l'ancien outillage posait pour ce mode ; hwcomposer bascule alors en
-# full_ui_mode au lieu de single_window.
-s_android_accueil() {
-    s_android_dans sh -c '
-        setprop waydroid.active_apps Waydroid
-        exec am start -a android.intent.action.MAIN -c android.intent.category.HOME
-    '
+    "${S_BIN:-/usr/bin}/s-android-lancer" "$1" 2>/dev/null \
+        || /usr/bin/s-android-lancer "$1"
 }

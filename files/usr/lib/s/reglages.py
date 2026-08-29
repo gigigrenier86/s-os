@@ -393,6 +393,23 @@ def _android():
     return {"actif": actif, "etat": "RUNNING" if actif else "STOPPED"}
 
 
+def _arreter_android():
+    # SANS MOT DE PASSE DEPUIS LE 2026-08-29 AU SOIR : 50-s-android.rules
+    # autorise start/stop/restart de CETTE unite, pour un membre actif de
+    # wheel, sans authentification. « --no-ask-password » fait echouer
+    # immediatement si la regle manque plutot que de laisser l'agent polkit
+    # ouvrir une fenetre — le repli pkexec la pose alors lui-meme, comme
+    # avant, pour une machine qui n'a pas encore recu l'image.
+    code, sortie = _lire(["systemctl", "--no-ask-password", "stop", "s-android.service"],
+                         delai=30)
+    if code != 0:
+        outil = _outil("pkexec")
+        if not outil:
+            return False, "pkexec n'est pas sur cette machine"
+        code, sortie = _lire([outil, "systemctl", "stop", "s-android.service"], delai=30)
+    return code, sortie
+
+
 def _basculer_android(actif):
     if actif:
         # LE DEMARRAGE PASSE PAR LE GESTE DE S, PAS PAR systemctl DIRECTEMENT.
@@ -403,18 +420,14 @@ def _basculer_android(actif):
         geste = "/usr/bin/s-android"
         if os.path.isfile(geste):
             try:
-                subprocess.Popen([geste], start_new_session=True,
+                subprocess.Popen([geste, "--silencieux"], start_new_session=True,
                                  stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
                 return True, "Android demarre"
             except OSError as err:
                 return False, str(err)
         return False, "s-android est absent de cette machine"
-    outil = _outil("pkexec")
-    if not outil:
-        return False, "pkexec n'est pas sur cette machine"
-    code, sortie = _lire(
-        [outil, "systemctl", "stop", "s-android.service"], delai=30)
+    code, sortie = _arreter_android()
     _oublier("android")
     return (code == 0), (sortie.strip()[:120] or "Android arrete")
 
@@ -462,12 +475,15 @@ def _regler_mode_android(mode):
     # les proprietes et la mise en veille, pas seulement le conteneur.
     etat = _android()
     if etat and etat.get("actif"):
-        _lire([outil, "systemctl", "restart", "s-android.service"], delai=30)
+        code, _s = _lire(["systemctl", "--no-ask-password", "restart",
+                          "s-android.service"], delai=30)
+        if code != 0:
+            _lire([outil, "systemctl", "restart", "s-android.service"], delai=30)
     else:
         geste = "/usr/bin/s-android"
         if os.path.isfile(geste):
             try:
-                subprocess.Popen([geste], start_new_session=True,
+                subprocess.Popen([geste, "--silencieux"], start_new_session=True,
                                  stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
             except OSError as err:

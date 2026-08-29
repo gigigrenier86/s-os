@@ -1,0 +1,21 @@
+[Unit]
+Description=S - Android demarre avec la session
+# Le conteneur a besoin du socle Wayland de la session (android-lancer.sh
+# refuse de partir sans /run/user/<uid>/wayland-0) : c'est donc la SESSION
+# qui le demarre, jamais le systeme au boot. s-android.service reste
+# « static » cote systeme pour cette raison.
+After=graphical-session.target
+ConditionPathExists=/var/lib/waydroid/images/system.img
+
+[Service]
+Type=oneshot
+# UN SEUL chemin de demarrage, le geste de S : il verse les proprietes de
+# demarrage, lance le service (sans mot de passe, voir 50-s-android.rules),
+# attend qu'Android reponde, regle la veille, pose F-Droid — et N'OUVRE
+# RIEN. Deux facons de demarrer Android dont une incomplete, c'est la faute
+# que ce depot a payee cinq jours.
+ExecStart=/usr/bin/s-android --silencieux
+TimeoutStartSec=360
+
+[Install]
+WantedBy=graphical-session.target

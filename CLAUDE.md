@@ -44,6 +44,141 @@ lancement).
 
 ---
 
+## 2026-08-29, soir — Android demarre seul, chaque application a son icone, et la fenetre « Waydroid » a disparu du depot
+
+Demande de l'utilisateur, apres le redemarrage sur `1023f96` : « Waydroid ne
+s'execute pas automatiquement, les applications installees ne vont pas sur le
+bureau ni dans le menu mais dans waydroid… je ne veux plus voir la fenetre
+apparaitre du tout ». Trois defauts distincts, tous mesures sur la machine
+avant d'ecrire une ligne : rien ne demarrait Android a l'ouverture de
+session ; les 36 lanceurs d'applications datant du 2026-08-28 pointaient tous
+sur un binaire mort (`waydroid app launch`) et les douze installees depuis
+n'en avaient aucun ; et « Android » sans argument ouvrait de force
+l'interface complete d'Android (`setprop waydroid.active_apps Waydroid`) —
+la fenetre que l'utilisateur ne voulait plus voir.
+
+### LA PERLE — chercher avant de forger a evite de reconstruire lxc-attach partout
+
+Le service binder **`waydroidplatform`** (interface
+`lineageos.waydroid.IPlatform`), celui que TOUT l'outillage Python de
+Waydroid appelait deja pour lancer, lister, installer et regler, **vit dans
+system.img et repond depuis l'hote, sans aucun privilege** — `/dev/binder`
+est 0666 et c'est le meme peripherique des deux cotes du bind-mount que fait
+deja `android-lancer.sh`. Exactement le mecanisme d'`android-presse-
+papiers.py`, dans l'autre sens. Mesure le 2026-08-29 depuis une session
+utilisateur normale, sans sudo :
+
+```
+sm.list_sync()                    -> [..., 'waydroidclipboard', 'waydroidplatform', ...]
+getprop("sys.boot_completed")     -> '1'
+getAppsInfo()                     -> 19 applications lancables, nom + paquet + categories
+installApp(...)                   -> reinstallation reelle de F-Droid, code 0, 100 ms
+launchApp("ca.koho")              -> fenetre kwin « waydroid.ca.koho », 88 ms, capture a l'appui
+```
+
+**Consequence directe : plus un seul `pkexec` pour lancer, installer ou
+lister une application.** Le seul privilege qui reste dans le monde Android
+est `systemctl start/stop/restart s-android.service`, et une regle polkit
+(`50-s-android.rules`, patron exact de `30-waydroid.rules` de Bazzite,
+verifiee residuelle sur cette machine) le rend sans mot de passe pour un
+membre actif de `wheel` — eprouve : `systemctl --no-ask-password restart
+s-android.service` rend **0**, sans agent graphique sollicite.
+
+**Deux pieges du gbinder de cette image (python3-gbinder 1.3.0), tous deux
+mesures et non supposes :**
+
+1. `read_int32()` rend un **tuple** `(statut, valeur)`, pas un entier nu —
+   l'amont le deballe pareil (`status, apps = reader.read_int32()`).
+2. **Lire une chaine la ou le parcel n'en porte pas segfaute le processus
+   entier.** Mesure deux fois, en lisant la suite d'une reponse apres une
+   exception Android jamais verifiee (`settingsGetString`/`GetInt` sur un
+   mauvais espace de noms). D'ou la garde systematique : on ne lit la suite
+   d'une reponse que si l'exception vaut 0.
+
+Les espaces de noms de `Settings` ont ete mesures un a un plutot que
+supposes : `screen_off_timeout` (un reglage *System*) ne repond que dans
+l'espace **1**, `policy_control` (un reglage *Global*, celui que l'amont
+ecrit) dans l'espace **2** — reste 0 pour *Secure*.
+
+### Ce qui a ete construit
+
+- **`files/usr/lib/s/android_plateforme.py`** — le client `IPlatform`
+  complet (toutes les methodes de l'amont, avec la garde du piege 2), plus
+  `obtenir(delai)` qui attend le gestionnaire binder puis le service puis
+  `sys.boot_completed`, et `service_actif()`/`service_commander()` pour
+  l'unique privilege restant.
+- **`files/usr/bin/s-android-lancer`** — le geste que chaque icone appelle
+  desormais (`Exec=/usr/bin/s-android-lancer <paquet>`). Sous-commandes
+  `--liste`, `--present`, `--installer`, `--veille`, `--attendre`. **La
+  valeur `Waydroid` pour `active_apps` n'est plus ecrite nulle part dans ce
+  depot** — c'est la seule ligne qui faisait apparaitre l'interface complete,
+  et `s_android_accueil` a ete supprimee.
+- **`files/usr/lib/s/android-applications.py`** + son service utilisateur —
+  le remplacant du demon Python de Waydroid (AppsService, parti avec le
+  paquet). Enregistre `waydroidusermonitor` (Android l'appelle a l'installation
+  d'un paquet — hypothese amont, pas encore vue appelee sous nos yeux) **et**
+  resynchronise tout toutes les 30 s en filet. Ecrit un `.desktop` par
+  application `LAUNCHER`, avec l'icone qu'**Android ecrit lui-meme** dans
+  `data/icons/<paquet>.png` (27 PNG mesures, tous dates du demarrage du
+  conteneur — l'amont ne faisait que les referencer, jamais les produire).
+  `NoDisplay=true` pour les applications systeme LineageOS (calculatrice,
+  horloge, Parametres…) — des doublons d'outils que S a deja. Une
+  application **nouvelle** (jamais vue au premier passage suivant le
+  demarrage du demon, pour ne pas deverser les douze manquantes d'un coup)
+  monte au ciel par la meme mecanique que `s_placer_etoile`.
+- **`s-android`, `partage-android.sh`, `s-magasin-android`, `reglages.py`**
+  — reecrits sur ce mecanisme : `s_android_installer`/`s_android_lancer`
+  appellent desormais `s-android-lancer` (plus de `lxc-attach`) ;
+  `s_android_service` tente `systemctl --no-ask-password` puis retombe sur
+  `pkexec` ; `s_android_accueil` a disparu.
+- **`files/usr/lib/systemd/user/s-android-demarrer.service`** — `Type=oneshot`,
+  `WantedBy=graphical-session.target`, `ExecStart=/usr/bin/s-android
+  --silencieux` : le meme geste que le clic, sans rien ouvrir. **Un seul
+  chemin de demarrage**, pas deux — la faute payee cinq jours.
+- **`files/usr/share/polkit-1/rules.d/50-s-android.rules`** — posee et
+  **eprouvee** dans `/etc/polkit-1/rules.d/` sur cette machine (une seule
+  elevation manuelle pour l'y copier) : `pkcheck` refusait avant, `systemctl
+  --no-ask-password restart s-android.service` passe apres, en 5,9 s, sans
+  agent.
+
+### Eprouve a l'ecran, sur cette machine, depuis le depot (`S_LIB`/`S_BIN`)
+
+```
+s-android-lancer ca.koho          -> fenetre waydroid.ca.koho en 88 ms, aucune fenetre « Waydroid »
+s_android_installer fdroid.apk    -> reinstallation reelle, code 0, 100 ms
+android-applications.py, 20 s     -> 36 lanceurs morts remplaces par 19 vivants
+                                      (les 19 restants : paquets desinstalles
+                                      le 2026-08-28 en effacant les donnees —
+                                      Discord, WhatsApp, YouTube, Gmail… —
+                                      pas un defaut du demon)
+                                      Settings passe en NoDisplay=true
+systemctl --no-ask-password restart s-android.service  -> code 0, sans mot de passe
+```
+
+### Ce que cette passe ne prouve pas
+
+- **Le rappel binder `packageStateChanged` n'a jamais ete vu appele par
+  Android** — seule la resynchronisation periodique (30 s) a ete exercee.
+  Si le rappel ne vient jamais, une installation depuis « Magasin Android »
+  attendra jusqu'a 30 s avant que l'icone apparaisse — mesure a faire.
+- **`s-android` reecrit n'a pas encore ete rejoue en entier depuis un
+  demarrage a froid du conteneur** (proprietes de demarrage + demarrage +
+  veille + F-Droid + Play Store dans l'ordre) — chaque brique l'a ete
+  separement, jamais la chaine complete par un seul appel de ce script.
+- **`s-android-demarrer.service` n'a jamais tourne** — la regle polkit et le
+  redemarrage manuel du service l'ont ete, pas le chemin `graphical-session.
+  target` -> oneshot -> `s-android --silencieux` a l'ouverture d'une vraie
+  session.
+- **La bascule Android et son mode fenetre dans la barre laterale de
+  Constellation** (`reglages.py`) ont ete relus et corriges sur le meme
+  patron (`--no-ask-password` avant `pkexec`), pas cliques.
+- **Rien de tout ceci n'est dans l'image.** Ecrit et eprouve depuis le
+  depot, pas encore construit ni redemarre dessus.
+- **Le gouffre du telechargement d'Android pour une machine neuve reste
+  entier** — inchange par cette passe.
+
+---
+
 ## 2026-08-29, apres-midi — les gestes Android reparlaient a un binaire mort, et la chaine neuve est eprouvee a l'ecran
 
 **PREUVE :** capture `android-fdroid.png` (scratchpad de session) — F-Droid

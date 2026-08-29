@@ -1,6 +1,19 @@
 #!/usr/bin/bash
 # GRIMOIRE — piloter un Android LXC natif (etat, commande, installation,
 #            lancement) sans une ligne de l'outillage Python Waydroid.
+#
+# DEPASSE EN PARTIE LE 2026-08-29 AU SOIR, ET C'EST UNE BONNE NOUVELLE :
+# installer_android/lancer_android ci-dessous exigeaient root (lxc-attach,
+# donc pkexec — un mot de passe par clic). Il existe un chemin SANS AUCUN
+# PRIVILEGE pour ces deux gestes precis : le service binder
+# « waydroidplatform » de system.img, le meme code que TOUT l'outillage
+# Waydroid appelait deja. Voir android-iplatform-depuis-l-hote.py (ce meme
+# dossier) et files/usr/lib/s/android_plateforme.py — c'est ce que S emploie
+# desormais pour lancer et installer. CE FICHIER-CI RESTE VALIDE pour
+# etat_android/dans_android : le premier n'a jamais eu besoin de root, le
+# second (une vraie commande shell DANS le conteneur — lire une base sqlite,
+# par exemple) reste le seul chemin quand il faut vraiment root.
+#
 # PREUVE : 2026-08-29, sur `s`. Chaine complete eprouvee a l'ecran :
 #              etat_android            -> STOPPED puis RUNNING, les deux mesures
 #              dans_android settings   -> reglages poses (via s-android)

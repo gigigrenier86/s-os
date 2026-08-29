@@ -57,7 +57,8 @@ preuve.** Pas la construction verte, pas le code écrit : la mesure.
 | [vivaldi-classe-reelle-app.sh](vivaldi-classe-reelle-app.sh) | Trouver la vraie classe d'une fenêtre `vivaldi --app=`, que `--class=` ne fixe jamais | 2026-08-26 |
 | [veille-eprouver-le-gel.sh](veille-eprouver-le-gel.sh) | Éprouver la veille des fenêtres sans toucher à la session de l'utilisateur | 2026-08-26 |
 | [wayland-ou-se-pose-un-popup.sh](wayland-ou-se-pose-un-popup.sh) | Savoir si ce compositeur place un popup Qt là où on le lui demande | 2026-08-27 |
-| [android-piloter-sans-waydroid.sh](android-piloter-sans-waydroid.sh) | État, commande, installation et lancement dans l'Android LXC natif — et les quatre pièges qui s'y cachent | 2026-08-29 |
+| [android-piloter-sans-waydroid.sh](android-piloter-sans-waydroid.sh) | État et commande root (lxc-attach) dans l'Android LXC natif — et les quatre pièges qui s'y cachent | 2026-08-29 |
+| [android-iplatform-depuis-l-hote.py](android-iplatform-depuis-l-hote.py) | Lancer, installer et lister les applications Android SANS root, par le service binder que Waydroid utilisait déjà | 2026-08-29 |
 
 ---
 

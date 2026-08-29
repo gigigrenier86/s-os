@@ -6,3 +6,8 @@ Exec=/usr/bin/s-android
 Icon=smartphone
 Terminal=false
 Categories=System;
+# Plus d'icone « Android » depuis le 2026-08-29 au soir : Android demarre
+# avec la session (s-android-demarrer.service) et n'a plus de fenetre a lui
+# — chaque application a la sienne. Le fichier reste pour les gestes qui
+# l'appellent (barre laterale, magasin), pas pour le menu.
+NoDisplay=true

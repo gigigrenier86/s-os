@@ -1,0 +1,203 @@
+#!/usr/bin/python3
+# S - ouvrir une application Android par son paquet. Le geste que chaque
+# icone Android appelle (Exec=/usr/bin/s-android-lancer <paquet>).
+#
+# SANS ROOT, SANS FENETRE ANDROID. Tout passe par le service binder
+# « waydroidplatform » de system.img (voir android_plateforme.py, et la
+# mesure du 2026-08-29) : la meme sequence que « waydroid app launch » de
+# l'amont, verbatim —
+#
+#     setprop("waydroid.active_apps", paquet)      <- hwcomposer cree la fenetre
+#     launchApp(paquet)                            <- l'activite au premier plan
+#     settingsPutString(2, "policy_control", "immersive.status=*")  si fenetre unique
+#
+# LA VALEUR « Waydroid » N'EST JAMAIS POSEE ICI, NI NULLE PART DANS S. C'est
+# elle — et elle seule — qui fait apparaitre l'interface complete d'Android
+# (lanceur, barre d'etat : la « fenetre Waydroid »). L'utilisateur ne veut
+# plus la voir ; le seul moyen sur est qu'aucun geste ne la demande. En mode
+# fenetre unique (persist.waydroid.multi_windows=false), fermer l'application
+# ferme sa fenetre et il ne reste rien a l'ecran — mesure le 2026-08-29 :
+# active_apps valait encore « com.android.vending » sans aucune fenetre
+# Android ouverte.
+#
+# Sous-commandes, pour les autres gestes de S (s-android, s-magasin-android) :
+#
+#   s-android-lancer <paquet>              ouvrir (demarre Android s'il le faut)
+#   s-android-lancer --attendre [secondes] attendre qu'Android reponde (0/1)
+#   s-android-lancer --liste               paquet<TAB>nom, une ligne par application
+#   s-android-lancer --present <paquet>    0 si le paquet est installe
+#   s-android-lancer --installer <apk>     installer un APK, sans confirmation
+#   s-android-lancer --veille              empecher Android de s'endormir (idempotent)
+#
+# LE DEMARRAGE DU CONTENEUR EST LE SEUL PRIVILEGE, et il passe par
+# « systemctl start s-android.service » que 50-s-android.rules autorise sans
+# mot de passe (repli pkexec sinon — voir service_commander).
+import os
+import shutil
+import subprocess
+import sys
+
+sys.path.insert(0, os.environ.get("S_LIB") or "/usr/lib/s")
+import android_plateforme as ap  # noqa: E402
+
+DELAI_DEMARRAGE = 240
+# Ou l'APK est depose pour qu'Android le voie : le dossier de donnees est a
+# l'utilisateur, et il est monte sur /data dans le conteneur. C'est
+# exactement ce que faisait « waydroid app install » (waydroid_tmp/base.apk).
+APK_TEMPORAIRE = os.path.join(ap.DOSSIER_DONNEES, "waydroid_tmp", "base.apk")
+APK_COTE_ANDROID = "/data/waydroid_tmp/base.apk"
+VEILLE_VOULUE = 2147483647
+BRANCHE_VOULUE = 7   # stay_on_while_plugged_in : AC | USB | sans fil
+
+
+def dire(titre, texte, icone="phone"):
+    """La bulle de s_dire, detachee et bornee, jamais bloquante."""
+    if shutil.which("notify-send"):
+        try:
+            subprocess.Popen(
+                ["timeout", "5", "notify-send", "-a", "S", "-i", icone,
+                 "-h", "string:x-canonical-private-synchronous:s-couture",
+                 titre, texte],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True)
+        except OSError:
+            pass
+    print("%s — %s" % (titre, texte), file=sys.stderr)
+
+
+def echec(titre, texte):
+    dire(titre, texte, "dialog-error")
+    sys.exit(1)
+
+
+def plateforme_prete(delai=DELAI_DEMARRAGE, demarrer=True):
+    """Android qui repond, en le demarrant si besoin. None si vraiment pas."""
+    if not ap.images_presentes():
+        echec("Android n'est pas prepare sur cette machine",
+              "system.img manque dans /var/lib/waydroid/images, et S ne sait "
+              "plus le telecharger depuis le retrait de Waydroid.")
+    if not ap.service_actif():
+        if not demarrer:
+            return None
+        dire("Android", "Demarrage…")
+        if not ap.service_commander("start"):
+            echec("Android n'a pas demarre",
+                  "Voir : sudo journalctl -u s-android.service")
+    plateforme = ap.obtenir(delai)
+    if plateforme is None and demarrer:
+        echec("Android ne repond pas",
+              "Le conteneur tourne mais Android n'a pas annonce la fin de son "
+              "demarrage en %d s." % delai)
+    return plateforme
+
+
+def lancer(paquet):
+    p = plateforme_prete()
+    app = p.getAppInfo(paquet)
+    if app is None:
+        echec("Application absente", "« %s » n'est pas installe dans Android." % paquet)
+    try:
+        p.setprop("waydroid.active_apps", paquet)
+        p.launchApp(paquet)
+        if p.getprop("persist.waydroid.multi_windows", "false").strip() == "false":
+            p.settingsPutString(ap.SETTINGS_GLOBAL, "policy_control", "immersive.status=*")
+        else:
+            p.settingsPutString(ap.SETTINGS_GLOBAL, "policy_control", "immersive.full=*")
+    except ap.ErreurAndroid as err:
+        echec("Ouverture impossible", "%s : %s" % (app.get("name") or paquet, err))
+    return 0
+
+
+def attendre(delai):
+    p = plateforme_prete(delai, demarrer=False)
+    return 0 if p is not None else 1
+
+
+def liste():
+    p = plateforme_prete(demarrer=False)
+    if p is None:
+        return 1
+    for app in sorted(p.applications_lancables(), key=lambda a: a["name"].lower()):
+        print("%s\t%s" % (app["packageName"], app["name"]))
+    return 0
+
+
+def present(paquet):
+    p = plateforme_prete(demarrer=False)
+    if p is None:
+        return 2
+    return 0 if p.getAppInfo(paquet) is not None else 1
+
+
+def installer(apk):
+    if not os.path.isfile(apk):
+        echec("Fichier introuvable", apk)
+    p = plateforme_prete()
+    os.makedirs(os.path.dirname(APK_TEMPORAIRE), exist_ok=True)
+    shutil.copyfile(apk, APK_TEMPORAIRE)
+    # Lisible par l'UID Android de system_server, quel qu'il soit.
+    os.chmod(APK_TEMPORAIRE, 0o644)
+    try:
+        code = p.installApp(APK_COTE_ANDROID)
+    except ap.ErreurAndroid as err:
+        code = str(err)
+    finally:
+        try:
+            os.remove(APK_TEMPORAIRE)
+        except OSError:
+            pass
+    if code != 0:
+        print("installation refusee par Android : %s" % code, file=sys.stderr)
+        return 1
+    return 0
+
+
+def veille():
+    """Un ecran qui ne s'eteint jamais ne demande jamais le gel du conteneur
+    (la panne reseau du 2026-08-25). ON LIT AVANT D'ECRIRE, et on relit
+    apres : plus de marqueur hote qui survivrait a un effacement des donnees
+    Android — le 2026-08-29, android-veille disait « applique » pendant
+    qu'Android repondait 60000. Espaces mesures le meme jour :
+    1 = System (screen_off_timeout y vaut 60000 a neuf), 2 = Global."""
+    p = plateforme_prete(demarrer=False)
+    if p is None:
+        return 1
+    voulu = {(ap.SETTINGS_SYSTEM, "screen_off_timeout"): VEILLE_VOULUE,
+             (ap.SETTINGS_GLOBAL, "stay_on_while_plugged_in"): BRANCHE_VOULUE}
+    for (espace, cle), valeur in voulu.items():
+        try:
+            if p.settingsGetInt(espace, cle) == valeur:
+                continue
+            p.settingsPutInt(espace, cle, valeur)
+            if p.settingsGetInt(espace, cle) != valeur:
+                print("veille : %s n'a pas pris" % cle, file=sys.stderr)
+                return 1
+        except ap.ErreurAndroid as err:
+            print("veille : %s : %s" % (cle, err), file=sys.stderr)
+            return 1
+    return 0
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__ or "s-android-lancer <paquet>", file=sys.stderr)
+        return 2
+    verbe = argv[0]
+    if verbe == "--attendre":
+        return attendre(int(argv[1]) if len(argv) > 1 else DELAI_DEMARRAGE)
+    if verbe == "--liste":
+        return liste()
+    if verbe == "--present":
+        return present(argv[1]) if len(argv) > 1 else 2
+    if verbe == "--installer":
+        return installer(argv[1]) if len(argv) > 1 else 2
+    if verbe == "--veille":
+        return veille()
+    if verbe.startswith("-"):
+        print("s-android-lancer : option inconnue %s" % verbe, file=sys.stderr)
+        return 2
+    return lancer(verbe)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

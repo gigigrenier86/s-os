@@ -97,3 +97,36 @@ test -f /usr/lib/systemd/user/s-android-presse-papiers.service \
 # existe, sans effet si personne n'a jamais demarre s-android.service).
 systemctl --global enable s-android-presse-papiers.service
 echo "presse-papiers : service utilisateur active pour chaque compte."
+
+# --------------------------------------------------------------------------
+# LE DEMARRAGE AUTOMATIQUE ET LES ICONES PAR APPLICATION — 2026-08-29, soir
+# --------------------------------------------------------------------------
+# Meme mecanisme que le presse-papiers ci-dessus : le service binder
+# « waydroidplatform » de system.img (android_plateforme.py) repond depuis la
+# session sans aucun privilege, donc plus aucun outillage Python de Waydroid
+# n'est necessaire pour lancer, installer ou lister les applications
+# Android — voir CLAUDE.md, 2026-08-29, et android_plateforme.py pour la
+# mesure du protocole (numeros de transaction, piege du segfault sur une
+# lecture non gardee).
+# PAS test -x : c'est un module purement importe (sys.path.insert + import),
+# jamais execute directement — meme convention que noyau.py et
+# regles-kwin.py, tous deux 100644.
+test -f /usr/lib/s/android_plateforme.py \
+    || { echo "ECHEC : android_plateforme.py absent." >&2; exit 1; }
+test -x /usr/bin/s-android-lancer \
+    || { echo "ECHEC : s-android-lancer absent ou non executable." >&2; exit 1; }
+test -x /usr/lib/s/android-applications.py \
+    || { echo "ECHEC : android-applications.py absent ou non executable." >&2; exit 1; }
+test -f /usr/lib/systemd/user/s-android-applications.service \
+    || { echo "ECHEC : l'unite du demon d'icones Android est absente." >&2; exit 1; }
+test -f /usr/lib/systemd/user/s-android-demarrer.service \
+    || { echo "ECHEC : l'unite de demarrage automatique d'Android est absente." >&2; exit 1; }
+test -f /usr/share/polkit-1/rules.d/50-s-android.rules \
+    || { echo "ECHEC : la regle polkit du demarrage sans mot de passe est absente." >&2; exit 1; }
+echo "demarrage automatique et icones Android : fichiers verifies presents."
+
+# Meme raisonnement que s-android-presse-papiers.service : activee pour
+# chaque compte des la construction, sans effet tant qu'aucune session
+# graphique (graphical-session.target) n'existe.
+systemctl --global enable s-android-applications.service s-android-demarrer.service
+echo "Android : demarrage automatique et icones par application actives pour chaque compte."

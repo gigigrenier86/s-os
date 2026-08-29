@@ -1,0 +1,24 @@
+// S - demarrer, arreter, redemarrer Android sans mot de passe.
+//
+// s-android.service est l'unique proprietaire de lxc-start (voir
+// android-lancer.sh) et il ne peut partir qu'une fois la session ouverte :
+// c'est donc la session de l'utilisateur qui le commande, par « systemctl
+// start/stop/restart s-android.service ». Sans cette regle, chaque commande
+// passe par une demande de mot de passe (org.freedesktop.systemd1.manage-units
+// exige auth_admin) — et un demarrage automatique a l'ouverture de session
+// qui demande un mot de passe n'est pas automatique.
+//
+// Meme patron que 30-waydroid.rules de Bazzite (present sur cette machine,
+// wheel -> YES sur ses trois actions conteneur), restreint ici a UNE unite
+// et a un utilisateur reellement assis devant la machine (subject.active).
+// Rien d'autre : ni les autres unites, ni un utilisateur distant.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") == "s-android.service" &&
+        subject.isInGroup("wheel") && subject.active) {
+        var verbe = action.lookup("verb");
+        if (verbe == "start" || verbe == "stop" || verbe == "restart") {
+            return polkit.Result.YES;
+        }
+    }
+});
