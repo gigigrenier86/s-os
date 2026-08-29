@@ -10,9 +10,49 @@ Wants=dev-binderfs.mount
 After=dev-binderfs.mount
 
 [Service]
+# CETTE ExecStartPre= EST SURE, CONTRAIREMENT A UNE AUTRE POUR
+# android-lancer.sh : /usr/bin/ln n'a jamais besoin d'entrer dans
+# s_android_t, il tourne dans le contexte par defaut de init_t -- exactement
+# comme chez waydroid-container.service, dont c'etait deja la ligne
+# ExecStartPre=. /dev est un tmpfs, vide a chaque demarrage : sans ce lien,
+# lxc-start echoue avec "Failed to mount /dev/binder" (MESURE LE 2026-08-29,
+# sur la machine vraiment redemarree sur l'image construite -- essaye
+# d'abord DANS android-lancer.sh, avec "Permission non accordee" en retour,
+# aucun AVC visible : s_android_t n'a simplement jamais eu ce droit, comme
+# waydroid_t avant lui).
+# binderfs cree ses noeuds en 0600 root:root a CHAQUE demarrage -- verifie
+# le 2026-08-29 sur cette machine, deux fois de suite juste apres un
+# demontage/remontage : crw-------. Le vrai Waydroid le corrige lui-meme
+# (session_manager/lxc.py, jamais lu jusqu'ici) avant de lancer le
+# conteneur ; on ne l'avait jamais reproduit. Sans ce chmod, servicemanager
+# (uid Android 1000, "system") recoit EACCES sur open("/dev/binder", O_RDWR)
+# et s'auto-abort (LOG_ALWAYS_FATAL) en moins de 200 ms, ce qui declenche en
+# cascade l'abandon de TOUT service qui attend le gestionnaire de contexte
+# binder -- surfaceflinger, mediaserver, keystore2, les HAL... -- puis,
+# quatre echecs de servicemanager plus tard, `init` redemarre tout le
+# systeme. Le symptome (systemd voit un arret PROPRE ~15-25s apres un
+# demarrage par ailleurs sain) ne ressemble en rien a un probleme de
+# permissions : MESURE avec strace attache des la naissance de lxc-start,
+# suivant les forks jusqu'au vrai openat() qui echoue -- rien de moins
+# n'aurait suffi. Ce n'etait jamais visible avant ce soir parce que le
+# binderfs d'une session Waydroid anterieure (chmod par le vrai outillage,
+# jamais redemonte) survivait sans redemarrage complet de la machine.
+ExecStartPre=/usr/bin/chmod 0666 /dev/binderfs/binder /dev/binderfs/hwbinder /dev/binderfs/vndbinder
+ExecStartPre=/usr/bin/ln -sf /dev/binderfs/binder /dev/binderfs/vndbinder /dev/binderfs/hwbinder /dev/
+
 # UNE SEULE ligne ExecStart=, volontairement : voir l'entete de
-# android-lancer.sh pour la raison SELinux (waydroid_exec_t n'est mappe que
-# sur ce fichier, une ligne ExecStartPre= separee retomberait en init_t et
-# perdrait le droit d'executer waydroid-net.sh / lxc-start).
+# android-lancer.sh pour la raison SELinux (s_android_exec_t n'est mappe que
+# sur ce fichier, une ligne ExecStartPre= separee tentant d'executer
+# android-net.sh ou lxc-start retomberait en init_t et perdrait le droit).
 ExecStart=/usr/lib/s/android-lancer.sh
 UMask=0022
+
+# cgroup v2 : lxc-start cree son PROPRE sous-cgroup pour isoler le
+# conteneur. AJOUTE LE 2026-08-29 sur l'hypothese que l'arret systemd
+# ~15-25s apres un demarrage sain venait d'un conflit de gestion de
+# cgroup -- FAUX, mesure le meme soir : le symptome venait en realite
+# d'un probleme de permissions sur /dev/binderfs (voir les deux
+# ExecStartPre= ci-dessus). Garde quand meme : c'est l'exigence
+# documentee de systemd pour tout gestionnaire de conteneurs
+# (Docker/Podman/LXC) lance comme service, et rien ne montre qu'elle nuit.
+Delegate=yes

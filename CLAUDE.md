@@ -44,6 +44,119 @@ lancement).
 
 ---
 
+## 2026-08-29, midi — s-android.service mourait proprement en 15-25s, et la cause tenait en un chmod
+
+**PREUVE :** `sys.boot_completed` vaut `1`, lu par `lxc-attach` sur cette
+machine, apres un redemarrage `systemctl restart s-android.service` complet,
+et le service reste `RUNNING` bien au-dela de la fenetre ou il mourait
+systematiquement (30s+, contre 15-25s toutes les tentatives precedentes).
+
+**Le symptome, releve pour la premiere fois sur la machine fraichement
+reconstruite (voir la section precedente) :** `s-android.service` demarrait
+sans erreur — `ExecStartPre=` reussi, `lxc-info` confirmant `RUNNING`,
+Android bootant reellement (`init` premiere et deuxieme etape, `zygote`
+lance) — puis s'arretait PROPREMENT 15 a 25 secondes plus tard :
+`dnsmasq[…]: exiting on receipt of SIGTERM` suivi de
+`systemd[1]: s-android.service: Deactivated successfully.`. Aucune ligne
+d'erreur entre les deux. Un code de sortie 0, pas un crash.
+
+**Quatre hypotheses formees et tuees avant la bonne, chacune par une
+mesure — la methode qui compte plus que le resultat final :**
+
+| Hypothese | Ce qui l'a tuee |
+|---|---|
+| Conteneur perime d'un essai manuel anterieur | `sudo lxc-stop -k` puis nouvel essai a froid : meme mort, meme fenetre |
+| `Delegate=yes` manquant (systemd et cgroup v2 se disputent l'arbre de cgroups d'un gestionnaire de conteneurs) | ajoute, teste : **exactement le meme symptome**, a la seconde pres |
+| `android-presse-papiers.py` sature `/dev/binder` (tournait a 99 % CPU en boucle depuis le demarrage de la machine, ouvrant le meme noeud partage) | service utilisateur arrete, nouvel essai : **meme mort** |
+| Denis SELinux (AVC) sur le domaine `s_android_t` ou sur les fichiers de donnees | `ausearch -m avc --start today` **puis** scope precis sur la fenetre exacte de l'essai : zero denial pendant tout le cycle de vie du conteneur |
+
+**La mesure qui a tranche, et qui a demande de suivre `lxc-start` depuis sa
+naissance plutot que de chercher `servicemanager` apres coup** (une simple
+attache `strace -p <pid-decouvert>` arrivait toujours trop tard — le
+processus etait deja mort entre deux appels a `pgrep`) :
+
+```
+strace -f -tt -p <MainPID de s-android.service>
+```
+
+rejoue depuis l'exec de `lxc-start`, suit tous les forks a travers le
+nouvel espace de noms PID (`ptrace` n'a pas besoin que le traceur et la
+cible partagent le meme espace de noms), et montre la sequence exacte de
+`servicemanager` (uid Android 1000, "system") :
+
+```
+openat(AT_FDCWD, "/dev/binder", O_RDWR|O_CLOEXEC) = -1 EACCES
+write(2, "Binder driver '/dev/binder' coul"..., 109)
+rt_tgsigqueueinfo(21, 21, SIGABRT, {})     <- s'auto-envoie SIGABRT
+--- SIGABRT {si_signo=SIGABRT, si_code=SI_QUEUE, si_pid=21, si_uid=1000} ---
++++ killed by SIGABRT (core dumped) +++
+```
+
+**`servicemanager` ne recevait jamais la permission d'ouvrir
+`/dev/binder`, et s'auto-abortait (`LOG_ALWAYS_FATAL`) en moins de
+200 ms — avant meme d'avoir tente `BINDER_SET_CONTEXT_MGR`.** Verifie :
+`/dev/binderfs/binder` est cree en `crw-------` (0600, `root:root`) a
+CHAQUE montage de `dev-binderfs.mount`, releve deux fois de suite apres un
+demontage/remontage volontaire. `servicemanager` tourne en UID 1000 —
+sans droit d'ouvrir un fichier 0600 appartenant a `root`. **Aucun AVC ici,
+et c'est normal : un refus DAC (permissions Unix) ne genere pas d'audit
+SELinux.**
+
+**Pourquoi c'etait invisible toutes les nuits precedentes.** Le vrai
+Waydroid corrige cette permission lui-meme dans son outillage Python
+(jamais lu jusqu'a ce soir, puisqu'on saute entierement son code depuis le
+2026-08-28), quelque part avant de lancer le conteneur. Sur cette machine,
+tant qu'aucun redemarrage complet n'avait eu lieu depuis la DERNIERE fois
+que le vrai `waydroid` avait tourne (avant sa suppression), les noeuds
+`/dev/binderfs/*` restaient permissifs — un `binderfs` monte une seule
+fois au demarrage du systeme, jamais remonte entre deux sessions Android.
+**Cette nuit est la premiere ou la machine a redemarre depuis que
+`waydroid`/`waydroid-selinux` sont partis** (voir la section precedente,
+`bootc upgrade` puis redemarrage) : le binderfs de ce boot n'a jamais ete
+touche par l'ancien outillage, et la permission manquante est devenue
+visible pour la premiere fois.
+
+**Correctif :** un troisieme `ExecStartPre=` dans `s-android.service`,
+`chmod 0666 /dev/binderfs/binder /dev/binderfs/hwbinder
+/dev/binderfs/vndbinder`, avant le `ln -sf` deja present — cette commande
+tourne dans le contexte par defaut (`init_t`), exactement comme le `ln`,
+et n'a besoin d'aucun droit special. Une option de montage
+(`stat_mode=0666`) a ete essayee en premier sur `dev-binderfs.mount` —
+**refusee par ce noyau** (`fsconfig() failed: binder: Unknown parameter
+'stat_mode'`), pas une option reconnue de ce `binder` de noyau. Le
+`chmod` reste donc la forme retenue.
+
+**`Delegate=yes` reste dans le fichier**, ajoute pendant cette meme
+enquete sur une hypothese qui s'est averee fausse — voir son propre
+commentaire dans `s-android.service`, corrige pour ne plus affirmer une
+explication qu'aucune mesure n'a jamais soutenue.
+
+**Methode a retenir, au-dela du correctif lui-meme :** une attache
+`strace` sur un PID decouvert par sondage (`pgrep` en boucle) arrive
+presque toujours trop tard pour un processus qui vit moins de 200 ms.
+Attacher `-f` a l'ancetre depuis sa naissance (ici, `lxc-start` lui-meme,
+dont le PID est connu a l'instant du `systemctl restart`) et laisser
+`strace` suivre les forks jusque dans le nouvel espace de noms PID est la
+seule methode qui a rendu la vraie sequence lisible.
+
+### Ce que cette passe ne prouve pas
+
+- **Le correctif n'a ete eprouve que par redemarrage du service**, pas par
+  un redemarrage complet de la machine — le prochain `bootc upgrade` +
+  redemarrage dira si `dev-binderfs.mount` (unite `static`, montee une
+  seule fois par demarrage) redonne bien des noeuds 0600 vierges a chaque
+  fois, comme attendu, et si le `chmod` les corrige aussi fiablement au
+  tout premier demarrage de la machine qu'aux suivants.
+- **Aucun geste au-dela de `getprop sys.boot_completed` n'a ete repris ce
+  soir** — le Play Store, le presse-papiers, la video : rien de tout ca
+  n'a ete recliqué depuis que le correctif tient.
+- **Rien n'est encore dans l'image.** Le correctif vit dans `/usr` en
+  overlay transitoire sur cette machine et dans le depot (`git commit` +
+  `push` dans la foulee de cette section) — il faut une construction et
+  un `bootc upgrade` pour qu'une machine neuve en beneficie.
+
+---
+
 ## 2026-08-29, matin — la construction GitHub a echoue, et deux causes, pas une
 
 **PREUVE :** commit `fb631cf` (celui qui rend le montage SELinux
