@@ -155,20 +155,58 @@ android-applications.py, 20 s     -> 36 lanceurs morts remplaces par 19 vivants
 systemctl --no-ask-password restart s-android.service  -> code 0, sans mot de passe
 ```
 
+### Addendum, la nuit — le premier vrai demarrage a froid a trouve un bogue, et il est corrige
+
+Construction verte (`ee8fa21`, digest `6c745a2e…`), signature verifiee,
+`rpm-ostree upgrade` puis redemarrage : `44.20260829.ee8fa21` demarre, zero
+unite en echec, `s-android-demarrer.service` et `s-android-applications.
+service` `enabled` et lances par la session **sans un seul clic** — la
+premiere fois que ce chemin tourne pour de vrai.
+
+**Et il a trouve une chose que rien n'avait testee : `s-android-demarrer.
+service` est reste `activating` pendant les `240` secondes pleines**, pour
+finir par le message d'echec doux (« Android n'a pas annonce la fin de son
+demarrage en 240 s ») — alors qu'une requete `getprop sys.boot_completed`
+posee **au meme instant, depuis un processus separe**, repondait **`1`
+instantanement**.
+
+**Mesure, pas suppose :** `strace`-like via `/proc/<pid>/wchan` a montre le
+processus bloque dans `hrtimer_nanosleep` — **0 % CPU sur 129 s** — donc en
+boucle d'attente normale, pas plante. La cause etait dans `obtenir()`
+(`android_plateforme.py`) : le handle `remote` du service binder
+`waydroidplatform` n'etait resolu **qu'une fois**, au tout debut de
+l'attente — avant que `system_server` ne finisse de se stabiliser — puis
+reinterroge en boucle. Un handle pris trop tot restait perime pour tout le
+reste de l'attente ; chaque `pret()` suivant echouait en silence
+(`ErreurAndroid` capturee, rendu `False`), et la boucle epuisait ses 240 s
+pour rien.
+
+**Corrige : le handle est repris a chaque tour de boucle, jamais garde.**
+`sm.get_service_sync()` coute 0,3 ms mesure — le reprendre chaque seconde ne
+coute rien et rend l'attente resiliente a un service qui se stabilise en
+cours de route. Reeprouve sur la machine, apres un vrai redemarrage a froid
+du conteneur (`systemctl restart s-android.service`) : **12,1 s au lieu de
+240**, code 0.
+
+Ce que le reste du script a fait pendant que ce sous-appel etait bloque :
+**tout le reste a marche**, parce que chaque autre appel (`--veille`,
+verification F-Droid) ouvre sa **propre** connexion fraiche — seul le long
+sondage partageait un handle unique. La veille est bien appliquee
+(`screen_off_timeout = 2147483647`, relu par IPlatform), le marqueur F-Droid
+est intact, 19 lanceurs sont au menu.
+
 ### Ce que cette passe ne prouve pas
 
 - **Le rappel binder `packageStateChanged` n'a jamais ete vu appele par
   Android** — seule la resynchronisation periodique (30 s) a ete exercee.
   Si le rappel ne vient jamais, une installation depuis « Magasin Android »
   attendra jusqu'a 30 s avant que l'icone apparaisse — mesure a faire.
-- **`s-android` reecrit n'a pas encore ete rejoue en entier depuis un
-  demarrage a froid du conteneur** (proprietes de demarrage + demarrage +
-  veille + F-Droid + Play Store dans l'ordre) — chaque brique l'a ete
-  separement, jamais la chaine complete par un seul appel de ce script.
-- **`s-android-demarrer.service` n'a jamais tourne** — la regle polkit et le
-  redemarrage manuel du service l'ont ete, pas le chemin `graphical-session.
-  target` -> oneshot -> `s-android --silencieux` a l'ouverture d'une vraie
-  session.
+- **Le correctif d'`obtenir()` n'a pas encore ete reconstruit dans l'image**
+  — eprouve depuis le depot (`S_LIB`), pas encore sur la machine qui a
+  montre le bogue. Une construction et un `bootc upgrade` de plus sont
+  necessaires pour qu'un vrai demarrage a froid en beneficie.
+- **Le Play Store et « Magasin Android » n'ont pas ete recliques depuis ce
+  redemarrage.**
 - **La bascule Android et son mode fenetre dans la barre laterale de
   Constellation** (`reglages.py`) ont ete relus et corriges sur le meme
   patron (`--no-ask-password` avant `pkexec`), pas cliques.

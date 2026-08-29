@@ -213,20 +213,27 @@ def obtenir(delai=0.0):
     (system_server, quelques secondes apres), puis sys.boot_completed —
     « RUNNING » cote lxc veut dire « /init a demarre », pas « Android repond »
     (la course mesuree le 2026-08-29 : pm list 3 s apres /init, « Can't
-    find service: package »). Aucun privilege sur tout ce chemin."""
+    find service: package »). Aucun privilege sur tout ce chemin.
+
+    LE HANDLE EST REPRIS A CHAQUE TOUR, JAMAIS GARDE — mesure du 2026-08-29
+    au soir, sur le tout premier demarrage a froid apres redemarrage de la
+    machine. La premiere version resolvait « remote » UNE fois puis
+    reinterrogeait toujours le meme objet Plateforme : un handle obtenu tot
+    dans le demarrage d'Android (avant que system_server ne se stabilise)
+    restait perime pour le reste de l'attente — chaque « pret() » suivant
+    echouait silencieusement (ErreurAndroid capturee, rendu False), et la
+    boucle epuisait tout son delai (240 s) alors qu'une connexion FRAICHE,
+    ouverte au meme instant depuis un autre processus, repondait
+    instantanement. « sm.get_service_sync » coute 0,3 ms mesure : le
+    reprendre a chaque seconde ne coute rien et rend la boucle resiliente
+    a un service qui se (re)enregistre en cours de route."""
     fin = time.monotonic() + delai
     sm = gestionnaire()
     while True:
         if sm.is_present():
             remote, _statut = sm.get_service_sync(NOM_SERVICE)
-            if remote:
-                plateforme = Plateforme(remote)
-                while True:
-                    if plateforme.pret():
-                        return plateforme
-                    if time.monotonic() >= fin:
-                        return None
-                    time.sleep(1)
+            if remote and Plateforme(remote).pret():
+                return Plateforme(remote)
         if time.monotonic() >= fin:
             return None
         time.sleep(1)
