@@ -1,0 +1,11 @@
+#
+# S - mappings de contexte pour le domaine s_android_t.
+# Compiles avec s_android.te (make -f .../Makefile ramasse le .fc de meme nom).
+#
+# Sans ces trois lignes, ce qui a ete fait a la main ce soir avec
+# `semanage fcontext -a` (mesure sur la machine, 2026-08-28) doit etre
+# refait a chaque machine/reconstruction. Ici, ca vient avec le module.
+#
+/usr/lib/s/android-lancer\.sh    --    gen_context(system_u:object_r:s_android_exec_t,s0)
+/usr/lib/s/android-net\.sh       --    gen_context(system_u:object_r:s_android_net_exec_t,s0)
+/var/lib/waydroid(/.*)?               gen_context(system_u:object_r:s_android_data_t,s0)

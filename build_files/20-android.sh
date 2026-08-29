@@ -2,16 +2,22 @@
 set -euxo pipefail
 
 # --------------------------------------------------------------------------
-# Android — et ce qu'on ne fait PAS
+# Android — Bazzite pose les images, S retire l'outillage Waydroid
 # --------------------------------------------------------------------------
-# Bazzite fournit sa propre recette Waydroid : « ujust configure-waydroid ».
-# Elle installe le conteneur, propose la traduction ARM (libhoudini ou libndk,
-# jamais les deux), les services Google ou microG, et elle est maintenue en
-# amont. La reimplementer serait la seule facon de se tromper ici.
+# MESURE SUR LA MACHINE, LE 2026-08-28 (voir CLAUDE.md, "Android tourne sous
+# s-android.service"). system.img/vendor.img sont telecharges par le paquet
+# waydroid AVANT qu'on le retire ici (son initializer.py les pose dans
+# /var/lib/waydroid/images, un dossier hors du paquet lui-meme — verifie :
+# `rpm -ql waydroid` ne montre rien sous /var/lib/waydroid) et le domaine
+# SELinux deja audite pour binder/graphics reste utile sous un nom a nous.
+# Le paquet Python — sa CLI, son gestionnaire de session, son gestionnaire de
+# conteneur — n'est plus necessaire : s-android.service (voir
+# 47-android-selinux.sh, APRES le COPY files/ /, puisqu'il en depend) le
+# remplace en entier.
 #
-# On verifie en revanche qu'elle est toujours la. Si Bazzite la deplace ou la
-# retire un jour, la construction doit echouer ICI, bruyamment — plutot que de
-# livrer un OS dont la brique Android a disparu en silence.
+# ON NE REIMPLEMENTE PAS system.img/vendor.img. « ujust configure-waydroid »
+# de Bazzite est ce qui les pose la premiere fois — on le laisse faire
+# entierement, et on retire seulement l'outillage Python APRES.
 
 if [[ ! -x /usr/bin/waydroid-launcher ]]; then
     echo "ECHEC : /usr/bin/waydroid-launcher est absent de l'image de base." >&2
@@ -20,12 +26,23 @@ if [[ ! -x /usr/bin/waydroid-launcher ]]; then
     exit 1
 fi
 
+# --nodeps : waydroid-selinux depend du paquet waydroid pour son scriptlet de
+# politique, et l'ordre de suppression standard de dnf braille dessus sans
+# raison relle — les deux partent ensemble de toute facon, et
+# 47-android-selinux.sh charge un module de remplacement avant que quoi que
+# ce soit n'ait besoin de l'ancien.
+if rpm -q waydroid >/dev/null 2>&1; then
+    dnf5 remove -y waydroid waydroid-selinux
+    echo "waydroid/waydroid-selinux retires — S les remplace, voir 47-android-selinux.sh."
+fi
+
 # --------------------------------------------------------------------------
 # Le module binder — et pourquoi ce n'est pas inconditionnel
 # --------------------------------------------------------------------------
-# Waydroid a besoin de binder. Selon la configuration du noyau, il est soit
-# compile dedans (=y, rien a faire), soit un module (=m, a charger avant
-# waydroid-container.service, faute de quoi /dev/binder n'est jamais cree).
+# Waydroid avait besoin de binder ; s-android.service en a besoin pareil, la
+# question ne depend pas du gestionnaire. Selon la configuration du noyau, il
+# est soit compile dedans (=y, rien a faire), soit un module (=m, a charger
+# avant s-android.service, faute de quoi /dev/binder n'est jamais cree).
 #
 # Poser un /etc/modules-load.d inconditionnel serait faux dans le premier cas :
 # systemd tenterait a chaque demarrage de charger un module qui n'existe pas,
@@ -45,90 +62,21 @@ elif grep -q '^CONFIG_ANDROID_BINDER_IPC=y' "${KCONFIG}"; then
     echo "binder est COMPILE dans le noyau (${KCONFIG}) : rien a charger."
 else
     echo "AVERTISSEMENT : CONFIG_ANDROID_BINDER_IPC introuvable dans ${KCONFIG}." >&2
-    echo "                Waydroid pourrait ne pas demarrer — a verifier au jalon 3." >&2
+    echo "                Android pourrait ne pas demarrer — a verifier au jalon 3." >&2
     grep -i binder "${KCONFIG}" >&2 || true
 fi
 
-
 # --------------------------------------------------------------------------
-# LE CONTENEUR DOIT DEMARRER TOUT SEUL — ET IL NE LE FAISAIT PAS
+# Le presse-papiers — les deux paquets independants du paquet waydroid
 # --------------------------------------------------------------------------
-# MESURE DU 2026-08-24, SUR LA MACHINE. binder est bien compile dans le noyau,
-# waydroid et lxc sont bien poses, s-android sait tout faire — et pourtant
-# Android ne pouvait pas demarrer. La raison tenait en une ligne absente :
-#
-#   waydroid-container.service etait « disabled ».
-#
-# Or c'est LUI qui porte « Wants=dev-binderfs.mount ». Et dev-binderfs.mount est
-# « static » : sans section [Install], il ne peut PAS etre active directement —
-# il ne se declenche que tire par quelqu'un. Personne ne le tirait. Resultat :
-# /dev/binderfs jamais monte, /dev/binder jamais cree, et le conteneur Android
-# incapable de s'ouvrir meme si tout le reste etait pret.
-#
-# C'est le defaut le plus cher du projet : le carnet a ecrit « Waydroid n'a
-# jamais tourne, c'est pourtant le coeur du projet » pendant cinq jours, pour
-# une unite qu'il suffisait d'activer.
-systemctl enable waydroid-container.service
-echo "waydroid-container.service active — il tire dev-binderfs.mount avec lui."
+# pyclip et gbinder ne viennent jamais du paquet waydroid (verifie : Fedora
+# les distribue a part). Les poser ICI, avant sa suppression plus haut, evite
+# tout ordre de dependance a se soucier. Les fichiers qui les UTILISENT
+# (android-presse-papiers.py) arrivent par COPY files/ / et sont verifies
+# dans 47-android-selinux.sh, apres.
 
-# L'assertion qui empeche la panne de revenir. « is-enabled » sort en 1 quand
-# l'unite est desactivee : sans ce controle, une mise a jour de l'amont qui
-# reinitialiserait le preset repasserait inapercue.
-systemctl is-enabled waydroid-container.service >/dev/null \
-    || { echo "ECHEC : waydroid-container.service n'est pas active." >&2; exit 1; }
-test -f /usr/lib/systemd/system/dev-binderfs.mount \
-    || { echo "ECHEC : dev-binderfs.mount absent — Waydroid ne pourra pas monter binderfs." >&2; exit 1; }
-grep -q 'dev-binderfs.mount' /usr/lib/systemd/system/waydroid-container.service \
-    || { echo "ECHEC : le conteneur ne tire plus binderfs — l'amont a change." >&2; exit 1; }
-echo "  chaine verifiee : conteneur -> dev-binderfs.mount -> /dev/binder"
+dnf5 install -y python3-pyclip python3-gbinder
 
-
-# --------------------------------------------------------------------------
-# LE PRESSE-PAPIERS LINUX <-> ANDROID — IL EXISTAIT, IL LUI MANQUAIT UN PAQUET
-# --------------------------------------------------------------------------
-# Le carnet a porte « le presse-papiers Linux/Android n'existe pas » comme un
-# chantier a ecrire. C'etait faux : Waydroid le fournit en entier depuis
-# l'amont, et personne n'avait regarde.
-#
-#   /usr/lib/waydroid/tools/interfaces/IClipboard.py
-#       publie un service binder « waydroidclipboard », interface
-#       « lineageos.waydroid.IClipboard », avec ses deux sens :
-#         transaction 1  sendClipboardData  Android a copie -> on ecrit cote Linux
-#         transaction 2  getClipboardData   Android veut coller -> on lui rend Linux
-#   /usr/lib/waydroid/tools/services/clipboard_manager.py
-#       le demarre dans le processus de session (session_manager.py:108),
-#       a cote du gestionnaire de notifications.
-#
-# CE QUI L'ETEIGNAIT, ET POURQUOI PERSONNE NE POUVAIT LE VOIR. Le gestionnaire
-# s'ouvre sur un « try: import pyclip » et, si l'import echoue, pose
-# canClip = False puis se saute lui-meme :
-#
-#     logging.debug("Skipping clipboard manager service because of missing
-#                    pyclip package")
-#
-# Niveau DEBUG. Donc invisible sans -v, meme dans /var/lib/waydroid/waydroid.log.
-# La session demarre, Android tourne, tout va bien — et la moitie d'une couture
-# n'est jamais armee. Le succes silencieux de la regle 2, pris dans une
-# dependance optionnelle.
-#
-# Le paquet « waydroid » de Fedora ne tire pas python3-pyclip, qui existe
-# pourtant dans les depots (0.7.0-15.fc44) et se pose entierement dans /usr.
-#
-# MESURE SUR LA MACHINE, LE 2026-08-25 — deux sessions, une seule variable :
-#     avec pyclip  : 7 fils dans le processus de session
-#     sans pyclip  : 6 fils
-#     avec pyclip  : 7 fils   (reproduit au retour)
-# Le fil de difference est celui du gestionnaire. Et pyclip choisit bien son
-# moteur Wayland ici — detect_clipboard() rend WaylandClipboard, l'aller-retour
-# par wl-copy/wl-paste est exact.
-#
-# On ne reimplemente donc RIEN. On fournit ce qui manquait.
-
-dnf5 install -y python3-pyclip
-
-# pyclip ne parle pas Wayland tout seul : son moteur appelle wl-copy et
-# wl-paste. Sans eux il leve ClipboardSetupException a la premiere copie —
-# c'est-a-dire plus tard, chez l'utilisateur, et pas ici.
 for outil in /usr/bin/wl-copy /usr/bin/wl-paste; do
     test -x "${outil}" \
         || { echo "ECHEC : ${outil} absent — pyclip ne pourra pas parler Wayland." >&2; exit 1; }
@@ -141,15 +89,8 @@ if rpm -ql python3-pyclip 2>/dev/null | grep -E '^/(var|opt)/|^/usr/local/'; the
     exit 1
 fi
 
-# L'import doit reussir avec le python de l'image, pas avec un autre.
 /usr/bin/python3 -c 'import pyclip' \
     || { echo "ECHEC : python3-pyclip pose mais non importable." >&2; exit 1; }
-
-# Et le garde-fou qui compte vraiment : si l'amont deplace ou retire son pont,
-# on installerait une dependance pour rien et le presse-papiers retomberait en
-# silence. La construction doit echouer ICI, comme pour waydroid-launcher.
-test -f /usr/lib/waydroid/tools/services/clipboard_manager.py \
-    || { echo "ECHEC : Waydroid n'a plus de clipboard_manager — pont disparu en amont." >&2; exit 1; }
-grep -q 'import pyclip' /usr/lib/waydroid/tools/services/clipboard_manager.py \
-    || { echo "ECHEC : le pont Waydroid ne depend plus de pyclip — a reexaminer." >&2; exit 1; }
-echo "presse-papiers : python3-pyclip pose, pont Waydroid arme (les deux sens)."
+/usr/bin/python3 -c 'import gbinder' \
+    || { echo "ECHEC : python3-gbinder pose mais non importable." >&2; exit 1; }
+echo "presse-papiers : pyclip + gbinder poses (le script qui les utilise est verifie apres COPY)."
