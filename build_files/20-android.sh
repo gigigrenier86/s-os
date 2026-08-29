@@ -37,6 +37,20 @@ if rpm -q waydroid >/dev/null 2>&1; then
 fi
 
 # --------------------------------------------------------------------------
+# lxc/lxc-libs — Waydroid les tirait comme dependance, pas comme un a-cote
+# --------------------------------------------------------------------------
+# MESURE LE 2026-08-29, EN CONSTRUCTION REELLE : dnf5 a retire lxc et
+# lxc-libs comme "dependance inutilisee" en meme temps que waydroid
+# ci-dessus — exactement la meme famille de surprise que
+# dev-binderfs.mount (voir CLAUDE.md, "la construction echouait"). Sans ce
+# paquet, /usr/lib/s/android-lancer.sh echoue avec "lxc-start: Aucun
+# fichier ou dossier de ce nom" — trouve sur une machine deja redemarree
+# sur l'image, pas en local. Demande explicitement, comme le reste de ce
+# que s-android.service utilise : plus rien ici ne doit dependre d'un
+# paquet qu'on vient de retirer trois lignes plus haut.
+dnf5 install -y lxc lxc-libs
+
+# --------------------------------------------------------------------------
 # Le module binder — et pourquoi ce n'est pas inconditionnel
 # --------------------------------------------------------------------------
 # Waydroid avait besoin de binder ; s-android.service en a besoin pareil, la
