@@ -328,30 +328,78 @@ def _basculer_tailscale(actif):
                          else ("tailnet rejoint" if actif else "tailnet quitte"))
 
 
+# LE FICHIER DE PROPRIETES ANDROID, PARTAGE PAR LES FONCTIONS CI-DESSOUS.
+# Meme mecanisme cote Python que « s_android_etat »/« s_android_prop_lire »
+# dans files/usr/lib/s/partage-android.sh (voir ce fichier pour les mesures
+# du 2026-08-29 : etat par systemd et non lxc-info, waydroid.prop en clair,
+# root:root 0644) — deux langages differents pour deux appelants differents
+# (une couture bash, ce module Python), pas de bibliotheque commune entre
+# les deux mondes dans ce depot.
+_PROP_ANDROID = "/var/lib/waydroid/waydroid.prop"
+
+# Petit script autonome, execute par un python3 SEPARE sous pkexec — jamais
+# dans CE processus, qui n'a pas les droits d'ecrire un fichier root:root.
+# Remplace la cle si elle existe deja, l'ajoute sinon ; ecriture atomique
+# (fichier temporaire puis os.replace) pour qu'une coupure ne laisse jamais
+# le fichier a moitie ecrit.
+_SCRIPT_ECRIRE_PROP_ANDROID = """
+import sys, os
+chemin, cle, valeur = sys.argv[1:4]
+try:
+    with open(chemin, encoding="utf-8") as f:
+        lignes = f.read().splitlines()
+except FileNotFoundError:
+    lignes = []
+vue = False
+for i, ligne in enumerate(lignes):
+    if ligne.split("=", 1)[0] == cle:
+        lignes[i] = cle + "=" + valeur
+        vue = True
+        break
+if not vue:
+    lignes.append(cle + "=" + valeur)
+tmp = chemin + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    f.write("\\n".join(lignes) + "\\n")
+os.replace(tmp, chemin)
+"""
+
+
+def _lire_prop_android(cle):
+    try:
+        with open(_PROP_ANDROID, encoding="utf-8") as f:
+            for ligne in f:
+                if ligne.split("=", 1)[0] == cle:
+                    return ligne.split("=", 1)[1].strip()
+    except OSError:
+        return None
+    return None
+
+
 def _android():
-    if not _outil("waydroid"):
+    # Sans images Android, la bascule serait un bouton mort : la regle de ce
+    # fichier — un reglage se declare indisponible quand son materiel manque —
+    # vaut aussi pour un monde entier.
+    if not os.path.isfile("/var/lib/waydroid/images/system.img"):
         return None
-    code, sortie = _lire(["waydroid", "status"], delai=12)
-    if code != 0:
-        return None
-    etat = {}
-    for ligne in sortie.splitlines():
-        if ":" in ligne:
-            cle, _, valeur = ligne.partition(":")
-            etat[cle.strip().lower()] = valeur.strip()
-    session = etat.get("session", "")
-    return {"actif": session.upper() == "RUNNING", "etat": session}
+    # PAS lxc-info : sans privilege il repond « Insufficent privileges »
+    # precisement quand le conteneur TOURNE (mesure du 2026-08-29, voir
+    # s_android_etat dans partage-android.sh). systemd, lui, se lit sans
+    # aucun droit, et s-android.service est l'unique proprietaire de
+    # lxc-start.
+    code, _sortie = _lire(
+        ["systemctl", "is-active", "--quiet", "s-android.service"], delai=6)
+    actif = (code == 0)
+    return {"actif": actif, "etat": "RUNNING" if actif else "STOPPED"}
 
 
 def _basculer_android(actif):
-    if not _outil("waydroid"):
-        return False, "Waydroid n'est pas sur cette machine"
     if actif:
-        # LE DEMARRAGE PASSE PAR LE GESTE DE S, PAS PAR WAYDROID DIRECTEMENT.
-        # « s-android » fait bien plus que lancer la session : il verse les
-        # proprietes, regle la mise en veille et la mise en page. L'appeler
-        # d'ici evite d'avoir deux facons de demarrer Android, dont une
-        # incomplete — la faute que ce depot a payee cinq jours.
+        # LE DEMARRAGE PASSE PAR LE GESTE DE S, PAS PAR systemctl DIRECTEMENT.
+        # « s-android » fait bien plus que lancer le conteneur : il verse les
+        # proprietes, regle la mise en veille et ouvre une application.
+        # L'appeler d'ici evite d'avoir deux facons de demarrer Android, dont
+        # une incomplete — la faute que ce depot a payee cinq jours.
         geste = "/usr/bin/s-android"
         if os.path.isfile(geste):
             try:
@@ -361,64 +409,69 @@ def _basculer_android(actif):
                 return True, "Android demarre"
             except OSError as err:
                 return False, str(err)
-    code, sortie = _lire([_outil("waydroid"), "session",
-                          "start" if actif else "stop"], delai=30)
+        return False, "s-android est absent de cette machine"
+    outil = _outil("pkexec")
+    if not outil:
+        return False, "pkexec n'est pas sur cette machine"
+    code, sortie = _lire(
+        [outil, "systemctl", "stop", "s-android.service"], delai=30)
     _oublier("android")
-    return (code == 0), (sortie.strip()[:120] or
-                         ("Android demarre" if actif else "Android arrete"))
+    return (code == 0), (sortie.strip()[:120] or "Android arrete")
 
 
 # LE MODE D'AFFICHAGE D'ANDROID — DEMANDE DE L'UTILISATEUR (reponse 14 de
 # l'entretien du 2026-08-27) : « je prefere avoir le choix » entre fenetre et
 # plein ecran, plutot qu'un mode impose une fois pour toutes dans s-android.
 #
-# CE RELEVE N'A DE SENS QUE SESSION VIVANTE. « waydroid prop get/set » exige
-# la session — mesure du carnet, 2026-08-26 : sans elle il repond « WayDroid
-# session is stopped » plutot qu'une vraie valeur. Poser l'etoile quand meme
-# donnerait un etat invente.
+# CE RELEVE NE DEPEND PLUS DE LA SESSION VIVANTE — CHANGEMENT DU 2026-08-29.
+# Avant, « waydroid prop get » exigeait la session (sans elle : « WayDroid
+# session is stopped » plutot qu'une vraie valeur), donc ce reglage restait
+# invisible tant qu'Android etait eteint. Ce n'est plus un appel a un outil
+# externe : c'est la lecture directe de waydroid.prop, le fichier
+# qu'android-lancer.sh bind-monte tel quel dans le conteneur — la meme
+# verite que le conteneur lira au prochain demarrage, qu'il tourne ou non en
+# ce moment.
 #
-# CE RELEVE NE DECIDE RIEN A CHAUD. Le carnet du 2026-08-25 l'a mesure :
-# « persist.waydroid.multi_windows » ne prend qu'au PROCHAIN demarrage du
-# conteneur, jamais a chaud. Changer ce reglage redemarre donc la session
-# Android — tout ce qui y tournait se ferme, exactement comme changer de
-# moniteur redemarrerait un serveur d'affichage.
+# CE RELEVE NE DECIDE TOUJOURS RIEN A CHAUD. Le carnet du 2026-08-25 l'a
+# mesure : « persist.waydroid.multi_windows » ne prend qu'au PROCHAIN
+# demarrage du conteneur, jamais a chaud. Changer ce reglage redemarre donc
+# le conteneur — tout ce qui y tournait se ferme, exactement comme changer
+# de moniteur redemarrerait un serveur d'affichage.
 def _mode_android():
-    if not _outil("waydroid"):
+    valeur = _lire_prop_android("persist.waydroid.multi_windows")
+    if valeur is None:
         return None
-    etat = _android()
-    if not etat or not etat.get("actif"):
-        return None
-    code, sortie = _lire(["waydroid", "prop", "get",
-                          "persist.waydroid.multi_windows"], delai=10)
-    if code != 0:
-        return None
-    return {"fenetre": sortie.strip().lower() == "true"}
+    return {"fenetre": valeur.lower() == "true"}
 
 
 def _regler_mode_android(mode):
-    if not _outil("waydroid"):
-        return False, "Waydroid n'est pas sur cette machine"
+    outil = _outil("pkexec")
+    if not outil:
+        return False, "pkexec n'est pas sur cette machine"
     fenetre = (mode == "fenetre")
-    code, _sortie = _lire(["waydroid", "prop", "set",
-                          "persist.waydroid.multi_windows",
-                          "true" if fenetre else "false"], delai=10)
+    code, _sortie = _lire(
+        [outil, "/usr/bin/python3", "-c", _SCRIPT_ECRIRE_PROP_ANDROID,
+         _PROP_ANDROID, "persist.waydroid.multi_windows",
+         "true" if fenetre else "false"], delai=10)
     if code != 0:
         return False, "reglage refuse"
     _oublier("mode-android")
-    _lire([_outil("waydroid"), "session", "stop"], delai=30)
-    # MEME GESTE QUE « _basculer_android(True) » : passer par s-android plutot
-    # que par « waydroid session start » directement, pour les memes raisons —
-    # il verse aussi les proprietes et la mise en veille, pas seulement la
-    # session.
-    geste = "/usr/bin/s-android"
-    if os.path.isfile(geste):
-        try:
-            subprocess.Popen([geste], start_new_session=True,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except OSError as err:
-            return False, str(err)
+    # NE PREND EFFET QU'AU PROCHAIN DEMARRAGE : redemarrer si le conteneur
+    # tourne deja, sinon passer par s-android — meme geste que
+    # « _basculer_android(True) », pour les memes raisons : il verse aussi
+    # les proprietes et la mise en veille, pas seulement le conteneur.
+    etat = _android()
+    if etat and etat.get("actif"):
+        _lire([outil, "systemctl", "restart", "s-android.service"], delai=30)
     else:
-        _lire([_outil("waydroid"), "session", "start"], delai=30)
+        geste = "/usr/bin/s-android"
+        if os.path.isfile(geste):
+            try:
+                subprocess.Popen([geste], start_new_session=True,
+                                 stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+            except OSError as err:
+                return False, str(err)
     return True, ("Android en fenetres (redemarrage...)" if fenetre
                  else "Android en plein ecran (redemarrage...)")
 

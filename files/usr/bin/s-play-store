@@ -16,7 +16,7 @@ MARQUE="$S_ETAT/android-certifie"
 [ "${1:-}" = "--force" ] && rm -f "$MARQUE"
 [ -f "$MARQUE" ] && exit 0
 
-waydroid status 2>/dev/null | grep -qi 'RUNNING' || \
+[ "$(s_android_etat)" = "RUNNING" ] || \
     s_echec "Android ne tourne pas" "Ouvre d'abord Android, puis recommence."
 
 # L'identifiant vit dans la base de Google Services Framework, a l'interieur
@@ -27,7 +27,10 @@ ANDROID_TZDATA_ROOT=/apex/com.android.tzdata ANDROID_I18N_ROOT=/apex/com.android
 sqlite3 /data/data/com.google.android.gsf/databases/gservices.db
 "select value from main where name = '"'"'android_id'"'"';"'
 
-ID="$(s_root waydroid shell -- sh -c "$(printf '%s' "$LIRE" | tr '\n' ' ')" 2>/dev/null \
+# « waydroid shell » est devenu « lxc-attach » directement (s_android_dans,
+# voir partage-android.sh) — meme besoin de root, meme raison : le mur est
+# CAP_SYS_ADMIN, pas une permission qui se discute.
+ID="$(s_android_dans sh -c "$(printf '%s' "$LIRE" | tr '\n' ' ')" 2>/dev/null \
       | tr -d '\r' | grep -oE '^[0-9]+$' | head -n1)"
 
 if [ -z "$ID" ]; then

@@ -14,7 +14,8 @@
 # ressemble EXACTEMENT a un gel.
 #
 # ON NE REPARE DONC PAS CETTE BOITE : on ne l'ouvre plus.
-# « waydroid app install » passe par WayDroidService, qui tourne DANS
+# « pm install » (via lxc-attach depuis le 2026-08-29, « waydroid app
+# install » avant lui) passe par PackageManagerService, qui tourne DANS
 # system_server avec la permission INSTALL_PACKAGES : la session d'installation
 # est validee sans aucune confirmation. C'est deja ce que fait s-android pour
 # poser F-Droid lui-meme, et ca a toujours marche.
@@ -54,7 +55,7 @@ choisir() {
 # --- Le monde Android doit tourner ------------------------------------------
 # On ne le demarre pas d'autorite : s-android sait le faire, avec ses
 # notifications et son verrou. Ici on constate, et on renvoie vers lui.
-if ! waydroid status 2>/dev/null | grep -qi 'RUNNING'; then
+if [ "$(s_android_etat)" != "RUNNING" ]; then
     s_dire "Android n'est pas demarre" "Ouverture d'Android, puis relancer le magasin." phone
     s-android >/dev/null 2>&1 &
     s_echec "Android demarre" "Relancer « Magasin Android » quand le bureau Android est la."
@@ -139,46 +140,37 @@ curl -fsSL --max-time 300 -o "$APK" "$DEPOT/${PAQUET}_${VC}.apk" \
 
 s_dire "$PAQUET" "Installation…" phone
 
-# On PHOTOGRAPHIE le menu avant, plutot que de deviner le nom du lanceur.
-# Waydroid nomme ses .desktop d'apres le paquet, mais ce n'est pas un contrat :
-# reconstruire le nom de tete, c'est supposer une structure au lieu de la
-# chercher — et l'etoile ne monterait pas, en silence, le jour ou la convention
-# changerait.
-AVANT="$(mktemp)"
-find "$S_LANCEURS" -maxdepth 1 -name '*.desktop' 2>/dev/null | sort > "$AVANT"
-
-if ! waydroid app install "$APK" >"$S_ETAT/android-install.log" 2>&1; then
-    rm -f "$AVANT"
+# AUCUNE ICONE N'APPARAITRA TOUTE SEULE — ET C'EST UN CHANGEMENT REEL DEPUIS
+# LE 2026-08-29. Ce bloc photographiait le menu avant/apres parce que
+# Waydroid posait lui-meme un .desktop par application installee, de facon
+# asynchrone (son propre demon Python, AppsService, en watchant
+# PackageManager). Ce demon est parti avec le paquet ; RIEN ne pose plus de
+# lanceur automatiquement — voir CLAUDE.md, 2026-08-29. Plutot que
+# d'attendre un fichier qui ne viendra jamais, on ouvre directement
+# l'application installee : c'est la seule facon, pour l'instant, de
+# montrer qu'elle marche.
+# PAR TUYAU (s_tee), JAMAIS PAR REDIRECTION : lxc-attach chowne son stdout
+# (mesure de s-monde, 2026-08-26 — et re-mesuree le 2026-08-29 sur le banc
+# de CE correctif, ou une redirection a rendu le fichier de sortie root:0600
+# en un appel). Redirige vers le journal, il le donnerait a root et le bloc
+# mourrait en silence au prochain passage. pipefail est arme : le code de
+# retour de l'installation traverse le tuyau.
+if ! s_android_installer "$APK" 2>&1 | s_tee "$S_ETAT/android-install.log"; then
     s_echec "Installation echouee" "Detail dans $S_ETAT/android-install.log"
 fi
 
-# Waydroid pose son lanceur de facon asynchrone, apres l'installation.
-for _ in $(seq 1 10); do
-    find "$S_LANCEURS" -maxdepth 1 -name '*.desktop' 2>/dev/null | sort > "$APK.apres"
-    comm -13 "$AVANT" "$APK.apres" | grep -q . && break
-    sleep 1
-done
-
 s_rafraichir_menu
 
-# Faire monter l'etoile : l'utilisateur vient de dire qu'il voulait cette
-# application, en l'installant.
-NEUFS=0
-while IFS= read -r nouveau; do
-    [ -n "$nouveau" ] || continue
-    ident="$(basename "$nouveau" .desktop)"
-    s_placer_etoile "$ident"
-    NEUFS=$((NEUFS + 1))
-done < <(comm -13 "$AVANT" "$APK.apres" 2>/dev/null)
-rm -f "$AVANT" "$APK.apres"
-
-if [ "$NEUFS" -eq 0 ]; then
-    # Installe, mais rien dans le menu : le dire plutot que de laisser
-    # l'utilisateur chercher une icone qui n'existe pas.
+# FORGE DEPUIS LES OUTILS AOSP STANDARDS, JAMAIS EPROUVE SUR CETTE IMAGE
+# PRECISE — voir CLAUDE.md, 2026-08-29. Meilleur effort : un echec ici ne
+# doit pas faire croire que l'installation elle-meme a rate, elle a deja
+# reussi au-dessus.
+if s_android_lancer "$PAQUET" >/dev/null 2>&1; then
     s_dire "$PAQUET" \
-"Installe, mais aucune icone n'est apparue. L'application est peut-etre sans \
-interface. Elle est visible dans le bureau Android." dialog-warning
-    exit 0
+"Installe et ouvert. Sans icone permanente pour l'instant — repasser par \
+« Magasin Android » pour la rouvrir." phone
+else
+    s_dire "$PAQUET" \
+"Installe, mais S n'a pas reussi a l'ouvrir automatiquement. Elle est \
+visible dans le bureau Android." dialog-warning
 fi
-
-s_dire "$PAQUET" "Installe. L'application est dans le menu et au ciel." phone

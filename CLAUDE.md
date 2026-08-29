@@ -44,6 +44,109 @@ lancement).
 
 ---
 
+## 2026-08-29, apres-midi — les gestes Android reparlaient a un binaire mort, et la chaine neuve est eprouvee a l'ecran
+
+**PREUVE :** capture `android-fdroid.png` (scratchpad de session) — F-Droid
+rendu en entier, catalogue charge, dans une fenetre kwin de classe
+`waydroid.org.fdroid.fdroid`, sur cette machine, apres que le geste
+`s-android` du depot ait ete lance de bout en bout : ecriture des proprietes,
+`systemctl start s-android.service`, `setprop waydroid.active_apps` +
+`am start` — et l'installation de F-Droid elle-meme, faite en flux depuis
+l'hote par le mecanisme neuf (`pm install -S`, « Success »).
+
+**Le gouffre, trouve en se mettant a jour apres le redemarrage de midi.** Le
+binderfs 0600 etait corrige, la machine redemarree dessus, `s-android.service`
+fonctionnel au niveau bas — mais TOUT ce que l'utilisateur clique (l'icone
+« Android », « Play Store », « Magasin Android », la bascule de la barre
+laterale) etait encore ecrit contre la CLI `waydroid`, retiree la veille avec
+le paquet. `which waydroid` : rien. Cliquer « Android » aurait boucle deux
+minutes sur un `waydroid status` muet (« command not found » avale par
+`2>/dev/null`, `grep -qi RUNNING` faux sans un mot) puis conclu « Android n'a
+pas demarre ». Le succes silencieux, cote geste.
+
+**Ce qui a ete construit — `partage-android.sh` porte desormais les verbes
+natifs, partages par les trois gestes** (copie de reference au Grimoire,
+`android-piloter-sans-waydroid.sh`) :
+
+| Verbe | Mecanisme | Privilege |
+|---|---|---|
+| `s_android_etat` | `systemctl is-active s-android.service` | aucun |
+| `s_android_dans` | `s_root lxc-attach -P /var/lib/waydroid/lxc -n android --` | pkexec |
+| `s_android_prop_lire/ecrire` | `/var/lib/waydroid/waydroid.prop` en direct | lecture libre, ecriture pkexec |
+| `s_android_installer` | `pm install -S <taille>`, APK en flux stdin | pkexec |
+| `s_android_lancer` | `resolve-activity` + `setprop waydroid.active_apps` + `am start -n` | pkexec |
+
+**Quatre hypotheses de la conception tuees par la mesure, chacune en
+faisant :**
+
+1. **« lxc-info marche sans privilege »** — vrai UNIQUEMENT conteneur arrete
+   (la mesure du matin, faite dans ce seul etat). En marche : « Insufficent
+   privileges to control » — le socket de commande est a root. La premiere
+   boucle d'attente guettait RUNNING sur un temoin incapable de le dire, et
+   « Android n'a pas demarre » est tombe sur un Android vivant (DHCP negocie).
+   Remplace par systemd, qui se lit sans droit et possede lxc-start.
+2. **« pm install -S <taille> - »** — le tiret final est refuse par ce pm
+   (Android 13) : « Unknown option - ». La forme flux est `-S <taille>` seul,
+   APK sur stdin. Corrige, puis eprouve sur le vrai F-Droid : « Success ».
+3. **« am start rend son verdict par son code »** — faux : « Error: Activity
+   not started », code 0. Le verdict se lit dans la sortie ; corrige.
+4. **« am start suffit a faire une fenetre »** — faux : `hwcomposer.waydroid.so`
+   ne cree une fenetre Wayland que d'apres `waydroid.active_apps` (lu dans sa
+   table des symboles, extraite de vendor.img par `debugfs` sans montage ni
+   droit). Sans le `setprop`, activite au premier plan et ecran vide. La
+   sentinelle `Waydroid` donne l'interface complete — mesuree : l'accueil
+   Android entier, horloge a l'heure de la machine, dans une fenetre kwin de
+   1747×1028, exactement la taille calculee.
+
+**Et le piege documente de s-monde a mordu deux fois le banc de cette passe**
+— `lxc-attach` chowne son stdout : deux fichiers de capture passes root:0600
+en un appel chacun. La lecon (« un tuyau, jamais le descripteur ») a ete
+appliquee au seul endroit du code neuf qui redirigait
+(`s-magasin-android` → `s_tee`).
+
+**Deux defauts de fond corriges en chemin :**
+
+- **Le marqueur `android-pret` mentait depuis le test a froid du 2026-08-28**
+  — F-Droid efface avec les donnees, marqueur intact disant « pose ».
+  L'exacte faute que ce carnet reproche aux marqueurs de premier demarrage,
+  commise par S. Le marqueur porte desormais l'inode du dossier de donnees :
+  donnees recreees, marqueur perime tout seul. (C'est ce qui a permis
+  d'eprouver l'installation pour de vrai : F-Droid manquait reellement.)
+- **`waydroid.cfg`/`waydroid_base.prop` sont morts avec le paquet** — le seul
+  fichier qu'Android lit encore est `waydroid.prop`, celui
+  qu'`android-lancer.sh` bind-monte. Tout le jeu de gardes en trois passes de
+  l'ancien `s-android` (fichier contre `prop get`, la confusion payee le
+  2026-08-25) se replie en UNE lecture et UNE ecriture. `suspend_action`
+  disparait sans regression : il n'avait jamais rien fait, et le mecanisme
+  qui l'aurait lu n'existe plus.
+
+**Ce que cette passe ne prouve pas :**
+
+- **Une machine NEUVE ne peut plus obtenir Android du tout.** `waydroid init`
+  etait le seul telechargeur de `system.img`/`vendor.img`, et il est parti
+  avec le paquet. Cette machine vit sur les images du 2026-08-25 ; une
+  reconstruction a zero n'aurait rien. `s-android` le DIT desormais
+  honnetement au lieu d'echouer en silence. Chantier a part, non commence :
+  reproduire la logique OTA de l'ancien `initializer.py`.
+- **Aucune icone par application Android n'existe plus** — le demon Python
+  (AppsService) qui posait un `.desktop` par installation est parti avec le
+  paquet. `s-magasin-android` ouvre desormais l'application juste apres
+  l'avoir installee, mais rien ne survit dans le menu. Chantier a part.
+- **`s-play-store` n'a pas ete rejoue** (marqueur `android-certifie` en
+  place) — son mecanisme est le meme `s_android_dans sh -c` eprouve
+  ailleurs, mais sa requete sqlite precise n'a pas retourne sur cette passe.
+- **La bascule et le mode d'affichage de la barre laterale** (`reglages.py`)
+  sont reecrits et leurs fonctions de lecture mesurees en direct
+  (`_android()` → RUNNING sur le conteneur vivant, `_mode_android()` lit le
+  fichier sans exiger la session) — mais aucun clic dans le panneau lui-meme.
+- **Rien n'est dans l'image.** Tout a tourne depuis le depot
+  (`S_LIB=.../files/usr/lib/s`). Il faut une construction et un
+  `bootc upgrade`.
+- **`monkey` est un wrapper bash inerte sur cette image** — releve en
+  passant, pour que personne ne compte dessus.
+
+---
+
 ## 2026-08-29, midi — s-android.service mourait proprement en 15-25s, et la cause tenait en un chmod
 
 **PREUVE :** `sys.boot_completed` vaut `1`, lu par `lxc-attach` sur cette

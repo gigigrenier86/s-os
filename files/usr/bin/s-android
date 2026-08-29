@@ -1,10 +1,11 @@
 #!/usr/bin/bash
 # Le monde Android de S : une seule icone qui fait tout.
 #
-# Waydroid n'est pas une machine virtuelle : Android EST Linux, et son espace
-# utilisateur tourne dans un conteneur sur le noyau de la machine. Mais son
-# image systeme (~1 Go) vit dans /var, que le systeme atomique ne transporte
-# pas : elle se pose donc au premier usage, une fois, et jamais plus.
+# Android EST Linux, et son espace utilisateur tourne dans un conteneur sur le
+# noyau de la machine — non plus par l'outillage Python de Waydroid depuis le
+# 2026-08-28 (voir CLAUDE.md), mais par lxc-start direct (s-android.service,
+# android-lancer.sh). Ce script reste la seule icone qui fait tout : demarrer
+# le conteneur, poser les proprietes d'affichage, ouvrir une application.
 set -uo pipefail
 source /usr/bin/s-monde
 
@@ -13,33 +14,28 @@ APK_MAISON=/usr/share/s/apk
 
 s_verrou android
 
-# --- Premiere utilisation ---------------------------------------------------
-if [ ! -f /var/lib/waydroid/waydroid.cfg ]; then
-    s_dire "Premiere utilisation d'Android" "Telechargement du systeme Android, environ 1 Go. Une seule fois."
-    # GAPPS plutot que VANILLA : c'est la variante qui porte le Play Store.
-    # Elle exige un enregistrement de l'appareil chez Google, une seule fois ;
-    # la suite du script s'en occupe.
-    # LES DEUX URL NE SONT PAS FACULTATIVES, ET LEUR ABSENCE NE SE VOIT PAS.
-    #
-    # waydroid lit ses canaux dans /usr/share/waydroid-extra/channels.cfg —
-    # fourni par le paquet « waydroid-extra », ABSENT de cette image (verifie
-    # le 2026-08-25 : rpm -q waydroid-extra le dit non installe). Sans lui,
-    # system_channel et vendor_channel valent la chaine vide, et l'initialiseur
-    # s'arrete sur « You must provide 'System OTA' and 'Vendor OTA' URLs ».
-    #
-    # C'est exactement ce que la recette de l'amont passe en clair, dans
-    # /usr/share/ublue-os/just/82-bazzite-waydroid.just : S avait reecrit
-    # l'appel en laissant tomber ses deux arguments. La regle du carnet — on ne
-    # reimplemente pas ce que l'amont maintient — vaut aussi pour une ligne de
-    # commande.
-    # 3600 s : ce n'est pas l'authentification qui est longue, c'est le
-    # gigaoctet d'image Android qui se telecharge derriere. Une limite courte
-    # couperait un travail legitime au milieu.
-    if ! s_root --limite 3600 waydroid init -s GAPPS \
-            -c 'https://ota.waydro.id/system' \
-            -v 'https://ota.waydro.id/vendor' 2>&1 | s_tee "$S_ETAT/android-init.log"; then
-        s_echec "Android n'a pas pu etre prepare" "Detail dans $S_ETAT/android-init.log"
-    fi
+# --- Premiere utilisation : IL N'Y A PLUS DE TELECHARGEMENT -----------------
+#
+# CE BLOC FAISAIT « waydroid init -s GAPPS -c ... -v ... » — le seul chemin
+# qui ait jamais pose system.img/vendor.img sur une machine neuve. Le paquet
+# waydroid, et son initialiseur Python, sont partis avec lui le 2026-08-29 :
+# IL N'EXISTE PLUS AUCUN MOYEN NATIF DE TELECHARGER ANDROID.
+#
+# CETTE MACHINE-CI a deja ses images (residu du 2026-08-25, pose avant le
+# retrait) — le geste marche donc ICI. Une machine reconstruite a neuf n'aurait
+# ni system.img ni vendor.img, et rien dans ce depot ne saurait plus les poser
+# : il faudrait reproduire la logique OTA de l'ancien initializer.py (deux URL
+# JSON, extraction). NON COMMENCE, chantier a part — voir CLAUDE.md,
+# 2026-08-29.
+#
+# On verifie donc que ce qu'il faut est bien la, et on le DIT honnetement si ce
+# n'est pas le cas plutot que de pretendre pouvoir le reparer.
+if [ ! -f /var/lib/waydroid/images/system.img ] || \
+   [ ! -f /var/lib/waydroid/images/vendor.img ]; then
+    s_echec "Android n'est pas prepare sur cette machine" \
+"system.img ou vendor.img manque dans /var/lib/waydroid/images, et S ne sait \
+plus les telecharger depuis le retrait de Waydroid — voir CLAUDE.md, \
+2026-08-29."
 fi
 
 # --- Android en FENETRES — ET LE MODE A CHANGE LE 2026-08-25 AU SOIR --------
@@ -71,8 +67,9 @@ fi
 #     TID:23#…/HomeActivity#115      DEVICE  1920x1028   <- la fenetre, posee
 #          …/HomeActivity(BLAST)#126 DEVICE  1280x714    <- la video, perdue
 #
-# CE QU'ON EMPLOIE A LA PLACE. « multi_windows = false » AVEC
-# « waydroid app launch <paquet> » ne donne PAS le plein ecran d'Android : il
+# CE QU'ON EMPLOIE A LA PLACE. « multi_windows = false » AVEC un lancement
+# par paquet (« waydroid app launch » alors, « s_android_lancer » depuis le
+# 2026-08-29) ne donne PAS le plein ecran d'Android : il
 # donne « compositing_single_window_mode » — une fenetre qui ne montre que
 # l'application, sans barre d'etat, sans barre de navigation, sans lanceur, et
 # dont le compositeur assemble lui-meme toutes les couches. La video y est.
@@ -93,76 +90,40 @@ fi
 # d'ailleurs livre le mecanisme : le compositeur fabrique les fenetres A PARTIR
 # des couches DEVICE). Aucune n'est entree dans le depot.
 #
-# LA PROPRIETE SE POSE AVANT LE DEMARRAGE DE LA SESSION, PAS APRES : elle est
-# lue quand le conteneur monte. Posee a chaud, elle ne prend qu'au demarrage
-# suivant, et l'utilisateur conclurait qu'elle ne marche pas.
+# LA PROPRIETE SE POSE AVANT LE DEMARRAGE DU CONTENEUR, PAS APRES : elle est
+# lue quand il monte. Posee a chaud, elle ne prend qu'au prochain demarrage, et
+# l'utilisateur conclurait qu'elle ne marche pas.
 #
-# Elle vit dans [properties] de waydroid.cfg, ce que la recette de l'amont
-# prevoit pour cela — et pas dans un « prop set » qu'il faudrait rejouer.
-#
-# ET DEUX AUTRES REGLAGES QUI SE POSENT AU MEME ENDROIT, POUR LA MEME RAISON.
-#
-#   suspend_action = none — ET CE REGLAGE NE FAIT RIEN. C'est ecrit ici parce
-#   que le carnet a affirme le contraire le 2026-08-25 au matin, et qu'il avait
-#   tort. Le code de l'amont, hardware_manager.py:22-27 :
-#
-#       def suspend():
-#           if cfg["waydroid"]["suspend_action"] == "stop":
-#               session_manager.stop(args)
-#           else:
-#               container_manager.freeze(args)      # <- tout le reste tombe ici
-#
-#   Il n'y a que DEUX comportements : « stop », ou geler. « none » n'est
-#   implemente nulle part dans waydroid 1.6.3 — le mot n'apparait pas une seule
-#   fois dans tools/ — et tombe donc dans le else, ou il gele exactement comme
-#   la valeur par defaut.
-#
-#   MESURE DU 2026-08-25 a 17 h, avec « suspend_action = none » deja pose dans
-#   waydroid.cfg : « Session RUNNING / Container FROZEN ». Le gel est intact.
-#
-#   On garde la clef, inoffensive, et juste le jour ou l'amont implementera
-#   « none ». Mais LE GEL N'EST PAS CORRIGE, et ce fichier ne doit plus laisser
-#   croire qu'il l'est. Le seul autre choix offert — « stop » — arrete la
-#   session entiere, ce qui est pire. Poser au hasard une propriete Android
-#   pour empecher la mise en veille serait la faute que ce carnet s'interdit
-#   depuis le halt de QEMU : une variable a la fois, et apres avoir regarde.
+# CE QUI A CHANGE LE 2026-08-29 : IL N'Y A PLUS QU'UN SEUL FICHIER A LIRE. Ce
+# bloc devait avant interroger Android EN MARCHE (« waydroid prop get ») parce
+# que waydroid.cfg pouvait mentir — sa section [properties] n'etait versee
+# dans le conteneur que par « waydroid upgrade -o », un pas facile a oublier,
+# et le carnet du 2026-08-25 a paye cette confusion en toutes lettres
+# (« waydroid.cfg disait 140, waydroid prop get disait 180 »). Ce piege
+# n'existe plus : il n'y a plus de waydroid.cfg du tout, et android-lancer.sh
+# bind-monte directement /var/lib/waydroid/waydroid.prop dans le conteneur a
+# CHAQUE demarrage — le lire (s_android_prop_lire) dit exactement ce qui sera
+# applique au prochain demarrage, sans plus jamais avoir besoin de demander a
+# Android lui-meme.
 #
 #   ro.sf.lcd_density = 140 — la valeur livree est 180, pensee pour un ecran de
 #   telephone tenu a trente centimetres. Sur un 1920x1080 de bureau, tout est
 #   demesure : Android croit avoir 1707 points de large la ou il en a 1920. A
 #   140, il en compte 2194 et l'interface redevient celle d'un ecran, pas d'une
-#   loupe. C'est un reglage de confort : il se change d'une ligne, et le carnet
-#   dit laquelle.
-# LE GARDE PORTE SUR LES TROIS REGLAGES, PAS SUR UN SEUL. Une machine qui a
-# recu le premier avant que les deux autres n'existent doit encore les recevoir ;
-# sinon le correctif ne rattrape que les installations neuves, ce qui est
-# exactement la faute que ce carnet reproche aux marqueurs de premier demarrage.
-# LE GARDE INTERROGE ANDROID, PAS LE FICHIER DE CONFIGURATION — CORRECTIF DU
-# 2026-08-25 AU SOIR.
+#   loupe.
 #
-# Il lisait waydroid.cfg et concluait « c'est pose, il n'y a rien a faire ». Le
-# carnet a repris cette lecture telle quelle et ecrit que les trois reglages
-# etaient « appliques sur cette machine ». Ils ne l'etaient pas. Releve le
-# 2026-08-25 a 17 h, sur la machine, session en marche :
+# LE GARDE PORTE SUR CHAQUE REGLAGE, PAS SUR UN SEUL. Une machine qui a recu
+# le premier avant que les autres n'existent doit encore les recevoir ; sinon
+# le correctif ne rattrape que les installations neuves, ce qui est exactement
+# la faute que ce carnet reproche aux marqueurs de premier demarrage.
 #
-#     waydroid.cfg          dit  ro.sf.lcd_density = 140
-#     waydroid prop get     dit  180
-#
-# LA CAUSE, LUE DANS LE CODE DE L'AMONT. La section [properties] de
-# waydroid.cfg n'est versee dans le conteneur que par make_base_props(), qui
-# ecrit /var/lib/waydroid/waydroid_base.prop. Et make_base_props n'est appele
-# que de deux endroits : initializer.py (waydroid init) et upgrader.py
-# (waydroid upgrade). PAS au demarrage du conteneur, PAS au demarrage de la
-# session. Releve : waydroid_base.prop date de 10 h 44, ne contient aucun des
-# trois reglages, et le conteneur a demarre a 16 h 52 sans le regenerer.
-#
-# Donc tout ce qu'on ecrit dans [properties] APRES l'initialisation n'atteint
-# jamais Android. multi_windows faisait exception, et par accident : c'est une
-# propriete « persist. », que le prop set plus bas repose a chaque lancement et
-# qu'Android garde dans son propre magasin.
-#
-# C'est le succes silencieux dans sa forme la plus exacte : le fichier disait
-# vrai, la machine disait autre chose, et personne n'avait demande a la machine.
+# « suspend_action = none » a disparu de ce script : c'etait un reglage
+# [waydroid] de waydroid.cfg (pas une propriete Android), et le carnet du
+# 2026-08-25 avait deja mesure qu'il NE FAISAIT RIEN — aucun des deux
+# comportements que l'amont implementait (« stop » ou geler) n'etait celui
+# qu'on voulait. Rien de ce mecanisme n'existe plus cote natif ; ne pas le
+# recreer n'est donc pas une regression, juste l'abandon d'un reglage qui
+# n'avait jamais eu d'effet.
 # --- LA TAILLE DE LA FENETRE ANDROID, ET POURQUOI ELLE NE PEUT PAS ETRE PLEINE
 #
 # TROUVE LE 2026-08-26, A L'ECRAN, EN REGARDANT YOUTUBE. Son ecran d'accueil
@@ -221,124 +182,68 @@ PY
         )
         ;;
 esac
-# Si on ne sait pas lire l'ecran, on ne devine pas : Waydroid garde son defaut,
-# qui est la taille de l'ecran. Une fenetre mal dimensionnee vaut mieux qu'une
-# fenetre calculee sur une supposition.
+# Si on ne sait pas lire l'ecran, on ne devine pas : le fichier de proprietes
+# garde ses valeurs actuelles plutot qu'une fenetre calculee sur une
+# supposition.
 
+# TOUTES LES PROPRIETES DE DEMARRAGE SE LISENT DANS LE MEME FICHIER
+# MAINTENANT — densite, mode fenetre, taille ET use_subsurface (voir plus
+# bas) sont verifiees ici d'un coup, plutot qu'en trois passes separees
+# comme avant. Une seule ecriture, un seul mot de passe si quelque chose
+# manque.
 manque=0
-if waydroid status 2>/dev/null | grep -qi 'RUNNING'; then
-    # Session en marche : on demande a Android lui-meme. C'est la seule reponse
-    # qui vaille, et celle que l'ancien garde n'allait pas chercher.
-    [ "$(waydroid prop get ro.sf.lcd_density 2>/dev/null)" = "140" ] || manque=1
-    [ "$(waydroid prop get persist.waydroid.multi_windows 2>/dev/null)" = "false" ] || manque=1
-else
-    # Session arretee : Android ne peut rien dire. On retombe sur le fichier, en
-    # sachant que c'est une reponse plus faible.
-    for reglage in 'persist.waydroid.multi_windows' 'ro.sf.lcd_density' 'suspend_action = none'; do
-        grep -q "$reglage" /var/lib/waydroid/waydroid.cfg 2>/dev/null || manque=1
-    done
-fi
-# waydroid_base.prop est ce qu'Android lit vraiment au demarrage du conteneur.
-# S'il ne porte pas la densite, elle n'a jamais ete versee, quoi que dise
-# waydroid.cfg — et c'est exactement l'etat trouve sur cette machine.
-grep -q '^ro.sf.lcd_density=140' /var/lib/waydroid/waydroid_base.prop 2>/dev/null || manque=1
+[ "$(s_android_prop_lire ro.sf.lcd_density)" = "140" ] || manque=1
+[ "$(s_android_prop_lire persist.waydroid.multi_windows)" = "false" ] || manque=1
+[ "$(s_android_prop_lire persist.waydroid.use_subsurface)" = "false" ] || manque=1
 if [ -n "$S_FEN_L" ]; then
-    grep -q "^persist.waydroid.width=${S_FEN_L}\$" /var/lib/waydroid/waydroid_base.prop 2>/dev/null || manque=1
-    grep -q "^persist.waydroid.height=${S_FEN_H}\$" /var/lib/waydroid/waydroid_base.prop 2>/dev/null || manque=1
+    [ "$(s_android_prop_lire persist.waydroid.width)" = "$S_FEN_L" ] || manque=1
+    [ "$(s_android_prop_lire persist.waydroid.height)" = "$S_FEN_H" ] || manque=1
 fi
 if [ "$manque" = 1 ]; then
     s_dire "Android" "Reglage de l'affichage — un mot de passe va etre demande, une seule fois." phone
-    # Heredoc NON protege : pkexec nettoie l'environnement, les deux entiers
-    # ne peuvent donc pas passer par une variable. Ils sont calcules ici et
-    # valent des nombres — rien qui vienne du dehors n'entre dans ce texte.
-    s_root /usr/bin/python3 - <<PY >/dev/null 2>&1 || true
-import configparser, io
-p = "/var/lib/waydroid/waydroid.cfg"
-c = configparser.ConfigParser(interpolation=None, strict=False)
-c.optionxform = str
-c.read(p, encoding="utf-8")
-if not c.has_section("properties"):
-    c.add_section("properties")
-c.set("properties", "persist.waydroid.multi_windows", "false")
-c.set("properties", "ro.sf.lcd_density", "140")
-L, H = "${S_FEN_L}", "${S_FEN_H}"
-if L and H:
-    c.set("properties", "persist.waydroid.width", L)
-    c.set("properties", "persist.waydroid.height", H)
-# suspend_action vit dans [waydroid], pas dans [properties] : ce n'est pas une
-# propriete Android, c'est une decision de waydroid lui-meme.
-if c.has_section("waydroid"):
-    c.set("waydroid", "suspend_action", "none")
-t = io.StringIO()
-c.write(t, space_around_delimiters=True)
-io.open(p, "w", encoding="utf-8").write(t.getvalue())
-PY
-    # ECRIRE LA CONFIGURATION NE SUFFIT PAS — il faut la verser. Sans cette
-    # ligne, ro.sf.lcd_density reste a 180 dans Android quoi qu'on ecrive, et
-    # la seule trace du reglage est un fichier que personne ne lit.
-    # « -o » : l'amont le decrit lui-meme comme « just for updating configs »
-    # — pas de telechargement d'images, seulement la configuration lxc et
-    # waydroid_base.prop, puis le conteneur repart s'il tournait. On ne
-    # reimplemente donc rien : on appelle ce que l'amont maintient.
-    s_dire "Android" "Application des reglages a Android…" phone
-    s_root --limite 900 /usr/bin/waydroid upgrade -o 2>&1 | s_tee "$S_ETAT/android-init.log" || true
+    ANDROID_ETAIT_LA="$(s_android_etat)"
+    if [ -n "$S_FEN_L" ]; then
+        s_android_prop_ecrire \
+            "ro.sf.lcd_density=140" \
+            "persist.waydroid.multi_windows=false" \
+            "persist.waydroid.use_subsurface=false" \
+            "persist.waydroid.width=$S_FEN_L" \
+            "persist.waydroid.height=$S_FEN_H"
+    else
+        s_android_prop_ecrire \
+            "ro.sf.lcd_density=140" \
+            "persist.waydroid.multi_windows=false" \
+            "persist.waydroid.use_subsurface=false"
+    fi
+    # NE PREND EFFET QU'AU PROCHAIN DEMARRAGE DU CONTENEUR : on ne redemarre
+    # que s'il tournait deja (sinon la section suivante le demarrera avec le
+    # fichier deja a jour, un seul redemarrage au lieu de deux).
+    if [ "$ANDROID_ETAIT_LA" = "RUNNING" ]; then
+        s_dire "Android" "Redemarrage pour appliquer les reglages…" phone
+        s_root systemctl restart s-android.service
+    fi
 fi
 
-# --- Demarrer la session, si elle ne tourne pas -----------------------------
-if ! waydroid status 2>/dev/null | grep -qi 'RUNNING'; then
+# --- Demarrer le conteneur, si il ne tourne pas ------------------------------
+#
+# PLUS DE VERROU A FERMER APRES COUP : l'ancien piege (« waydroid session
+# start » vivait en arriere-plan et son enfant heritait du descripteur du
+# verrou du monde, le gardant pris tant qu'Android tournait) n'existe plus
+# ici. « systemctl start » rend la main des que le service est lance ;
+# s-android.service lui-meme, pas ce script, porte lxc-start — rien de ce
+# geste ne reste attache au verrou de « s_verrou android » au-dela de la
+# duree normale de CE script.
+if [ "$(s_android_etat)" != "RUNNING" ]; then
     s_dire "Android" "Demarrage…" phone
-    systemctl start waydroid-container 2>/dev/null || \
-        s_root systemctl start waydroid-container >/dev/null 2>&1 || true
-    # « 9>&- » N'EST PAS DECORATIF : IL FERME LE VERROU DU MONDE.
-    #
-    # MESURE DU 2026-08-26, SUR LA MACHINE. « waydroid session start » est lance
-    # en arriere-plan et vit aussi longtemps qu'Android tourne. Un enfant herite
-    # des descripteurs ouverts de son parent — dont le 9, celui que « flock »
-    # tient. Releve pendant qu'Android tournait :
-    #
-    #   PID 9143  /usr/bin/python3 /usr/bin/waydroid session start   <- tient le 9
-    #
-    # Consequence : TANT QU'ANDROID EST ALLUME, tout geste qui prend le verrou du
-    # monde attend « flock -w 600 » puis echoue. Un second « s-android » restait
-    # dix minutes sur sa premiere phrase, sans un mot.
-    #
-    # C'est le defaut deja corrige pour s-ouvrir-exe le 2026-08-26 — « le verrou
-    # tenait pendant toute la vie du programme » — reste entier de ce cote-ci.
-    waydroid session start >"$S_ETAT/android-session.log" 2>&1 9>&- &
+    s_root systemctl start s-android.service
     for _ in $(seq 1 60); do
-        waydroid status 2>/dev/null | grep -qi 'RUNNING' && break
+        [ "$(s_android_etat)" = "RUNNING" ] && break
         sleep 2
     done
 fi
 
-waydroid status 2>/dev/null | grep -qi 'RUNNING' || \
-    s_echec "Android n'a pas demarre" "Detail dans $S_ETAT/android-session.log"
-
-# Une session deja lancee avant ce correctif garde son mode plein ecran : la
-# propriete posee ici ne prendra qu'au prochain demarrage du conteneur. On la
-# pose quand meme plutot que de laisser la machine dans deux etats differents.
-if [ "$(waydroid prop get persist.waydroid.multi_windows 2>/dev/null)" != "false" ]; then
-    waydroid prop set persist.waydroid.multi_windows false >/dev/null 2>&1 || true
-fi
-
-# LA TAILLE AUSSI DOIT ETRE REPOSEE ICI, ET C'EST LE MEME PIEGE.
-#
-# MESURE DU 2026-08-26 : waydroid_base.prop portait « 1747 », et Android
-# repondait « 1700 » a la meme seconde. Une propriete « persist. » est gardee
-# par Android dans SON magasin, et elle l'emporte sur le fichier lu au
-# demarrage. L'ecrire dans waydroid.cfg ne suffit donc jamais a la CHANGER —
-# seulement a la poser sur une machine qui ne l'a pas encore.
-#
-# Et « waydroid prop » n'a PAS besoin de root : mesure le meme jour, la session
-# appartient a l'utilisateur, et un « prop set » lance par pkexec repond
-# « WayDroid session is stopped » alors qu'elle tourne. Une elevation inutile
-# est un mot de passe demande pour rien.
-if [ -n "$S_FEN_L" ]; then
-    [ "$(waydroid prop get persist.waydroid.width 2>/dev/null)" = "$S_FEN_L" ] || \
-        waydroid prop set persist.waydroid.width "$S_FEN_L" >/dev/null 2>&1 || true
-    [ "$(waydroid prop get persist.waydroid.height 2>/dev/null)" = "$S_FEN_H" ] || \
-        waydroid prop set persist.waydroid.height "$S_FEN_H" >/dev/null 2>&1 || true
-fi
+[ "$(s_android_etat)" = "RUNNING" ] || \
+    s_echec "Android n'a pas demarre" "Voir : sudo journalctl -u s-android.service"
 
 # --- EMPECHER ANDROID DE S'ENDORMIR ----------------------------------------
 #
@@ -378,10 +283,11 @@ fi
 #
 # Le garde interroge Android, jamais un fichier — la lecon de la journee.
 # LE GARDE NE PEUT PAS INTERROGER ANDROID ICI, ET IL FAUT LE DIRE.
-# « waydroid shell » exige les droits d'administrateur : un garde qui lirait la
-# valeur demanderait donc le mot de passe A CHAQUE lancement d'Android, pour
-# decouvrir neuf fois sur dix qu'il n'y a rien a faire. C'est le contraire de ce
-# qu'on veut.
+# « lxc-attach » exige les droits d'administrateur, comme « waydroid shell »
+# avant lui (voir s_android_dans dans partage-android.sh) : un garde qui
+# lirait la valeur demanderait donc le mot de passe A CHAQUE lancement
+# d'Android, pour decouvrir neuf fois sur dix qu'il n'y a rien a faire. C'est
+# le contraire de ce qu'on veut.
 #
 # On garde donc la trace de la VALEUR appliquee, pas le fait d'etre passe. La
 # nuance est celle que ce carnet reproche aux marqueurs de premier demarrage de
@@ -392,9 +298,9 @@ VEILLE_VOULUE=2147483647
 VEILLE_VUE="$(cat "$S_ETAT/android-veille" 2>/dev/null || true)"
 if [ "$VEILLE_VUE" != "$VEILLE_VOULUE" ]; then
     s_dire "Android" "Reglage de la mise en veille — un mot de passe va etre demande." phone
-    if s_root /usr/bin/sh -c "
-        waydroid shell -- settings put system screen_off_timeout ${VEILLE_VOULUE} &&
-        waydroid shell -- settings put global stay_on_while_plugged_in 7
+    if s_android_dans sh -c "
+        settings put system screen_off_timeout ${VEILLE_VOULUE} &&
+        settings put global stay_on_while_plugged_in 7
     " 2>&1 | s_tee "$S_ETAT/android-init.log"; then
         printf '%s\n' "$VEILLE_VOULUE" > "$S_ETAT/android-veille"
     fi
@@ -433,18 +339,30 @@ fi
 # « false » N'EST PAS « on n'y touche pas » : c'est ce qui choisit la variante
 # COMPOSITING du mode fenetre unique. « true » demanderait des sous-surfaces —
 # essaye dans les deux sens le 2026-08-25, sans effet sur la video, et c'est la
-# variante non-compositing. On pose donc la valeur explicitement plutot que de
-# compter sur un defaut qui pourrait changer en amont.
-if [ "$(waydroid prop get persist.waydroid.use_subsurface 2>/dev/null)" != "false" ]; then
-    waydroid prop set persist.waydroid.use_subsurface false >/dev/null 2>&1 || true
-fi
+# variante non-compositing. C'est desormais UNE propriete de demarrage parmi
+# les autres — verifiee et ecrite au meme endroit qu'en tete de script (voir
+# « TOUTES LES PROPRIETES DE DEMARRAGE... » plus haut), plus de « prop set »
+# separe ici.
 
-# --- Poser le magasin, une seule fois --------------------------------------
-if [ ! -f "$MARQUE" ]; then
+# --- Poser le magasin, une seule fois PAR JEU DE DONNEES --------------------
+#
+# LE MARQUEUR VIDE ETAIT LE DEFAUT QUE CE CARNET REPROCHE A L'AMONT, ET IL A
+# MORDU ICI MEME : le test a froid du 2026-08-28 a efface les donnees
+# Android — F-Droid avec — pendant que « android-pret » (2026-08-25)
+# continuait de dire « pose ». Mesure du 2026-08-29 : « pm list packages »
+# ne rend plus org.fdroid.fdroid, marqueur present.
+#
+# Le marqueur porte donc desormais l'EMPREINTE du dossier de donnees (inode,
+# lisible sans droit d'entrer dedans — c'est le dossier parent, dans le
+# HOME, qui autorise le stat). Donnees effacees et recreees = autre inode =
+# marqueur perime tout seul, et le bloc rejoue.
+DONNEES_ANDROID="$HOME/.local/share/waydroid/data"
+EMPREINTE_DONNEES="$(stat -c %i "$DONNEES_ANDROID" 2>/dev/null || echo aucune)"
+if [ "$(cat "$MARQUE" 2>/dev/null)" != "$EMPREINTE_DONNEES" ]; then
     if [ -f "$APK_MAISON/fdroid.apk" ] && \
-       ! waydroid app list 2>/dev/null | grep -q 'org.fdroid.fdroid'; then
+       ! s_android_dans pm list packages 2>/dev/null | grep -q 'org\.fdroid\.fdroid'; then
         s_dire "Android" "Installation du magasin F-Droid…" phone
-        waydroid app install "$APK_MAISON/fdroid.apk" 2>&1 | s_tee "$S_ETAT/android-init.log" || true
+        s_android_installer "$APK_MAISON/fdroid.apk" 2>&1 | s_tee "$S_ETAT/android-init.log" || true
     fi
 
     # AUTORISER F-DROID A INSTALLER, PAR AVANCE.
@@ -466,13 +384,13 @@ if [ ! -f "$MARQUE" ]; then
     # cette application ? », dessinee par le meme composant. Le chemin qui
     # n'ouvre aucune boite du tout est « Magasin Android » (s-magasin-android),
     # qui installe depuis l'hote.
-    s_root waydroid shell -- cmd appops set org.fdroid.fdroid \
+    s_android_dans cmd appops set org.fdroid.fdroid \
         REQUEST_INSTALL_PACKAGES allow 2>&1 | s_tee "$S_ETAT/android-init.log" || \
         s_dire "Android" \
 "F-Droid n'a pas pu recevoir l'autorisation d'installer. Utiliser plutot \
 « Magasin Android », qui installe sans passer par Android." dialog-warning
 
-    touch "$MARQUE"
+    printf '%s\n' "$EMPREINTE_DONNEES" > "$MARQUE"
 fi
 
 # --- Le Play Store : une seule declaration, imposee par Google --------------
@@ -484,15 +402,41 @@ if [ ! -f "$S_ETAT/android-certifie" ]; then
     s-play-store && touch "$S_ETAT/android-certifie" || true
 fi
 
-# Waydroid pose lui-meme une icone par application installee. On rafraichit
-# pour qu'elles apparaissent sans attendre la prochaine ouverture de session.
+# AUCUNE ICONE PAR APPLICATION N'EST PLUS POSEE AUTOMATIQUEMENT. C'etait le
+# demon Python de Waydroid (AppsService) qui les generait a chaque
+# installation ; il est parti avec le paquet, et rien ne le remplace encore
+# — voir CLAUDE.md, 2026-08-29. Rafraichir le menu reste utile pour tout ce
+# que d'autres gestes de S y posent.
 s_rafraichir_menu
 
+# CE QUI SUIT EST FORGE DEPUIS LES OUTILS AOSP STANDARDS (am, cmd package),
+# JAMAIS EPROUVE SUR CETTE IMAGE ANDROID PRECISE — voir CLAUDE.md,
+# 2026-08-29. Et ce n'est plus un simple confort comme avant : sans un appel
+# qui met une activite Android au premier plan, demarrer seul le conteneur
+# pourrait ne rendre aucune fenetre visible — hwcomposer compose une fenetre
+# a partir de l'activite EN COURS, jamais toute seule.
+#
+# UN SEUL s_android_dans pour toute la cascade : chaque appel est un pkexec,
+# donc une demande de mot de passe — trois replis en trois appels separes en
+# feraient jusqu'a trois d'affilee pour un seul clic.
 if [ "${1:-}" = "--magasin" ]; then
     # Le Play Store d'abord : c'est le magasin que l'image GAPPS apporte.
-    waydroid app launch com.android.vending 2>/dev/null || \
-    waydroid app launch org.fdroid.fdroid 2>/dev/null || \
-    waydroid show-full-ui
+    # « setprop waydroid.active_apps » avant chaque « am start » : c'est la
+    # propriete que hwcomposer lit pour creer la fenetre Wayland — voir
+    # s_android_lancer dans partage-android.sh pour la mesure.
+    s_android_dans sh -c '
+        for paquet in com.android.vending org.fdroid.fdroid; do
+            resolu="$(cmd package resolve-activity --brief "$paquet" 2>/dev/null | tail -1)"
+            case "$resolu" in
+                */*)
+                    setprop waydroid.active_apps "$paquet"
+                    exec am start -n "$resolu"
+                    ;;
+            esac
+        done
+        setprop waydroid.active_apps Waydroid
+        exec am start -a android.intent.action.MAIN -c android.intent.category.HOME
+    '
 else
-    waydroid show-full-ui
+    s_android_accueil
 fi
