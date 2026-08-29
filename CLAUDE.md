@@ -349,6 +349,67 @@ qui, eux, fonctionnent par regle passive.
 - **Le gouffre du telechargement d'Android pour une machine neuve reste
   entier** — inchange par cette passe.
 
+### Cinquieme addendum — le Wizard verifie a froid, sur la machine deja demarree, et trouve une course benigne
+
+Demande explicite : « vérifie que le monde android fonctionne tout bien ».
+Aucune ligne de code touchee, seulement des mesures sur la machine tournant
+deja sur `e584e03` depuis 26 minutes.
+
+**Tout tient.** `s-android.service` actif (dnsmasq vivant sur `s-android0`),
+`s-android-demarrer.service` `Finished … status=0/SUCCESS` en 14 s au
+demarrage de la session, `s-android-applications.service` actif avec 19
+lanceurs au menu, tous reecrits (aucun `Exec=waydroid …` mort), les 27 icones
+reelles toutes presentes sur disque, `Settings` et les neuf autres doublons
+LineageOS en `NoDisplay=true`. Un lancement reel de KOHO
+(`/usr/bin/s-android-lancer ca.koho`) a ouvert une fenetre
+`waydroid.ca.koho`, `min=false`, dans la barre — capture d'ecran a l'appui,
+**aucune fenetre de classe `Waydroid` nulle part sur l'ecran ni dans la liste
+kwin**. `active_apps` vaut `ca.koho`, `sys.boot_completed` vaut `1`,
+`screen_off_timeout` reste a `2147483647` (veille toujours desarmee),
+F-Droid toujours present.
+
+**Une course trouvee, mesuree a la milliseconde, benigne et deja
+auto-reparee.** Le journal du dernier demarrage :
+
+```
+18:11:17.591  Started s-android-applications.service
+18:11:17.728  android-applications: echec add_presence_handler
+18:11:17.744  Mounting dev-binderfs.mount
+18:11:17.762  Mounted dev-binderfs.mount
+18:11:47.733  android-applications: service waydroidusermonitor enregistre
+18:11:47.839  android-applications: 19 applications Android au menu
+```
+
+**Le service applications echoue a se connecter 16 ms AVANT que
+`dev-binderfs.mount` commence seulement a monter.** Ce n'est pas une
+hypothese : `/dev/binder` n'existe tout simplement pas encore a l'instant ou
+`ap.gestionnaire()` (donc `gbinder.ServiceManager("/dev/binder", …)`) est
+appele dans `servir()`. `add_presence_handler` echoue immediatement,
+`main()` retombe dans son `while True: servir(sync)`, qui recree un
+gestionnaire tout neuf 30 s plus tard — a ce moment binderfs est monte et
+`waydroidplatform` repond, l'enregistrement reussit du premier coup. **Meme
+motif que celui deja corrige dans `android_plateforme.py::obtenir()`** (une
+connexion prise trop tot reste perimee), mais ici sans consequence
+observable : la synchronisation complete des 19 applications a quand meme
+eu lieu au meme instant que l'enregistrement du moniteur, et rien
+n'attendait ce moniteur pour peupler le menu au premier demarrage.
+
+**Ce que ca coute reellement, et qui reste a mesurer :** le rappel
+`packageStateChanged` — jamais vu appele par Android sur cette machine,
+deja note dans ce carnet — est indisponible pendant ces 30 premieres
+secondes de chaque session. Une installation faite dans cette fenetre
+attendrait la resynchronisation periodique suivante plutot que le rappel
+immediat. Vu sur trois demarrages consecutifs (17:12, 17:36, 18:11), la
+course se reproduit identiquement a chaque fois — donc previsible, pas
+aleatoire.
+
+**La mesure qui la tuerait si elle etait fausse :** retarder le premier
+appel a `ap.gestionnaire()` dans `servir()` jusqu'a ce que
+`os.path.exists("/dev/binder")` soit vrai, puis verifier que
+`echec add_presence_handler` n'apparait plus au journal d'un demarrage a
+froid. **Non fait** — le cout mesure (30 s de fenetre benigne, une fois par
+session, sans effet sur le menu) ne justifie pas de le corriger ce soir.
+
 ---
 
 ## 2026-08-29, apres-midi — les gestes Android reparlaient a un binaire mort, et la chaine neuve est eprouvee a l'ecran
