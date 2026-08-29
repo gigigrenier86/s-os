@@ -165,11 +165,38 @@ function envoyer() {
              "Fenetres", JSON.stringify(vues));
 }
 
+// LA FENETRE SYSTEME D'ANDROID, MINIMISEE DES SA NAISSANCE — AJOUTE LE
+// 2026-08-29 AU SOIR, PARCE QUE LA REGLE PERSISTANTE (kwinrulesrc,
+// « minimize »/« minimizerule ») N'A PAS SUFFI. Mesure sur cette machine :
+// la regle est bien ecrite et rechargee (reconfigure), et la fenetre
+// « Waydroid » — celle que hwcomposer.waydroid.so cree TOUJOURS au
+// demarrage, en reecrivant lui-meme « waydroid.active_apps » a « Waydroid »
+// quel que soit ce que S avait pose avant (chaine trouvee en dur dans le
+// binaire vendor, extrait de vendor.img par debugfs — rien cote S ne peut
+// gagner cette course contre un binaire ferme) — reste PLEINE au premier
+// demarrage silencieux, capture d'ecran a l'appui : la regle passive
+// n'agit pas assez tot sur le tout premier rendu. Un script kwin, lui,
+// AGIT plutot que de decrire une intention : « f.minimized = true », pose
+// des l'evenement « windowAdded » — le tout premier instant ou kwin
+// connait la fenetre — l'a fait disparaitre du rendu (verifie deux fois de
+// suite par capture d'ecran complete). La regle kwinrulesrc reste posee en
+// filet (skiptaskbar/skippager/skipswitcher fonctionnent, eux, par regle).
+function cacherAndroidSysteme(f) {
+    if (!f) return;
+    if (String(f.resourceClass) !== "Waydroid") return;
+    if (f.minimized) return;
+    try {
+        f.minimized = true;
+    } catch (e) {
+    }
+}
+
 // UN TITRE QUI CHANGE EST UN EVENEMENT DE BARRE DES TACHES : un navigateur qui
 // change d'onglet ne cree pas de fenetre, il renomme la sienne. Sans ce
 // branchement, la barre afficherait le titre de la premiere page pour toujours.
 function suivre(f) {
     if (!f) return;
+    cacherAndroidSysteme(f);
     suivreGeometrie(f);
     try {
         f.captionChanged.connect(envoyer);

@@ -260,6 +260,67 @@ ne demarre vraiment pas) restent visibles dans tous les modes — l'utilisateur
 a demande a ne plus voir le *chargement*, pas a ne plus etre prevenu d'une
 vraie panne.
 
+### Quatrieme addendum, la meme nuit — construit sur cette image, le vrai demarrage a froid tient : 15 s, et un dernier defaut restait
+
+Construction verte (`3a0bc36`), signature verifiee, redemarrage : les deux
+correctifs de la nuit (sondage jetable, silence complet) sont entres dans
+l'image et ont ete rejoues sur un vrai demarrage a froid — pas un
+redemarrage manuel du service, le seul test qui avait fait echouer les
+deux versions precedentes.
+
+```
+17:36:59  Starting s-android-demarrer.service
+17:36:59  Android — Demarrage…                     (journal seul, aucune bulle)
+17:37:15  Finished s-android-demarrer.service
+          15,308 s de temps reel, 1,058 s de temps CPU
+```
+
+**15,3 s au lieu des 240 s pleins des deux essais precedents.** Le sondage
+par processus jetable tient sur un vrai demarrage a froid, pas seulement
+sur un redemarrage a chaud du conteneur.
+
+**Et une capture d'ecran complete, prise juste apres, a montre autre
+chose : l'interface complete d'Android, plein ecran, malgre tout ce que
+cette nuit avait deja corrige.** `waydroid.active_apps` valait « Waydroid »
+— et ce n'etait ni `s_android_accueil` (supprimee cette nuit-la meme), ni
+aucune ligne de ce depot qui l'avait pose : `getprop("waydroid.active_apps")`
+rendait « Waydroid » sur un boot ou **rien** n'appelle jamais `setprop`.
+
+**La cause, trouvee en extrayant `hwcomposer.waydroid.so` de `vendor.img`
+par `debugfs`** (meme technique que le 2026-08-25) : la chaine « Waydroid »
+est ecrite EN DUR dans ce binaire vendor ferme. Le compositeur reecrit
+lui-meme cette propriete a SA propre initialisation, quel que soit ce que
+`waydroid.prop` contenait au demarrage — **essaye et refute** : preregler
+`waydroid.active_apps=s.aucune.application` dans le fichier de proprietes
+de demarrage, puis redemarrer le conteneur, a quand meme fait relire
+« Waydroid » par la propriete vivante apres coup. Rien cote S, cote
+Python ou cote fichier de configuration ne peut gagner cette course contre
+un binaire dont on n'a pas la source.
+
+**La prise qui a marche est cote compositeur Wayland, pas cote Android.**
+`f.minimized = true`, pose une fois via un script kwin sur la fenetre deja
+existante, l'a retiree du rendu — verifie par une capture d'ecran complete
+apres coup, qui ne montre plus rien d'Android. **Mais la regle PERSISTANTE**
+(`kwinrulesrc`, cles `minimize`/`minimizerule=2`, memes cles et meme forme
+que `skiptaskbar`/`skippager`/`skipswitcher` qui, eux, marchaient deja)
+**n'a PAS suffi** sur un vrai demarrage a froid suivant : capture d'ecran a
+l'appui, l'accueil Android plein ecran malgre la regle ecrite et
+rechargee (`reconfigure`) avant le demarrage du conteneur. La regle
+passive n'agit pas assez tot sur le tout premier rendu de cette fenetre
+precise.
+
+**Le correctif retenu agit plutot que de decrire une intention** :
+`fenetres.js` (le script kwin resident qui rapporte deja chaque fenetre a
+Constellation) minimise desormais la fenetre de classe exacte « Waydroid »
+des l'evenement `windowAdded` — le tout premier instant ou kwin connait la
+fenetre. Reeprouve deux fois de suite sur un vrai redemarrage a froid du
+conteneur : `f.minimized` vaut `true` cote kwin, et une capture d'ecran
+complete ne montre plus qu'les fenetres attendues (aucune trace d'Android).
+Un vrai lancement d'application (KOHO) juste apres reste intact — la classe
+exacte « Waydroid » ne recoupe jamais « waydroid.<paquet> ». La regle
+`kwinrulesrc` reste posee en filet, pour skiptaskbar/skippager/skipswitcher
+qui, eux, fonctionnent par regle passive.
+
 ### Ce que cette passe ne prouve pas
 
 - **Le rappel binder `packageStateChanged` n'a jamais ete vu appele par
@@ -272,6 +333,14 @@ vraie panne.
   manuel du conteneur (8,6 s), pas encore sur un vrai demarrage a froid de
   la machine, qui est le seul test qui a fait echouer les deux versions
   precedentes.
+
+  *Corrige dans l'addendum suivant : reconstruit et rejoue sur un vrai
+  demarrage a froid, 15,3 s.*
+- **Le correctif de `fenetres.js` (minimiser « Waydroid » a la creation)
+  n'a pas encore ete reconstruit dans l'image** — eprouve depuis le depot,
+  charge a chaud dans le kwin de cette session (`loadScript` sur le chemin
+  du depot), sur deux redemarrages a froid du conteneur. Pas encore
+  eprouve depuis le fichier deploye par une vraie construction.
 - **Le Play Store et « Magasin Android » n'ont pas ete recliques depuis ce
   redemarrage.**
 - **La bascule Android et son mode fenetre dans la barre laterale de

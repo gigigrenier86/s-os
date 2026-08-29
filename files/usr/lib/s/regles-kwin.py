@@ -211,6 +211,20 @@ def regles(largeur, hauteur):
     # taches, d'Alt-Tab et du selecteur : son titre interne reste
     # « Waydroid », mais plus aucun endroit ou Mike le croiserait ne
     # l'affiche.
+    #
+    # « minimize »/« minimizerule », AJOUTE LE 2026-08-29 AU SOIR. Ces trois
+    # skip* ne faisaient QUE la retirer des LISTES -- elle restait peinte a
+    # l'ecran, plein ecran, des le premier boot silencieux : le compositeur
+    # hwcomposer.waydroid.so REECRIT « waydroid.active_apps » a « Waydroid »
+    # (chaine trouvee en dur dans le binaire vendor, extrait de vendor.img
+    # par debugfs) a SA PROPRE initialisation, quel que soit ce que
+    # waydroid.prop contenait au demarrage -- essaye et refute : preregler la
+    # propriete dans le fichier de demarrage n'empeche pas la reecriture.
+    # Rien cote Android/S ne peut gagner cette course contre un binaire
+    # ferme. MESURE : « f.minimized = true », pose par un script kwin sur la
+    # fenetre EXISTANTE, la retire immediatement du rendu -- une capture
+    # d'ecran complete apres coup ne montre plus rien d'Android. C'est donc
+    # kwin, pas Android, qui doit empecher l'affichage.
     android_systeme = {
         "Description": "S - la fenetre systeme d'Android, invisible comme outil",
         "wmclass": "Waydroid",
@@ -222,6 +236,8 @@ def regles(largeur, hauteur):
         "skippagerrule": "2",
         "skipswitcher": "true",
         "skipswitcherrule": "2",
+        "minimize": "true",
+        "minimizerule": "2",
     }
 
     return {"s-bulle": bulle, "s-barre": barre, "s-laterale": laterale,
