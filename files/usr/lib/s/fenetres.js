@@ -93,6 +93,58 @@ function borner(f) {
     enTrainDeBorner = false;
 }
 
+// ═══ UNE FENETRE NEUVE S'OUVRE EN GRAND, PAS PETITE DANS UN COIN ═══════════
+//
+// Demande de l'utilisateur, 2026-08-29 : Vivaldi et VS Code, entre autres,
+// ouvraient une fenetre neuve toute petite, coincee en bas a droite. Ce
+// n'est pas kwin qui decide cette position : chaque application garde SA
+// PROPRE geometrie souvenue (Vivaldi dans ses Preferences, VS Code dans son
+// storage), et elle la redemande a chaque nouvelle fenetre — y compris
+// quand cette geometrie date d'un autre ecran ou d'un vieux glissement
+// accidentel vers un coin. Le compositeur n'a pas a corriger cette memoire
+// pour que S se comporte comme l'utilisateur le veut : il agit une fois,
+// a la naissance de la fenetre, comme « borner » le fait deja pour
+// l'inverse (une fenetre trop grande).
+//
+// CE QUI EST EXCLU, ET POURQUOI. Les trois fenetres de Constellation ont
+// deja leur position et leur taille FORCEES par kwinrulesrc (voir
+// regles-kwin.py) — les toucher ici referait un travail deja fait, pour le
+// meme resultat. Les fenetres Android (« waydroid.* ») ont une taille
+// choisie exprès par regles-kwin.py::taille_android — un rapport
+// long/court precis, mesure le 2026-08-25/26, qui evite le mode Android
+// « une seule colonne ». Les maximiser ecraserait ce choix. La fenetre
+// systeme « Waydroid » est deja geree par cacherAndroidSysteme ci-dessus.
+function estAgrandissable(f) {
+    if (!f) return false;
+    if (!f.normalWindow) return false;
+    if (f.dialog || f.modal || f.popupWindow || f.tooltip ||
+        f.notification || f.dock || f.splash || f.utility) return false;
+    if (f.fullScreen) return false;
+    var classe = String(f.resourceClass || "");
+    if (classe === "s-constellation") return false;
+    if (classe === "Waydroid") return false;
+    if (classe.indexOf("waydroid.") === 0) return false;
+    return true;
+}
+
+function agrandir(f) {
+    if (!estAgrandissable(f)) return;
+    // Meme plafond que « borner » : le bas de l'ecran utile, jamais sous la
+    // barre. Meme source, jamais deux calculs qui pourraient diverger.
+    var bas = basUtile(f);
+    if (bas < 0) return;
+    var z;
+    try {
+        z = workspace.clientArea(KWin.FullScreenArea, f);
+    } catch (e) {
+        return;
+    }
+    if (!z) return;
+    enTrainDeBorner = true;
+    f.frameGeometry = { x: z.x, y: z.y, width: z.width, height: bas - z.y };
+    enTrainDeBorner = false;
+}
+
 function suivreGeometrie(f) {
     if (!f) return;
     try {
@@ -197,6 +249,7 @@ function cacherAndroidSysteme(f) {
 function suivre(f) {
     if (!f) return;
     cacherAndroidSysteme(f);
+    agrandir(f);
     suivreGeometrie(f);
     try {
         f.captionChanged.connect(envoyer);

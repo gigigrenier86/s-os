@@ -410,6 +410,79 @@ appel a `ap.gestionnaire()` dans `servir()` jusqu'a ce que
 froid. **Non fait** — le cout mesure (30 s de fenetre benigne, une fois par
 session, sans effet sur le menu) ne justifie pas de le corriger ce soir.
 
+### Sixieme addendum — une fenetre neuve s'ouvre desormais en grand, pas dans un coin
+
+Demande de l'utilisateur : « quand j'ouvre une nouvelle fenêtre j'aimerais
+qu'elle s'ouvre plein écran, pas en bas dans le coin droit » — Vivaldi et
+VS Code nommes en exemple.
+
+**Ce n'est ni la politique de placement de kwin (« Placement », vide dans
+`kwinrc`, donc `Centered` par defaut) ni un defaut d'Android.** Konsole et
+Kate, testes en direct, s'ouvrent deja pleins ou proches du plein — la
+politique par defaut n'est pas en cause. La cause la plus probable, jamais
+confirmee au niveau du fichier de configuration de Vivaldi ou VS Code (les
+deux essais d'injection d'un etat souvenu dans `katerc` ont echoue a
+reproduire le symptome, syntaxe de sauvegarde de fenetre trop particuliere
+pour etre devinee sans temps a y consacrer) : **chaque application garde SA
+PROPRE geometrie souvenue** d'une session anterieure, et la redemande a
+chaque nouvelle fenetre — y compris une geometrie datant d'un autre ecran
+ou d'un glissement accidentel vers un coin.
+
+**Le correctif agit au meme endroit que tout le reste de ce fichier : dans
+`fenetres.js`, a la naissance de la fenetre (`windowAdded`), plutot que de
+chercher a corriger l'etat souvenu de chaque application une par une.**
+`agrandir(f)` reutilise le meme plafond que `borner()` (`basUtile()`, le bas
+de l'ecran moins les 52 px de la barre) et la meme technique deja eprouvee
+(ecriture directe de `frameGeometry`), pour ne pas dependre d'une API
+`setMaximize()` dont le comportement s'est revele incertain au banc — une
+premiere sonde sur une vraie fenetre Konsole a montre que
+`setMaximize(false, false)` **ne restaurait pas** la fenetre (elle est
+restee `mode=3`), sans lever d'erreur : soit l'application elle-meme
+combat le changement (Konsole se souvient de son propre etat maximise),
+soit la methode ne fait pas ce que son nom promet dans cette version de
+kwin. Ni l'un ni l'autre n'a ete elucide — la fonction est simplement
+evitee au profit de ce qui marche deja.
+
+**Ce qui est exclu, et mesure explicitement pour ne rien casser de ce que
+la soiree venait de reparer :**
+
+- les trois fenetres de Constellation (`s-constellation`) — deja forcees en
+  position et taille par `kwinrulesrc`, y toucher referait un travail deja
+  fait ;
+- toute fenetre `waydroid.*` — leur taille est choisie expres par
+  `taille_android()` (le rapport long/court qui evite le mode Android « une
+  seule colonne », mesure les 2026-08-25/26) ; les maximiser l'ecraserait ;
+- la fenetre systeme `Waydroid` — deja geree par `cacherAndroidSysteme` ;
+- toute fenetre `dialog`, `modal`, popup, infobulle, notification, dock,
+  splash ou utilitaire — une boite de dialogue plein ecran serait absurde.
+
+**Eprouve en direct sur cette session, script charge a chaud** (le meme
+mecanisme que celui utilise toute la soiree pour verifier Android) :
+
+| Test | Resultat |
+|---|---|
+| Kate, etat souvenu efface, SANS le correctif | `pos=0,26 size=1920x1002` — la taille par defaut de l'application |
+| Kate, etat souvenu efface, AVEC le correctif | `pos=0,0 size=1920x1028` — exactement le plafond de `basUtile()` |
+| Les trois fenetres Constellation, correctif actif | positions et tailles **inchangees** |
+| La fenetre Android `waydroid.ca.koho`, correctif actif | `86,0 1747x1028` — **inchangee** |
+
+### Ce que cette passe ne prouve pas
+
+- **Ni Vivaldi ni VS Code n'ont ete rouverts pour verifier le correctif sur
+  le vrai cas rapporte.** La reproduction du symptome exact (petite fenetre
+  coin bas-droit) n'a pas abouti au banc — seule la mecanique generale
+  (n'importe quelle geometrie de depart est ecrasee a la naissance de la
+  fenetre) a ete prouvee, sur Kate. C'est a l'utilisateur de rouvrir Vivaldi
+  ou VS Code pour le confirmer sur le cas reel.
+- **Le correctif tourne a chaud depuis le depot dans cette session, pas
+  depuis une image construite.** Il faut une construction et un
+  `rpm-ostree upgrade` pour qu'il survive au prochain redemarrage.
+- **La vraie cause du petit coin (Vivaldi/VS Code) n'est pas identifiee** —
+  seul son effet est neutralise. Si un jour ce correctif doit etre retire
+  ou affine, il faudra d'abord lire `~/.config/vivaldi/Default/Preferences`
+  (cle `browser.window_placement`) et l'etat de VS Code
+  (`~/.config/Code/User/globalStorage/state.vscdb`, cle `windowState`).
+
 ---
 
 ## 2026-08-29, apres-midi — les gestes Android reparlaient a un binaire mort, et la chaine neuve est eprouvee a l'ecran
