@@ -993,6 +993,14 @@ ApplicationWindow {
             String(cible.id || "").indexOf("fichier:") === 0
         readonly property bool estDossier: estFichier && (cible.dossier || 0) === 1
 
+        // « Désinstaller », demande le 2026-08-29. PAS UN BOOLEEN DEVINE : le
+        // pont sait, lui, si un vrai desinstalleur existe (Android le sait
+        // toujours ; Windows seulement s'il en trouve un pres du .exe ;
+        // aucune application Linux ce soir, voir noyau.py::desinstallable).
+        // Se recalcule a chaque ouverture du menu, quand « cible » change.
+        readonly property bool desinstallable: !estFichier && cible !== null &&
+            pont.desinstallable(cible.id)
+
         background: Verre {
             radius: 8
             implicitWidth: 232
@@ -1048,6 +1056,21 @@ ApplicationWindow {
             height: visible ? implicitHeight : 0
             text: "Executer en root"
             onTriggered: bureau.dire(pont.lancerEnRoot(menuContextuel.cible.id))
+        }
+
+        ArticleMenu {
+            // Absent plutot que grise : un article qu'on ne peut jamais
+            // cliquer n'apprend rien a l'utilisateur, il l'intrigue pour
+            // rien. « desinstallable » est deja tranche par le pont — voir
+            // noyau.py::desinstallable, un booleen, jamais une supposition.
+            visible: !menuContextuel.estFichier && menuContextuel.desinstallable
+            height: visible ? implicitHeight : 0
+            grave: true
+            text: "Desinstaller…"
+            onTriggered: {
+                bureau.dire(pont.desinstaller(menuContextuel.cible.id));
+                bureau.relire();
+            }
         }
 
         // ── Les gestes qui n'ont de sens que sur un fichier ─────────────────

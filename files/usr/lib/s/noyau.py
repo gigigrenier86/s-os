@@ -506,6 +506,145 @@ def lancer_en_root(entree):
     return _lancer_detache(argv)
 
 
+# ═══ DESINSTALLER, DEMANDE PAR L'UTILISATEUR LE 2026-08-29 ═══════════════════
+#
+# TROIS MONDES, TROIS MOYENS DE SAVOIR SI C'EST VRAIMENT POSSIBLE — et un
+# quatrieme cas, les applications Linux natives de l'image, ou ce n'est PAS
+# possible sans alourdir une couche rpm-ostree et redemarrer : on ne propose
+# rien plutot que de promettre un geste qu'on ne peut pas honorer proprement.
+#
+# ANDROID : Android sait desinstaller ses propres applications — c'est
+# « removeApp », le meme service IPlatform que « installApp » (voir
+# android_plateforme.py). Une vraie desinstallation, synchrone, en moins
+# d'une seconde d'apres les mesures deja faites sur cette machine pour
+# « installApp ».
+#
+# WINDOWS : ON NE DEVINE PAS OU EFFACER, ON CHERCHE LE VRAI DESINSTALLEUR.
+# La plupart des installateurs Windows (Inno Setup, NSIS...) posent leur
+# propre executable de desinstallation a cote du programme — c'est cet
+# executable que « s-menu-windows » ecarte deja de la moisson des raccourcis
+# (voir son commentaire : « un desinstalleur n'a rien a faire dans le
+# menu »). On le retrouve ici, dans le meme dossier ou son voisin d'a cote,
+# et on le LANCE — le vrai, celui de l'editeur, jamais un « rm -rf » invente
+# a sa place.
+#
+# LINUX (distrobox) ET LINUX NATIF : hors de portee ce soir. Le nom du
+# paquet apt/dnf reellement installe n'est retenu nulle part apres la pose
+# (voir s-ouvrir-paquet, qui le lit une fois et ne le garde pas) — le
+# deviner depuis le nom du fichier .desktop serait faux pour tout paquet
+# dont l'identifiant differe de son .desktop. Chantier a part.
+
+_MOTIFS_DESINSTALLEUR = ("uninstall.exe", "uninst.exe", "unins000.exe")
+
+
+def _exe_windows(fichier_desktop):
+    """Le chemin Linux du .exe qu'un lanceur Windows appelle, ou None."""
+    champs = lire_desktop(fichier_desktop) or {}
+    m = re.search(r'"([^"]+\.exe)"', champs.get("Exec", ""), re.IGNORECASE)
+    return m.group(1) if m else None
+
+
+def _desinstalleur_windows(exe):
+    """Cherche un vrai desinstalleur pres du .exe. Rend son chemin, ou None.
+
+    DEUX DOSSIERS, PAS UN SEUL : le programme lance peut vivre dans un
+    sous-dossier (« bin », « x64»...) alors que l'installateur a pose son
+    desinstalleur au niveau du dossier parent — releve courant chez les
+    installateurs NSIS multi-plateformes.
+    """
+    dossiers = []
+    d = os.path.dirname(exe)
+    if d:
+        dossiers.append(d)
+        parent = os.path.dirname(d)
+        if parent and parent != d:
+            dossiers.append(parent)
+    for dossier in dossiers:
+        try:
+            noms = os.listdir(dossier)
+        except OSError:
+            continue
+        for nom in noms:
+            bas = nom.lower()
+            if bas in _MOTIFS_DESINSTALLEUR or (
+                    bas.startswith("unins") and bas.endswith(".exe")):
+                return os.path.join(dossier, nom)
+    return None
+
+
+def desinstallable(entree):
+    """Cette etoile peut-elle vraiment etre desinstallee — pas juste retiree
+    du menu ? Rend un booleen, jamais une supposition."""
+    monde = entree.get("src")
+    if monde == "android":
+        return entree.get("id", "").startswith("waydroid.")
+    if monde == "windows":
+        fichier = entree.get("fichier")
+        exe = _exe_windows(fichier) if fichier else None
+        return bool(exe and _desinstalleur_windows(exe))
+    return False
+
+
+def desinstaller(entree):
+    """Desinstalle pour de vrai. Rend (ok, phrase a afficher)."""
+    monde = entree.get("src")
+    nom = entree.get("nom", entree.get("id", "?"))
+
+    if monde == "android":
+        ident = entree.get("id", "")
+        if not ident.startswith("waydroid."):
+            return False, "pas une application Android"
+        paquet = ident[len("waydroid."):]
+        try:
+            import android_plateforme as ap
+        except ImportError as err:
+            return False, "pont Android indisponible (%s)" % err
+        plateforme = ap.obtenir(15)
+        if not plateforme:
+            return False, "Android ne repond pas"
+        try:
+            exception = plateforme.removeApp(paquet)
+        except Exception as err:  # noqa: BLE001
+            return False, "echec de la desinstallation (%s)" % err
+        if exception:
+            return False, "Android refuse (code %s)" % exception
+        # LE LANCEUR EST RETIRE TOUT DE SUITE, PAS DANS TRENTE SECONDES. Le
+        # demon android-applications.py l'aurait fait au prochain passage
+        # periodique — l'utilisateur ne doit pas voir une icone morte
+        # pendant ce temps, pour une action qu'on sait deja reussie.
+        fichier = entree.get("fichier")
+        if fichier:
+            try:
+                os.remove(fichier)
+            except OSError:
+                pass
+        return True, "%s desinstallee" % nom
+
+    if monde == "windows":
+        fichier = entree.get("fichier")
+        exe = _exe_windows(fichier) if fichier else None
+        desins = _desinstalleur_windows(exe) if exe else None
+        if not desins:
+            return False, "aucun desinstalleur trouve pour %s" % nom
+        # LE VRAI DESINSTALLEUR DE L'EDITEUR, PAR LE MEME CHEMIN QUE
+        # N'IMPORTE QUEL .exe DE S — « s-ouvrir-exe » sait deja gerer le
+        # serveur Wine resident et son repli umu-run ; le reecrire ici
+        # dupliquerait un mecanisme deja eprouve pour rien.
+        outil = _outil("s-ouvrir-exe")
+        if not outil:
+            return False, "s-ouvrir-exe est absent de cette machine"
+        # DETACHE, JAMAIS ATTENDU. La plupart des desinstalleurs Windows
+        # ouvrent un assistant qui demande des clics — bloquer ce Slot
+        # jusqu'a sa fermeture gelerait toute la coquille, l'exact defaut
+        # que ce depot a deja corrige neuf fois pour pkexec (voir s_root).
+        ok, err = _lancer_detache([outil, desins])
+        if not ok:
+            return False, "desinstalleur introuvable au lancement (%s)" % err
+        return True, "Desinstallation de %s lancee — suivez l'assistant" % nom
+
+    return False, "desinstallation non prise en charge pour %s" % nom
+
+
 GESTES_SESSION = {
     "verrouiller": ["loginctl", "lock-session"],
     "deconnecter": ["loginctl", "terminate-session", os.environ.get("XDG_SESSION_ID", "self")],

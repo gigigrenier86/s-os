@@ -546,6 +546,107 @@ tous les deux prouves, separement.
 - **Rien n'est dans l'image.** Corrige dans le depot, pas encore construit
   ni redemarre dessus.
 
+### Huitieme addendum — desinstaller depuis le clic droit, sans jamais deviner ce qu'on efface
+
+Demande de l'utilisateur : « on ajoute aussi des options aux programmes dans
+la liste du menu démarrer, click droit, désinstaller ».
+
+**Chercher avant de forger a evite un travail inutile.** Le clic droit du
+menu Demarrer appelait deja `menuContextuel.ouvrirPour(app, ex, ey)` —
+exactement le meme menu que les etoiles du bureau (`Constellation.qml:728`
+et `:442`). Un seul article a ajouter, pas deux menus a maintenir.
+
+**Trois mondes, trois verites, et un quatrieme cas ferme plutot que
+devine.**
+
+- **Android** : `IPlatform.removeApp(paquet)`, le meme service binder qui
+  installe deja F-Droid et le Magasin Android (voir `android_plateforme.py`) —
+  une vraie desinstallation, synchrone. Le paquet se lit dans l'identifiant
+  de l'etoile lui-meme (`waydroid.<paquet>`, la convention posee par
+  `android-applications.py` un peu plus haut ce soir).
+- **Windows** : **on ne devine pas ou effacer, on cherche le vrai
+  desinstalleur.** `s-menu-windows` ecarte deja les raccourcis
+  `*uninst*`/`*unins0*` de la moisson — son propre commentaire dit
+  « un desinstalleur n'a rien a faire dans le menu ». Ce soir, on va le
+  chercher a cote du .exe que le lanceur appelle (meme dossier, ou son
+  parent — les installateurs NSIS multi-plateformes posent parfois le
+  desinstalleur un niveau au-dessus du binaire lance) et on lance CELUI-LA,
+  par `s-ouvrir-exe` — le meme chemin que n'importe quel `.exe` de S,
+  jamais une commande de suppression inventee.
+- **Linux natif et distrobox** : **rien.** L'article de menu n'apparait
+  pas. Pas de rpm-ostree layering pour les applications de l'image (trop
+  lourd, demande un redemarrage, hors de propos pour un clic droit) — et
+  pour les paquets Debian/Fedora poses par glisser-deposer, le vrai nom du
+  paquet apt/dnf n'est retenu nulle part apres l'installation (verifie dans
+  `s-ouvrir-paquet` : il le lit une fois par `dpkg-deb`/`rpm -qp`, jamais
+  garde). Le deviner depuis le nom du fichier `.desktop` serait faux des
+  qu'ils divergent. Chantier a part, pas commence.
+
+**Le pont ne promet jamais un geste qu'il ne peut pas honorer.**
+`noyau.desinstallable(entree)` rend un booleen mesure — Android toujours
+vrai, Windows seulement si un fichier existe reellement sur le disque a cet
+instant, jamais un supposition — et QML n'affiche l'article que si ce
+booleen est vrai. **Absent plutot que grise** : un article qu'on ne peut
+jamais cliquer n'apprend rien, il intrigue pour rien.
+
+**Un desinstalleur Windows est presque toujours un assistant graphique, et
+ca change tout.** `noyau.desinstaller()` le lance **detache**, jamais
+attendu — bloquer le Slot jusqu'a la fermeture de l'assistant gelerait
+toute la coquille, exactement le defaut que ce depot a deja corrige neuf
+fois pour `pkexec` (`s_root`, voir plus haut dans ce fichier). Le lanceur
+n'efface donc pas l'icone tout de suite : on ne sait pas si l'utilisateur
+a annule l'assistant. Android, lui, repond en une transaction binder
+synchrone (~100 ms, deja mesure pour `installApp` cette nuit) — l'icone est
+retiree tout de suite, parce qu'on SAIT que c'est reussi.
+
+**Eprouve sur cette machine, en lecture seule, sans rien desinstaller pour
+de vrai** — desinstaller une vraie application aurait ete un geste
+destructif sur l'installation reelle de l'utilisateur, jamais fait sans sa
+demande explicite :
+
+| | Resultat mesure |
+|---|---|
+| Konsole (Linux natif) | `desinstallable` = **False**, correctement absent du menu |
+| 3 applications Android verifiees (KOHO, SwiftP, Virgin Mobile) | `desinstallable` = **True** pour les trois |
+| Les 4 applications Windows de la machine | **4 sur 4** ont un vrai desinstalleur trouve — PURPLE (`Uninstall.exe`), Ibo Player Pro, Cursor, CAP Player (`unins000.exe` chacun) |
+| `python3 build_files/verifier-constellation.py <chemin du depot>` | scene chargee, **25 slots au pont** (23 avant ce soir), menu ouvert, aucun avertissement |
+
+**Et le controle de construction a d'abord echoue, comme prevu — c'est son
+travail.** Premier passage : « le leurre ne declare pas 2 slot(s) du pont :
+desinstallable, desinstaller ». Le leurre (`PontLeurre` dans
+`verifier-constellation.py`) a ete complete, rejoue, vert. Sans ce garde-fou,
+une faute de nommage entre le QML et le Slot Python ne se serait vue qu'au
+clic, chez l'utilisateur — exactement l'echec que ce controle existe pour
+attraper.
+
+**Un piege deja ecrit dans ce carnet a failli fausser la mesure** : le
+controle vise `/usr/share` (l'image deployee, donc l'ancien QML) par
+defaut, pas le depot. Le premier essai serait passe vert pour la mauvaise
+raison — une scene qui n'appelle jamais les deux nouveaux Slots ne peut pas
+se plaindre de leur absence. Rejoue avec le chemin du depot passe en
+argument, comme la note du 2026-08-25 le rappelle deja plus bas dans ce
+fichier.
+
+### Ce que cette passe ne prouve pas
+
+- **Aucune vraie desinstallation n'a ete exercee.** Ni Android
+  (`removeApp` jamais appele pour de vrai), ni Windows (aucun
+  `Uninstall.exe`/`unins000.exe` jamais lance). Le risque de casser une
+  application reellement installee sur cette machine, sans demande
+  explicite de l'utilisateur, l'a emporte sur la preuve complete.
+- **L'article de menu n'a jamais ete clique.** Le controle de construction
+  prouve que la scene charge et que les deux Slots existent des deux
+  cotes ; il ne prouve pas qu'un clic reel ouvre le bon assistant Windows
+  ou fait vraiment disparaitre une icone Android.
+- **La recherche du desinstalleur Windows n'a ete mesuree que sur quatre
+  applications**, toutes des installateurs Inno Setup ou apparentes
+  (`unins*.exe`). Un installateur MSI ou un binaire portable sans
+  installateur du tout (comme PC Boost ou VLC, poses par simple copie de
+  dossier selon ce carnet) ne serait pas desinstallable par ce chemin —
+  et c'est le comportement voulu : **absent plutot que faux**.
+- **Rien n'est dans l'image.** Corrige dans le depot, pas encore construit
+  ni redemarre dessus.
+
 ---
 
 ## 2026-08-29, apres-midi — les gestes Android reparlaient a un binaire mort, et la chaine neuve est eprouvee a l'ecran

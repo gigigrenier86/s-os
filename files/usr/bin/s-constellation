@@ -137,6 +137,27 @@ class Pont(QObject):
         ok, dit = noyau.lancer_en_root(apps[ident])
         return (apps[ident]["nom"] + " (root)") if ok else dit
 
+    @Slot(str, result=bool)
+    def desinstallable(self, ident):
+        # PAS DE SENS POUR UN FICHIER, meme raison que lancerEnRoot.
+        if ident.startswith("fichier:"):
+            return False
+        apps = noyau.inventaire()
+        return ident in apps and noyau.desinstallable(apps[ident])
+
+    @Slot(str, result=str)
+    def desinstaller(self, ident):
+        if ident.startswith("fichier:"):
+            return "pas disponible pour un fichier"
+        apps = noyau.inventaire()
+        if ident not in apps:
+            return "inconnue : " + ident
+        # « bureau.relire() » se fait cote QML, comme pour « corbeille » et
+        # « epingler » deux articles plus haut dans ce meme menu : c'est
+        # l'appelant qui sait quand rafraichir l'affichage, pas ce Slot.
+        _, dit = noyau.desinstaller(apps[ident])
+        return dit
+
     @Slot(str, float, float)
     def placer(self, ident, x, y):
         x = min(1.0, max(0.0, float(x)))

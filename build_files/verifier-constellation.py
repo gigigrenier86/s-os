@@ -131,6 +131,14 @@ class PontLeurre(QObject):
     def lancerEnRoot(self, ident):
         return ident
 
+    @Slot(str, result=bool)
+    def desinstallable(self, ident):
+        return False
+
+    @Slot(str, result=str)
+    def desinstaller(self, ident):
+        return ident
+
     @Slot(str, float, float)
     def placer(self, ident, x, y):
         pass
