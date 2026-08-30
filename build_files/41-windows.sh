@@ -19,13 +19,26 @@ DEST=/usr/lib/s/windows
 TRAVAIL=/tmp/proton
 mkdir -p "$DEST" "$TRAVAIL"
 
-# La derniere version publiee par Open Wine Components, avec son condensat.
-LISTE="$(curl -fsSL --retry 3 https://api.github.com/repos/Open-Wine-Components/umu-proton/releases/latest)"
+# LA DERNIERE VERSION PUBLIEE PAR GLORIOUSEGGROLL (GE-PROTON), PAS umu-proton.
+#
+# CHANGE LE 2026-08-29, ET C'EST UNE DECISION PRISE AVEC L'UTILISATEUR, PAS
+# DEVINEE. umu-proton (Open-Wine-Components) reste coince sur wine-10.0 —
+# verifie en direct ce soir-la, meme requete que ci-dessous, meme reponse
+# (« UMU-Proton-10.0-4 ») : rien a esperer d'une simple reconstruction
+# d'image. GE-Proton, lui, est deja a wine-11 (« GE-Proton11-6 », publie le
+# 28 aout 2026) — la base minimale pour le support ntsync stable (voir
+# CLAUDE.md). Le format d'assets differe d'un seul detail, verifie en
+# direct : GE-Proton suffixe l'architecture (« ${TAG}-x86_64.tar.gz »), la
+# ou umu-proton ne le faisait pas.
+#
+# MEME DISCIPLINE QU'AVANT, AU MOT PRES : le condensat publie par l'amont
+# fait foi, jamais un octet installe sans qu'il corresponde.
+LISTE="$(curl -fsSL --retry 3 https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest)"
 TAG="$(printf '%s' "$LISTE" | grep -m1 '"tag_name"' | cut -d'"' -f4)"
-URL="https://github.com/Open-Wine-Components/umu-proton/releases/download/${TAG}"
+URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${TAG}"
 
-curl -fsSL --retry 3 -o "$TRAVAIL/proton.tar.gz" "${URL}/${TAG}.tar.gz"
-curl -fsSL --retry 3 -o "$TRAVAIL/proton.sha512sum" "${URL}/${TAG}.sha512sum"
+curl -fsSL --retry 3 -o "$TRAVAIL/proton.tar.gz" "${URL}/${TAG}-x86_64.tar.gz"
+curl -fsSL --retry 3 -o "$TRAVAIL/proton.sha512sum" "${URL}/${TAG}-x86_64.sha512sum"
 
 # Le condensat publie fait foi. Un paquet de 468 Mo qu on deplie ensuite dans le
 # dossier personnel merite exactement le meme controle qu un binaire pose.

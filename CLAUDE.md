@@ -647,6 +647,199 @@ fichier.
 - **Rien n'est dans l'image.** Corrige dans le depot, pas encore construit
   ni redemarre dessus.
 
+### Neuvieme addendum — Windows, aussi natif que possible : trois pistes gagnees, un mur nomme, une hypothese fausse corrigee dans la meme nuit
+
+Demande de l'utilisateur : « comment on ferait fonctionner Windows aussi
+bien qu'Android présentement ? No-Limit, Natif dans le noyau si possible,
+si non, presque ». Le Wizard invoque trois recherches en parallele avant
+d'ecrire une ligne — l'architecture Windows actuelle, `ntsync`, et les
+autres leviers proches du noyau — puis un Plan agent construit un plan en
+cinq pistes, approuve par l'utilisateur. Ce qui suit est ce qui a ete
+reellement fait et mesure, pas ce que le plan promettait.
+
+**Ce que la recherche a trouve, en resume — le detail complet vit dans les
+rapports des trois agents, non reproduits ici :**
+
+- **`ntsync` (le pilote de synchronisation NT d'Elizabeth Figura, fusionne
+  dans Linux 6.14) est charge sur cette machine, `/dev/ntsync` en `0666`,
+  et n'a jamais servi.** Le Proton installe (`UMU-Proton-10.0-4`, base
+  wine-10.0) ne contient **aucun** code ntsync — verifie par `strings`/`nm`
+  sur `wineserver` et `ntdll.so`, zero occurrence. Une requete API en
+  direct sur GitHub confirme que `Open-Wine-Components/umu-proton` reste
+  coince sur `10.0-4` : une reconstruction d'image n'y changerait rien.
+- **`binfmt_misc` est charge (`CONFIG_BINFMT_MISC=m`), et seuls des
+  gestionnaires `qemu-aarch64` (Waydroid) sont enregistres.** Aucun pour
+  la signature PE (`MZ`) des `.exe` — tout passe par xdg-mime, jamais par
+  le noyau lui-meme.
+- **L'arbre wow64 unifie (un seul processus 64 bits pour le code Windows
+  32 et 64 bits) est deja dans le tarball Proton installe**
+  (`files/bin-wow64/wine`), a cote de l'arbre classique double
+  (`files/bin/wine64` + `files/bin/wine`) — rien a telecharger.
+- **Le mur reel, confirme et non suppose** : un pilote NT en anneau 0
+  (anti-cheat kernel-mode, pilote materiel) ne tournera jamais sous Wine.
+  `ntoskrnl.exe` de Wine est une reimplementation userspace d'une petite
+  surface de l'API NT ; la seule voie reelle est WSL2, un vrai noyau
+  Windows dans une VM — exclue par le principe fondateur de S. Voir
+  « Limites, connues d'avance », point 1, desormais generalise plutot que
+  laisse comme un cas isole (Lineage 2/GameGuard).
+- **Un candidat verifie en direct pour remplacer la source Proton** :
+  `GloriousEggroll/proton-ge-custom` publie `GE-Proton11-6` (28 aout 2026,
+  base wine-11 — la ligne minimale pour un support ntsync stable, wine-10.15
+  n'ayant qu'un support initial). Format d'assets quasi identique a
+  `umu-proton`, un seul detail different (suffixe `-x86_64`).
+
+### Piste D, faite et eprouvee en premier — la garde silencieuse
+
+`_dire_windows()` dans `s-windows`, meme patron que `_dire_android()` cette
+nuit : un choke-point unique, `--silencieux` reconnu comme **dernier
+argument** (et non comme sous-commande, contrairement a s-android, parce
+que s-windows a plusieurs sous-commandes dont les arguments suivants
+varient — `--fenetre-noire` prend un chemin en `$2`). Dix appels `s_dire`
+remplaces (`--polices`, `--fondations`, `--fenetre-noire`,
+`preparer()`/`--tout`) ; `--arreter` volontairement laisse tel quel, hors
+scope du plan approuve.
+
+**Eprouve dans les deux sens, par capture d'ecran, depuis le depot** :
+
+| Test | Resultat |
+|---|---|
+| `s-windows --preparer` (normal) | bulle visible en haut a droite, capture a l'appui |
+| `s-windows --preparer --silencieux` | **aucune bulle**, meme capture au meme instant du geste, le journal recoit quand meme la phrase |
+
+Garde-fou ajoute a `40-coutures.sh` : `grep -q '_dire_windows'
+/usr/bin/s-windows`, meme convention que les controles deja en place.
+
+### Piste B, ecrite et verifiee hors ligne — `binfmt_misc`
+
+`files/usr/lib/binfmt.d/dosw.conf`, au format standard lu par
+`systemd-binfmt.service` (patron copie du vrai fichier `qemu-aarch64-
+static.conf` deja sur cette machine, pas invente) :
+
+```
+:dosw:M::MZ::/usr/bin/s-ouvrir-exe:
+```
+
+Garde-fou dans `40-coutures.sh` : presence, signature `MZ`, chemin de
+l'interprete. **Non teste en direct sur cette session** : enregistrer un
+gestionnaire aupres du noyau exige une ecriture privilegiee dans
+`/proc/sys/fs/binfmt_misc/register`, et cette session n'a ni root ni mot
+de passe a utiliser (l'utilisateur en a offert un plus tot dans la
+soiree ; il n'a jamais ete lu, stocke, ni employe, conformement a ce qui
+avait ete dit sur le moment). **La mesure qui trancherait, apres
+construction et redemarrage** : `cat /proc/sys/fs/binfmt_misc/dosw`, puis
+`./programme.exe` depuis un shell nu, sans passer par le bureau.
+
+### Piste A, faite, mesuree, et corrigee en cours de route — wow64
+
+`s_windows_capturer()` demande desormais `PROTON_USE_WOW64=1` a Proton, au
+lieu de deviner. Le vrai blocage n'etait pas la : `s_windows_charger()`
+**forcait en dur** `WINELOADER`/`WINESERVER` sur l'arbre classique, APRES
+avoir charge la capture — donc le drapeau n'aurait jamais rien change a
+l'ecran. Mesure sur cette machine avant de corriger : la capture reelle
+**expose** `WINELOADER` (donc le choix reel de Proton s'y trouve deja),
+mais **jamais** `WINESERVER`. Le chargeur derive desormais `WINESERVER` du
+meme dossier que `WINELOADER`, plutot que de le figer separement.
+
+**Eprouve de bout en bout, sur cette machine, sans construction — le meme
+patron d'essai a chaud utilise toute la nuit** (`S_BIN=... S_LIB=...`,
+recapture forcee, serveur resident relance depuis le depot) :
+
+```
+WINELOADER capture   -> .../files/bin-wow64/wine           (avant : files/bin/wine64)
+wineserver resident  -> .../files/bin-wow64/wineserver, confirme par readlink -f /proc/<pid>/exe
+```
+
+**Trois des quatre logiciels Windows reels de cette machine s'ouvrent et
+peignent normalement sous wow64** : PURPLE (CefSharp, 32 bits, capture
+d'ecran — plus de fenetre noire, ni un simple splash : un vrai ecran de
+connexion complet), Ibo Player Pro (32 bits, capture d'ecran — abonnement,
+QR code, tout rendu), CAP Player (32 bits, capture d'ecran — essai
+gratuit, adresse Mac, tout rendu). Chronometrage a chaud (`cmd /c exit`,
+trois essais) : **225-265 ms sous wow64, contre 215 ms deja mesures sur
+l'arbre classique** — pas de regression de latence.
+
+### LE QUATRIEME LOGICIEL, CURSOR, A FAIT TOMBER UNE PREMIERE CONCLUSION FAUSSE — ET LA CORRECTION EST ARRIVEE DANS LA MEME NUIT
+
+Cursor (64 bits) ne s'ouvre pas sous wow64 : aucune fenetre, `s-ouvrir-exe`
+reste bloque, puis rend le code 0 sans rien avoir affiche. Avec
+`WINEDEBUG=warn+all`, la vraie erreur :
+
+```
+warn:seh:dispatch_exception EXCEPTION_WINE_ASSERTION exception (code=80000101) raised
+err:seh:call_seh_handlers invalid frame …
+err:seh:NtRaiseException Exception frame is not in stack limits => unable to dispatch exception.
+```
+
+**Premiere conclusion, ecrite dans le code et dans ce carnet, avant
+verification complete : « wow64 est encore experimental sur ce Proton,
+Wine 11.0 le stabilise, ce n'est pas mur avant cette version ».**
+Plausible, coherente avec la recherche du soir (wine-10.x est mi-parcours
+de la transition wow64) — et **fausse**.
+
+**La mesure qui l'a refutee** : le meme lancement de Cursor, sur l'arbre
+**classique** (`WINELOADER` repointe sur `files/bin/wine64`, capture
+refaite, serveur resident relance depuis zero, aucune trace de wow64
+nulle part dans l'environnement) — **produit exactement le meme
+plantage**, ligne pour ligne, meme message `EXCEPTION_WINE_ASSERTION`.
+wow64 n'y est pour rien : c'est un defaut preexistant de Cursor sur ce
+Proton, jamais vu avant cette nuit parce que Cursor n'avait jamais ete
+**lance** sur cette machine — seule sa `desinstallable()` (une simple
+lecture de fichier) avait ete exercee plus tot dans la soiree.
+
+**Le drapeau `PROTON_USE_WOW64=1` a ete retire, puis reremis**, une fois
+la vraie cause etablie — deux allers-retours reels sur la machine,
+capture refaite et serveur resident relance a chaque fois, parce que le
+premier retrait reposait sur un diagnostic qui s'est revele faux une
+demi-heure plus tard. Le commentaire du code raconte les deux versions
+plutot que d'effacer la premiere : *« hypothese ecrite trop vite… refutee
+dans la meme nuit »*. Une hypothese refutee par la mesure est un bon
+resultat — elle ferme une piste au lieu de laisser un doute — et
+celle-ci en ferme une fausse pour en rouvrir une vraie.
+
+### Piste C, code ecrit et verifie hors ligne, PAS ENCORE eprouve en direct
+
+`build_files/41-windows.sh` repointe desormais vers
+`GloriousEggroll/proton-ge-custom`, en suivant toujours la derniere
+version publiee (decision prise avec l'utilisateur, meme comportement que
+le script appliquait deja a `umu-proton`). Le format d'assets
+(`${TAG}-x86_64.tar.gz`/`.sha512sum`) a ete verifie en direct contre le
+vrai depot GitHub avant d'ecrire la moindre ligne — meme forme, un seul
+detail different, le suffixe d'architecture. Le bloc de verification
+sha512 (lignes inchangees) n'a pas bouge d'un caractere.
+
+**Delibrement pas encore deploye sur cette machine.** Remplacer le Proton
+qui fait tourner les quatre logiciels Windows reels de l'utilisateur
+— dont trois viennent d'etre confirmes sains sous wow64 — est le seul
+geste de cette nuit qui touche le binaire lui-meme plutot que la
+configuration ou le script qui l'appelle. Le plan approuve le place
+explicitement en dernier et le plus prudent des cinq. La decision de le
+tester en direct sur cette machine (telechargement, remplacement du
+Proton en service, re-verification des quatre logiciels, recherche de la
+ligne « NTSync up and running! » dans le journal wineserver) est laissee
+a l'utilisateur plutot que prise seule.
+
+### Ce que cette passe ne prouve pas
+
+- **`binfmt_misc` n'a jamais ete enregistre pour de vrai** — ecrit, verifie
+  hors ligne, jamais pousse dans le noyau faute de privilege dans cette
+  session.
+- **Le serveur resident wow64 tourne depuis le depot, pas depuis
+  l'image.** `s-windows.service`, tel que deploye, lance encore l'arbre
+  classique — verifie explicitement (`systemctl --user start` a d'abord
+  redonne l'arbre classique, avant de relancer a la main depuis le
+  depot). Il faut une construction et un `rpm-ostree upgrade` pour que la
+  vraie unite systemd porte le changement.
+- **Cursor reste casse, sur les deux arbres, et rien n'a ete tente pour le
+  reparer ce soir** — hors scope du plan approuve, qui visait la parite
+  avec Android, pas un bogue preexistant decouvert en chemin. Chantier a
+  part, qui merite sa propre enquete (le message d'erreur pointe vers la
+  gestion des exceptions de Wine lui-meme, pas vers Cursor).
+- **ntsync n'a jamais tourne** — le Proton qui le supporterait n'est pas
+  installe sur cette machine. La ligne `NTSync up and running!` n'a
+  jamais ete cherchee parce qu'elle ne peut pas encore exister ici.
+- **Rien de tout ceci n'est dans l'image**, hormis ce qui est deja vrai
+  plus haut pour chaque piste individuellement.
+
 ---
 
 ## 2026-08-29, apres-midi — les gestes Android reparlaient a un binaire mort, et la chaine neuve est eprouvee a l'ecran
@@ -7196,7 +7389,19 @@ OS qui démarre.
 
 1. **Wine traduit des API, pas des pilotes.** Un logiciel qui parle au matériel
    par un pilote noyau Windows ne peut pas fonctionner, quel que soit le réglage.
-   C'est le seul mur vraiment infranchissable.
+   C'est le seul mur vraiment infranchissable — **structurel, pas une lacune de
+   maturité**, confirmé le 2026-08-29 en cherchant explicitement une issue :
+   `ntoskrnl.exe` de Wine est une réimplémentation userspace (anneau 3) d'une
+   petite surface de l'API NT — ni HAL, ni gestionnaire d'objets NT, ni
+   gestionnaire d'E/S réel. Les tentatives de charger un vrai pilote y échouent
+   sur des fonctions non implémentées (`ZwLoadDriver`, `IoAllocateErrorLogEntry`,
+   `ExCreateCallback`). La seule voie qui ferait tourner du code NT ring-0 réel
+   sous Linux est WSL2 — un vrai noyau Windows dans une VM légère — explicitement
+   exclue par le principe fondateur de S : « Rien n'est émulé… Aucune machine
+   virtuelle ». Ce mur borne tout ce qui reste « proche du noyau » pour Windows
+   dans ce projet (synchronisation, dispatch, graphique) : ces pistes-là restent
+   ouvertes et valent la peine, celle-ci ne l'est pas et ne le deviendra jamais
+   sous cette architecture.
 2. **Lineage 2 en est le cas concret.** `nProtect GameGuard` charge un pilote
    `.sys` en anneau 0 ; Wine n'a pas de noyau Windows où le charger. Les serveurs
    officiels NCSoft sont hors d'atteinte, ainsi que les gros serveurs privés à

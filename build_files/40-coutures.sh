@@ -308,6 +308,30 @@ grep -qE '^\s*"\$S_GESTES/s-partage"' /usr/bin/s-windows \
     || { echo "ECHEC : s-windows ne rappelle pas s-partage — la lettre P: ne serait jamais posee." >&2; exit 1; }
 echo "  s-windows      : pose la lettre P: apres creation du prefixe"
 
+# --- LE SILENCE NE DOIT PAS DISPARAITRE D'UNE FUTURE REECRITURE -------------
+# _dire_windows (2026-08-29) bailonne les bulles en mode --silencieux, sur le
+# meme patron que _dire_android. Sans ce controle, une reecriture future
+# pourrait rebrancher un s_dire brut sans que rien ne le signale avant qu'une
+# bulle resurgisse pendant une ouverture de session censee etre silencieuse.
+grep -q '_dire_windows' /usr/bin/s-windows \
+    || { echo "ECHEC : s-windows n'a plus de garde silencieuse — un futur appel automatique ferait resurgir des bulles." >&2; exit 1; }
+echo "  s-windows      : --silencieux bailonne les bulles (_dire_windows)"
+
+# --- LE NOYAU DISPATCHE LES .exe LUI-MEME, PAS SEULEMENT xdg-mime ------------
+# binfmt_misc est deja charge sur cette machine (CONFIG_BINFMT_MISC=m), mais
+# rien n'y enregistrait de gestionnaire PE : seul un double-clic passant par
+# xdg-mime lancait un .exe, jamais un « ./programme.exe » depuis un terminal
+# nu. Les deux couches coexistent sans conflit — xdg-mime gouverne l'icone et
+# le clic, binfmt_misc gouverne l'execve() brut — mais celle-ci doit survivre
+# a toute reecriture future de la couture Windows.
+test -s /usr/lib/binfmt.d/dosw.conf \
+    || { echo "ECHEC : dosw.conf absent — un .exe lance en ligne de commande resterait Exec format error." >&2; exit 1; }
+grep -q 'MZ' /usr/lib/binfmt.d/dosw.conf \
+    || { echo "ECHEC : dosw.conf ne porte pas la signature PE (MZ)." >&2; exit 1; }
+grep -q '/usr/bin/s-ouvrir-exe' /usr/lib/binfmt.d/dosw.conf \
+    || { echo "ECHEC : dosw.conf ne pointe pas vers s-ouvrir-exe." >&2; exit 1; }
+echo "  binfmt_misc    : un .exe execute() directement passe par le noyau vers s-ouvrir-exe"
+
 # --- LE FILET DOIT DESCENDRE LE SERVEUR -------------------------------------
 # Mesure du 2026-08-26 : umu-run pendant qu'un wineserver tient le prefixe rend
 # AUCUNE FENETRE apres soixante secondes, sans un mot. Un filet qui ne rattrape

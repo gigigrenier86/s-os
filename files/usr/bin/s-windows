@@ -33,6 +33,32 @@ done
 unset _w_ici _w_bin _w_lib
 [ -n "${S_WIN_PFX:-}" ] || { echo "S est incomplet : windows.sh introuvable" >&2; exit 1; }
 
+# EN MODE SILENCIEUX, AUCUNE BULLE — meme patron que _dire_android dans
+# s-android (2026-08-29), pose ici en prevention plutot qu'en reparation :
+# rien n'appelle aujourd'hui --polices/--fondations/--fenetre-noire/
+# --preparer/--tout au demarrage de session (seul --amorcer le fait, et il
+# n'appelle jamais s_dire), mais les cinq le font sans aucune garde. Un seul
+# futur appel automatique — une reparation en tache de fond, par exemple —
+# ferait resurgir des bulles pendant une ouverture de session censee etre
+# silencieuse, exactement le defaut deja corrige cote Android.
+#
+# « --silencieux » SE LIT COMME UN MODIFICATEUR EN QUEUE, PAS COMME LE
+# SOUS-COMMANDE. Contrairement a s-android (ou l'invocation entiere EST
+# « --silencieux »), s-windows distingue plusieurs sous-commandes dont les
+# arguments suivants varient (--fenetre-noire prend un chemin en $2,
+# --fondations une liste de verbes optionnelle) : verifier UNIQUEMENT le
+# dernier argument evite de polluer ces positions.
+SILENCIEUX=0
+[ $# -gt 0 ] && [ "${!#}" = "--silencieux" ] && SILENCIEUX=1
+
+_dire_windows() {
+    if [ "$SILENCIEUX" = 1 ]; then
+        printf '%s — %s\n' "$1" "${2:-}" >&2
+        return 0
+    fi
+    s_dire "$@"
+}
+
 # ---------------------------------------------------------------------------
 # --serveur : ce que systemd execute
 # ---------------------------------------------------------------------------
@@ -133,7 +159,7 @@ emprunter_polices() {
         source=""
     done
     if [ -z "$source" ]; then
-        s_dire "Polices Windows" \
+        _dire_windows "Polices Windows" \
 "Aucun Windows monte sur cette machine. Les logiciels qui exigent Segoe \
 afficheront un carre a la place de leurs icones." dialog-warning
         return 1
@@ -220,7 +246,7 @@ if [ "${1:-}" = "--polices" ]; then
         "Ouvre un programme Windows une premiere fois, ou lance : s-windows --tout"
     LU="$(emprunter_polices)" || exit 1
     read -r NEUVES DEJA DECLAREES <<<"$LU"
-    s_dire "Polices Windows" \
+    _dire_windows "Polices Windows" \
 "${NEUVES:-0} empruntee(s), ${DEJA:-0} deja en place, ${DECLAREES:-0} declaree(s) au registre."
     exit 0
 fi
@@ -273,7 +299,7 @@ if [ "${1:-}" = "--fondations" ]; then
 
     POSEES=0; RATEES=""
     for verbe in ${2:-$FONDATIONS}; do
-        s_dire "Fondations Windows" "Pose de $verbe…" system-software-install
+        _dire_windows "Fondations Windows" "Pose de $verbe…" system-software-install
         echo "########## $verbe ##########" >> "$JOURNAL"
         if winetricks -q -f "$verbe" >>"$JOURNAL" 2>&1; then
             POSEES=$((POSEES + 1))
@@ -284,10 +310,10 @@ if [ "${1:-}" = "--fondations" ]; then
     done
 
     if [ -n "$RATEES" ]; then
-        s_dire "Fondations Windows" \
+        _dire_windows "Fondations Windows" \
 "$POSEES pose(s), et ceci a echoue :$RATEES. Detail dans $JOURNAL" dialog-warning
     else
-        s_dire "Fondations Windows" "$POSEES fondation(s) en place."
+        _dire_windows "Fondations Windows" "$POSEES fondation(s) en place."
     fi
     s_windows_reprendre "$REPRISE"
     exit 0
@@ -325,7 +351,7 @@ if [ "${1:-}" = "--fenetre-noire" ]; then
     ACTUEL="$(s_windows_rendu_de "$IDENT")"
     if [ "$ACTUEL" = materiel ]; then NOUVEAU=logiciel; else NOUVEAU=materiel; fi
     s_windows_rendu_retenir "$IDENT" "$NOUVEAU"
-    s_dire "$(basename "$CIBLE")" \
+    _dire_windows "$(basename "$CIBLE")" \
 "Rendu bascule en $NOUVEAU. Relance le programme — si la fenetre reste noire, \
 retape la meme commande pour revenir." application-x-executable
     exit 0
@@ -343,7 +369,7 @@ preparer() {
         "L'archive $S_PROTON_ARCHIVE est absente ou illisible."
 
     if [ ! -d "$S_WIN_PFX/drive_c" ]; then
-        s_dire "Premiere utilisation" "Preparation du Windows de S, une minute."
+        _dire_windows "Premiere utilisation" "Preparation du Windows de S, une minute."
         mkdir -p "$S_PREFIXE"
         WINEPREFIX="$S_PREFIXE" GAMEID="${GAMEID:-umu-0}" UMU_LOG=warn \
         PROTONPATH="$(s_windows_proton)" \
@@ -355,7 +381,7 @@ preparer() {
         "$S_GESTES/s-partage" >>"$S_ETAT/windows-init.log" 2>&1 || true
     fi
 
-    s_dire "Windows de S" "Releve de la configuration de Proton…"
+    _dire_windows "Windows de S" "Releve de la configuration de Proton…"
     s_windows_capturer || s_echec "La capture de l'environnement a echoue" \
         "Sans elle, le rendu 3D des programmes Windows serait desactive."
     return 0
@@ -366,10 +392,10 @@ if [ "${1:-}" = "--preparer" ] || [ "${1:-}" = "--tout" ]; then
     preparer
     if [ "${1:-}" = "--tout" ]; then
         emprunter_polices >/dev/null || true
-        s_dire "Windows de S" "Pose des fondations — compter dix minutes, une seule fois."
+        _dire_windows "Windows de S" "Pose des fondations — compter dix minutes, une seule fois."
         exec "$S_GESTES/s-windows" --fondations
     fi
-    s_dire "Windows de S" "Pret."
+    _dire_windows "Windows de S" "Pret."
     systemctl --user start s-windows.service 2>/dev/null || true
     exit 0
 fi
@@ -422,6 +448,8 @@ echo "  s-windows --tout          construire, emprunter les polices, poser les f
 echo "  s-windows --polices       emprunter les polices au Windows de cette machine"
 echo "  s-windows --fondations    .NET 8, VC++ 2022, WebView2"
 echo "  s-windows --arreter       arreter la session Windows"
+echo "  ... --silencieux          en dernier argument : le journal recoit la phrase,"
+echo "                            jamais de bulle (ce qu'un appel automatique doit faire)"
 echo
 echo "  Une fenetre s'ouvre NOIRE ? Certains logiciels ne peignent qu'en rendu"
 echo "  logiciel, d'autres qu'en materiel, et il n'y a pas de bon reglage global :"

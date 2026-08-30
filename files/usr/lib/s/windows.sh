@@ -51,6 +51,11 @@
 # applique a Proton, aucune liste devinee : sa propre decision, relue sur le
 # disque. Une capture par version de Proton, et elle se refait toute seule
 # quand la version change.
+#
+# CE QUI RESTE HORS DE PORTEE, ET POURQUOI CE N'EST PAS UN OUBLI : un vrai
+# pilote NT en anneau 0 (anti-cheat kernel-mode, pilote materiel reel) ne
+# tournera jamais sous Wine — mur structurel, pas une lacune de maturite.
+# Voir CLAUDE.md, « Limites, connues d'avance », point 1.
 
 # ---------------------------------------------------------------------------
 # Chemins
@@ -151,10 +156,39 @@ s_windows_capturer() {
     rm -f "$brut"
     reprise="$(s_windows_pause)"
 
+    # PROTON_USE_WOW64 : ON LUI DEMANDE L'ARBRE UNIFIE, MEME PRINCIPE QUE LE
+    # RESTE DE CETTE FONCTION — pas une supposition, une decision de Proton.
+    # Le tarball deja installe porte les deux arbres (files/bin/wine64, le
+    # classique double 32+64 bits, ET files/bin-wow64/wine, un seul processus
+    # 64 bits qui heberge le code Windows des deux architectures) : rien a
+    # telecharger, juste un choix a lui faire dire. Mesure du 2026-08-29 sur
+    # cette machine : WINELOADER *est* dans la capture reelle (« set » a
+    # l'interieur du prefixe l'expose), donc ce drapeau se propage tout seul
+    # jusqu'a s_windows_charger sans marqueur separe a inventer.
+    #
+    # EPROUVE SUR TROIS DES QUATRE LOGICIELS REELS DE CETTE MACHINE la meme
+    # nuit : PURPLE (CefSharp, 32 bits), Ibo Player Pro (32 bits) et CAP
+    # Player (32 bits) s'ouvrent et peignent normalement sous cet arbre.
+    #
+    # LE QUATRIEME, CURSOR, PLANTE — MAIS PAS A CAUSE DE CE DRAPEAU. Premiere
+    # mesure sous wow64 : EXCEPTION_WINE_ASSERTION avant la moindre fenetre.
+    # Hypothese ecrite trop vite : « wow64 est encore experimental sur ce
+    # Proton ». REFUTEE dans la meme nuit — le MEME plantage, mot pour mot,
+    # se reproduit sur l'arbre CLASSIQUE, drapeau absent :
+    #
+    #   0518:warn:seh:dispatch_exception EXCEPTION_WINE_ASSERTION …
+    #   0518:err:seh:call_seh_handlers invalid frame …
+    #   0518:err:seh:NtRaiseException Exception frame is not in stack limits
+    #
+    # Cursor sur ce Proton est donc casse independamment de wow64 — un
+    # defaut preexistant, jamais vu avant faute d'avoir jamais ete lance
+    # pour de vrai sur cette machine. Rien a faire ici pour ca ce soir ;
+    # voir CLAUDE.md pour ce que ca ouvre comme chantier a part.
     WINEPREFIX="$S_PREFIXE" \
     GAMEID="${GAMEID:-umu-0}" \
     UMU_LOG="${UMU_LOG:-warn}" \
     PROTONPATH="$(s_windows_proton)" \
+    PROTON_USE_WOW64=1 \
         umu-run "$S_WIN_PFX/drive_c/windows/system32/cmd.exe" \
                 /c 'set > C:\capture-env.txt' >/dev/null 2>&1
 
@@ -218,8 +252,30 @@ s_windows_charger() {
     # Ce que la capture ne peut pas donner, parce que ca ne depend pas de
     # Proton mais de la facon dont on l'appelle.
     export WINEPREFIX="$S_WIN_PFX"
-    export WINELOADER="$(s_windows_proton)/files/bin/wine64"
-    export WINESERVER="$(s_windows_proton)/files/bin/wineserver"
+
+    # WINELOADER VIENT DE LA CAPTURE, ET IL NE FAUT PLUS L'ECRASER.
+    #
+    # CE QUI ETAIT FAUX AVANT CE SOIR : ces deux lignes forcaient en dur
+    # l'arbre classique (files/bin/wine64), APRES avoir charge la capture —
+    # donc meme si Proton avait choisi l'arbre wow64 unifie pendant la
+    # capture (voir PROTON_USE_WOW64 dans s_windows_capturer), ce chargement
+    # l'ecrasait en silence. Le drapeau n'aurait jamais rien change a l'ecran.
+    #
+    # MESURE SUR CETTE MACHINE, PAS SUPPOSE : « set » a l'interieur du prefixe
+    # expose bien WINELOADER (Proton le pose pour que Wine se retrouve
+    # lui-meme), et le filtre de s_windows_capturer le garde deja (il
+    # commence par « WINE »). Il ne reste donc a fournir que le repli, pour
+    # une capture plus ancienne qui ne l'aurait pas.
+    #
+    # WINESERVER, LUI, N'EST JAMAIS DANS LA CAPTURE — mesure le 2026-08-29 :
+    # « set » a l'interieur du prefixe ne l'expose pas, contrairement a
+    # WINELOADER. On le derive donc du MEME dossier que WINELOADER, plutot
+    # que de le figer separement sur l'arbre classique : les deux binaires
+    # vivent toujours cote a cote, dans l'un ou l'autre arbre.
+    if [ -z "${WINELOADER:-}" ]; then
+        export WINELOADER="$(s_windows_proton)/files/bin/wine64"
+    fi
+    export WINESERVER="$(dirname "$WINELOADER")/wineserver"
     export WINEDEBUG="${WINEDEBUG:--all}"
 
     # LE CACHE DE SHADERS, ET C'EST LA MOITIE DU MOT « BROUILLON ».
