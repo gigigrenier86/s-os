@@ -2,7 +2,7 @@
 Type=Application
 Name=Installer une application Android
 Comment=Installe un .apk dans Android, sans ouvrir son installateur ni demander d'autorisation
-Exec=/usr/bin/s-android-lancer --installer %f
+Exec=/usr/bin/s-android-lancer --installer %F
 Icon=phone
 Terminal=false
 NoDisplay=true

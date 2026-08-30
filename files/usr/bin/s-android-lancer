@@ -26,7 +26,7 @@
 #   s-android-lancer --attendre [secondes] attendre qu'Android reponde (0/1)
 #   s-android-lancer --liste               paquet<TAB>nom, une ligne par application
 #   s-android-lancer --present <paquet>    0 si le paquet est installe
-#   s-android-lancer --installer <apk>     installer un APK, sans confirmation
+#   s-android-lancer --installer <apk...>  installer un ou plusieurs APK, sans confirmation
 #   s-android-lancer --veille              empecher Android de s'endormir (idempotent)
 #
 # LE DEMARRAGE DU CONTENEUR EST LE SEUL PRIVILEGE, et il passe par
@@ -46,6 +46,15 @@ DELAI_DEMARRAGE = 240
 # exactement ce que faisait « waydroid app install » (waydroid_tmp/base.apk).
 APK_TEMPORAIRE = os.path.join(ap.DOSSIER_DONNEES, "waydroid_tmp", "base.apk")
 APK_COTE_ANDROID = "/data/waydroid_tmp/base.apk"
+# App Bundle (base + splits de langue/architecture) : aucune transaction
+# binder n'installe plusieurs fichiers a la fois — TRANSACTION_installApp
+# (android_plateforme.py) est copiee telle quelle de l'amont et ne prend
+# qu'UN chemin. « pm install-multiple » est le seul mecanisme qui sait le
+# faire, et il exige un shell dans le conteneur : le seul cas d'installation
+# qui redemande le privilege que le reste du monde Android a perdu le
+# 2026-08-29. lxc-attach reste prevu pour exactement ca — voir l'en-tete de
+# partage-android.sh, « ce qui est vraiment root ».
+LXCPATH = "/var/lib/waydroid/lxc"
 VEILLE_VOULUE = 2147483647
 BRANCHE_VOULUE = 7   # stay_on_while_plugged_in : AC | USB | sans fil
 
@@ -129,9 +138,18 @@ def present(paquet):
     return 0 if p.getAppInfo(paquet) is not None else 1
 
 
-def installer(apk):
-    if not os.path.isfile(apk):
-        echec("Fichier introuvable", apk)
+def installer(apks):
+    """Un seul chemin : le chemin binder existant, sans privilege. Plusieurs
+    (un App Bundle) : voir _installer_plusieurs."""
+    for a in apks:
+        if not os.path.isfile(a):
+            echec("Fichier introuvable", a)
+    if len(apks) == 1:
+        return _installer_seul(apks[0])
+    return _installer_plusieurs(apks)
+
+
+def _installer_seul(apk):
     p = plateforme_prete()
     os.makedirs(os.path.dirname(APK_TEMPORAIRE), exist_ok=True)
     shutil.copyfile(apk, APK_TEMPORAIRE)
@@ -150,6 +168,39 @@ def installer(apk):
         print("installation refusee par Android : %s" % code, file=sys.stderr)
         return 1
     return 0
+
+
+def _installer_plusieurs(apks):
+    # « plateforme_prete() » demarre Android si besoin, exactement comme le
+    # chemin binder — lxc-attach n'a pas ce pouvoir, il n'attache qu'a un
+    # conteneur deja vivant.
+    plateforme_prete()
+    dossier = os.path.join(ap.DOSSIER_DONNEES, "waydroid_tmp", "splits")
+    os.makedirs(dossier, exist_ok=True)
+    chemins_android = []
+    try:
+        # Prefixe numerique : deux splits peuvent porter le meme nom de
+        # fichier (config.arm64_v8a.apk d'un bundle, base.apk d'un autre).
+        for i, a in enumerate(apks):
+            dest = os.path.join(dossier, "%d-%s" % (i, os.path.basename(a)))
+            shutil.copyfile(a, dest)
+            os.chmod(dest, 0o644)
+            chemins_android.append("/data/waydroid_tmp/splits/" + os.path.basename(dest))
+        dire("Android", "Installation de %d fichiers…" % len(apks))
+        r = subprocess.run(
+            ["timeout", "--foreground", "300", "pkexec",
+             "lxc-attach", "-P", LXCPATH, "-n", "android", "--",
+             "pm", "install-multiple", "-r"] + chemins_android,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if r.returncode != 0:
+            print("installation multiple refusee : %s" % (r.stdout or "").strip(),
+                  file=sys.stderr)
+            return 1
+        return 0
+    finally:
+        # « ignore_errors » : un fichier deja efface par une course avec un
+        # essai precedent ne doit pas faire echouer le nettoyage.
+        shutil.rmtree(dossier, ignore_errors=True)
 
 
 def veille():
@@ -190,7 +241,7 @@ def main(argv):
     if verbe == "--present":
         return present(argv[1]) if len(argv) > 1 else 2
     if verbe == "--installer":
-        return installer(argv[1]) if len(argv) > 1 else 2
+        return installer(argv[1:]) if len(argv) > 1 else 2
     if verbe == "--veille":
         return veille()
     if verbe.startswith("-"):
