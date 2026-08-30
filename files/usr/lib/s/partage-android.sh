@@ -256,11 +256,18 @@ s_android_lancer() {
 # deliberee). DECISION PRISE AVEC L'UTILISATEUR, jamais a sa place — meme
 # forme que le gpgcheck=0 assume pour Antigravity.
 #
-# GESTE A LA DEMANDE, JAMAIS DANS L'IMAGE : seule cette LOGIQUE (une URL, une
-# empreinte, un texte de configuration) vit dans le depot. Le binaire
-# lui-meme ne se telecharge et ne se pose que si ce verbe est invoque, sur LA
-# machine de l'utilisateur qui le demande — jamais distribue sous la
-# signature de S a quiconque tire l'image publique.
+# L'ARCHIVE EST DANS L'IMAGE DEPUIS LE 2026-08-30 (build_files/21-android-
+# arm.sh, /usr/lib/s/android/libhoudini.zip) — DECISION REPRISE AVEC
+# L'UTILISATEUR, question posee deux fois : la premiere reponse voulait le
+# binaire hors de l'image publique, la seconde l'a renversee sciemment («
+# ce qui fonctionne ici doit fonctionner partout, sur tous les aspects »).
+# S vise a servir d'autres que son seul utilisateur actuel ; distribuer le
+# binaire, sous la signature de S, a quiconque tire l'image publique en est
+# la consequence assumee. CE QUI RESTE UN GESTE, LUI, C'EST L'INSTALLATION
+# : l'extraction dans /var/lib/waydroid/overlay et la pose des proprietes
+# ne peuvent pas se faire a la construction (Android n'existe pas encore
+# a cet instant) — seul « s-android --traduction-arm », sur la machine qui
+# le demande, les declenche.
 #
 # SEULE LA VERSION ANDROID 13 EST CABLEE : c'est celle de cette image
 # (LineageOS 20.0, sdk 33 — mesure par android_plateforme.py). Android 11
@@ -286,7 +293,16 @@ s_android_traduction_arm_installer() {
     rm -rf "$travail"
     mkdir -p "$travail"
 
-    if ! curl -fsSL --retry 3 -o "$travail/libhoudini.zip" "$S_HOUDINI_URL"; then
+    # PRE-CUIT DANS L'IMAGE DEPUIS LE 2026-08-30 (build_files/21-android-arm.sh)
+    # — meme principe que Proton (41-windows.sh) : le reseau ne sert que si
+    # l'image ne porte pas deja l'archive (une image plus ancienne, ou un
+    # essai lance depuis le depot par S_LIB). On COPIE ce que l'image porte
+    # plutot que d'y pointer directement, pour ne jamais toucher a un fichier
+    # qui vit sous /usr — meme s'il ne serait ici que lu.
+    local precuit="/usr/lib/s/android/libhoudini.zip"
+    if [ -f "$precuit" ]; then
+        cp "$precuit" "$travail/libhoudini.zip"
+    elif ! curl -fsSL --retry 3 -o "$travail/libhoudini.zip" "$S_HOUDINI_URL"; then
         echo "telechargement de libhoudini echoue" >&2
         rm -rf "$travail"
         return 1
@@ -294,7 +310,8 @@ s_android_traduction_arm_installer() {
 
     # LE CONDENSAT PUBLIE PAR L'AMONT FAIT FOI, MEME DISCIPLINE QUE PARTOUT
     # AILLEURS DANS CE DEPOT (voir 41-windows.sh, F-Droid dans 40-coutures.sh) :
-    # jamais un octet installe sans qu'il corresponde.
+    # jamais un octet installe sans qu'il corresponde — que l'archive vienne
+    # de l'image ou du reseau, la meme verification s'applique aux deux.
     local md5_obtenu
     md5_obtenu="$(md5sum "$travail/libhoudini.zip" | cut -d' ' -f1)"
     if [ "$md5_obtenu" != "$S_HOUDINI_MD5" ]; then

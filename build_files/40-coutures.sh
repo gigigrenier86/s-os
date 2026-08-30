@@ -393,18 +393,27 @@ assert noms and noms[0].strip(), "le lecteur n'a rendu aucun nom pour %s" % cand
 print("  polices.py     : %s -> %r" % (candidats[0].rsplit("/", 1)[-1], noms[0]))
 ESSAI_POLICES
 
-# --- LA TRADUCTION ARM RESTE UN GESTE, JAMAIS UN BINAIRE DANS L'IMAGE -------
+# --- LA TRADUCTION ARM : L'ARCHIVE DANS L'IMAGE, L'INSTALLATION EN GESTE ----
 # Mesure du 2026-08-30 : Android n'a aucune traduction ARM sur cette machine
 # (ro.product.cpu.abilist = x86_64,x86 seul), et la seule source qui existe
 # (celle de l'amont, ublue-os/waydroid_script) est un binaire proprietaire
-# sans licence documentee — Code Noir nomme dans CLAUDE.md. La LOGIQUE (URL,
-# empreinte MD5, contenu de houdini.rc) peut vivre dans le depot ; le binaire
-# lui-meme ne doit JAMAIS etre pose par la construction — seul un geste
-# explicite de l'utilisateur, sur sa propre machine, le declenche.
+# sans licence documentee — Code Noir nomme dans CLAUDE.md, decision prise
+# deux fois avec l'utilisateur : la seconde a choisi de le distribuer dans
+# l'image publique, pour que ce qui marche ici marche aussi ailleurs.
+# L'ARCHIVE entre donc par 21-android-arm.sh (verifiee, avant COPY) ;
+# L'INSTALLATION, elle, reste un geste — /var/lib/waydroid n'existe pas a
+# la construction, et Android peut ne pas etre initialise du tout sur la
+# machine qui recoit cette image.
+test -s /usr/lib/s/android/libhoudini.zip \
+    || { echo "ECHEC : l'archive libhoudini a disparu de l'image (21-android-arm.sh)." >&2; exit 1; }
+[ "$(md5sum /usr/lib/s/android/libhoudini.zip | cut -d' ' -f1)" = "f8cf5db10e5fdb9b77e98e515a9b08c9" ] \
+    || { echo "ECHEC : l'archive libhoudini posee dans l'image ne correspond plus au condensat publie." >&2; exit 1; }
 grep -q 's_android_traduction_arm_installer' /usr/lib/s/partage-android.sh \
     || { echo "ECHEC : la fonction de traduction ARM a disparu de partage-android.sh." >&2; exit 1; }
+grep -q '/usr/lib/s/android/libhoudini.zip' /usr/lib/s/partage-android.sh \
+    || { echo "ECHEC : le geste ne sait plus lire l'archive pre-cuite dans l'image." >&2; exit 1; }
 grep -q -- '--traduction-arm' /usr/bin/s-android \
     || { echo "ECHEC : s-android ne sait plus reconnaitre --traduction-arm." >&2; exit 1; }
-echo "  traduction ARM : geste present (s-android --traduction-arm), aucun binaire dans l'image"
+echo "  traduction ARM : archive dans l'image, installation en geste (s-android --traduction-arm)"
 
 echo "=== 40-coutures : fait ==="

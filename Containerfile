@@ -38,6 +38,15 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/20-android.sh
 
+# libhoudini (traduction ARM d'Android, ~66 Mo) — Code Noir assume, voir
+# CLAUDE.md 2026-08-30 : proprietaire, sans licence documentee, MD5 seul.
+# Decision prise avec l'utilisateur. Pre-cuit ici, jamais installe ici —
+# seul « s-android --traduction-arm » l'extrait, sur la machine qui le demande.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/21-android-arm.sh
+
 # Vivaldi (438 Mo)
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \

@@ -133,6 +133,51 @@ publiee : la construction ne le pose pas, seul un clic ou un geste
 explicite sur la machine de l'utilisateur le declenche. Reference
 `s-traduction-arm.desktop`, meme famille que `s-magasin-android.desktop`.
 
+**FAUX DEPUIS LA MEME SOIREE — la decision a ete reprise, sciemment, sur
+demande explicite.** Le paragraphe ci-dessus reste tel quel pour la
+methode ; il ne decrit plus l'etat du depot. L'utilisateur a redemande :
+« met le dans l'image le correctif arm ». Avant de le faire, la question
+a ete reposee une seconde fois, avec le vrai enjeu nomme sans detour —
+poser le binaire dans l'image veut dire le distribuer publiquement, sous
+la signature de S, a quiconque tire `ghcr.io/gigigrenier86/s-os`, et ce
+n'est PAS necessaire pour que ca survive sur cette machine (`/var/lib/
+waydroid/overlay`, ou libhoudini vit, n'est jamais touche par un `bootc
+upgrade`). **Reponse de l'utilisateur, sans ambiguite** : « je travaille
+cet OS pour moi mais eventuellement, d'autres pourront l'utiliser, donc
+ce qui fonctionne ici doit fonctionner partout, sur tous les aspects. »
+
+**Ce qui a change, precisement : l'ARCHIVE entre dans l'image, jamais
+l'INSTALLATION.** `build_files/21-android-arm.sh` (nouveau, place juste
+apres `20-android.sh` — gros et stable, meme regle que Proton dans
+`41-windows.sh`) telecharge et verifie la meme archive par le meme
+condensat MD5, puis la pose telle quelle, non extraite, dans
+`/usr/lib/s/android/libhoudini.zip` — 67 Mo, mesures. `s_android_
+traduction_arm_installer()` prefere desormais cette copie a un
+telechargement (`cp` si le fichier existe, `curl` seulement s'il manque —
+une image plus ancienne, ou un essai lance depuis le depot), et
+revérifie le MD5 dans tous les cas : que l'archive vienne de l'image ou
+du reseau, le meme controle s'applique aux deux, jamais l'un sans
+l'autre. `40-coutures.sh` gagne le controle symetrique — presence ET
+condensat de l'archive dans l'image, en plus des deux controles deja
+poses sur le geste.
+
+**Ce qui n'a PAS change, et ne pouvait pas changer : l'EXTRACTION reste
+un geste.** `/var/lib/waydroid` n'existe pas au moment de la construction
+— rien ne peut y ecrire alors — et une machine qui recoit cette image
+peut tres bien n'avoir jamais initialise Android du tout. Poser
+`houdini.rc` et les proprietes dans un conteneur qui n'existe pas serait
+une operation sans objet. Le geste, lui, reste EXACTEMENT celui deja
+eprouve plus haut : seule sa source change, jamais son mecanisme.
+
+**Rejoue en local avant de pousser, comme la methode de ce depot l'exige
+pour tout ce qui touche a la construction** (`podman run` sur l'image de
+base, script rejoue seul) : `21-android-arm.sh` telecharge, verifie
+(condensat exact), pose 67 Mo sous `/usr/lib/s/android/libhoudini.zip`,
+code 0. Le controle de `40-coutures.sh` a ete rejoue separement, dans les
+trois etats qu'il doit distinguer — fichier absent (echec), condensat
+faux (echec), et les deux `grep` de reconnaissance du geste sur les vrais
+fichiers du depot (trouves) — chacun avec le verdict attendu.
+
 **Eprouve de bout en bout, sur cette machine, le 2026-08-30 :**
 
 ```
