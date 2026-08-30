@@ -483,6 +483,69 @@ mecanisme que celui utilise toute la soiree pour verifier Android) :
   (cle `browser.window_placement`) et l'etat de VS Code
   (`~/.config/Code/User/globalStorage/state.vscdb`, cle `windowState`).
 
+### Septieme addendum — activer une fenetre depuis la barre ne la remontait pas toujours devant
+
+Demande de l'utilisateur : « quand on change de fenêtre en bas, ça serait
+bien de cliquer qu'une seule fois plutôt que de cliquer, voir le bureau et
+recliquer ».
+
+**Mesure avant de corriger, comme toujours.** `noyau.charger_reglages()`
+confirme que la veille (le mode « une seule fenetre debout ») est reglee
+sur `non` sur cette machine — le mecanisme documente plus haut dans ce
+fichier (qui minimise l'AUTRE fenetre au changement d'activation) est donc
+hors cause ici, verifie et non suppose.
+
+**La vraie cause, trouvee en reproduisant le geste au clavier, pas en
+lisant le code.** `activer()` dans `fenetres.py` ecrit un script kwin qui
+fait `l[i].minimized = false; workspace.activeWindow = l[i];`. Mesure en
+direct sur deux vraies fenetres (Kate et Konsole, toutes deux maximisees
+par le correctif du sixieme addendum, donc superposees exactement au meme
+endroit) : demander `activeWindow = Kate` alors que Konsole etait devant
+**laisse Konsole devant** — capture d'ecran a l'appui. `activeWindow`
+donne le focus **clavier**, pas la place dans l'empilement visuel. Un clic
+sur la barre changeait donc bien quelque chose (invisible : le focus) sans
+rien changer a l'ecran — exactement le « je clique, je vois le bureau
+[ou la fenetre du dessous], je reclique » rapporte, le second clic
+finissant par tomber sur une combinaison qui remonte la bonne fenetre par
+un autre chemin (Alt-Tab implicite, ou le fait que la barre elle-meme
+redevient visible entre les deux).
+
+**Le correctif : `workspace.raiseWindow(l[i])`, trouve en sondant l'objet
+`workspace` en direct** (`typeof workspace.raiseWindow` → `function`, la
+methode existe mais n'a jamais ete utilisee dans ce depot). Ajoute apres
+chaque `activeWindow = l[i]` — dans `activer()` (le clic sur la barre) et
+dans `activerBureau()` (ramener le bureau devant pour ouvrir le menu
+Demarrer, qui souffrait du meme defaut par construction, jamais signale
+mais mesure identique).
+
+**Eprouve dans les deux sens, sur de vraies fenetres, par capture
+d'ecran :**
+
+| Script kwin | Resultat |
+|---|---|
+| `activeWindow = Kate` seul | Konsole reste devant, Kate a peine visible en arriere-plan |
+| `activeWindow = Kate` **+ `raiseWindow(Kate)`** | Kate entierement devant, du premier coup |
+
+Le JSON genere par `fenetres.py` a ete extrait et relu (import du module
+depuis le depot, `_script` intercepte) pour confirmer que
+`workspace.raiseWindow(l[i]);` sort bien au bon endroit dans les deux
+fonctions — la mecanique kwin et le code Python qui la produit sont donc
+tous les deux prouves, separement.
+
+### Ce que cette passe ne prouve pas
+
+- **Le vrai clic sur la barre, a travers la session Constellation deja en
+  cours, n'a pas ete rejoue.** Redemarrer `s-constellation` en direct pour
+  le tester aurait perturbe une session active portant plusieurs vraies
+  fenetres (Vivaldi, VS Code, KOHO, Play Store) — juge trop risque pour ce
+  qui restait de la soiree. Le mecanisme kwin lui-meme (le seul qui compte
+  reellement, puisque `_script()` ne fait qu'ecrire ce texte JS tel quel
+  dans un fichier que kwin charge) est prouve ; le chemin QML → Python →
+  ce meme mecanisme ne l'est que par lecture du code genere, pas par un
+  clic reel.
+- **Rien n'est dans l'image.** Corrige dans le depot, pas encore construit
+  ni redemarre dessus.
+
 ---
 
 ## 2026-08-29, apres-midi — les gestes Android reparlaient a un binaire mort, et la chaine neuve est eprouvee a l'ecran

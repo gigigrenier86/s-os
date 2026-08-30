@@ -312,6 +312,16 @@ class Fenetres(QObject):
             '        } else {\n'
             '            l[i].minimized = false;\n'
             '            workspace.activeWindow = l[i];\n'
+            # « activeWindow » DONNE LE FOCUS, IL NE REMONTE PAS. Mesure sur
+            # cette machine le 2026-08-29 : demander l'activation d'une
+            # fenetre couverte par une autre laissait celle du dessus
+            # visible — le clic « marchait » (le focus changeait bien) et
+            # l'ecran ne bougeait pas, exactement le « clique, voit le
+            # bureau, reclique » releve par l'utilisateur. Capture d'ecran a
+            # l'appui, dans les deux sens : sans « raiseWindow », Konsole
+            # restait devant Kate malgre l'activation ; avec, Kate passe
+            # au premier plan du premier coup.
+            '            workspace.raiseWindow(l[i]);\n'
             '        }\n'
             '        break;\n'
             '    }\n'
@@ -444,6 +454,7 @@ class Fenetres(QObject):
             '        l[i].fullScreen) {\n'
             '        l[i].minimized = false;\n'
             '        workspace.activeWindow = l[i];\n'
+            '        workspace.raiseWindow(l[i]);\n'
             '        break;\n'
             '    }\n'
             '}\n',
