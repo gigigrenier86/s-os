@@ -393,4 +393,18 @@ assert noms and noms[0].strip(), "le lecteur n'a rendu aucun nom pour %s" % cand
 print("  polices.py     : %s -> %r" % (candidats[0].rsplit("/", 1)[-1], noms[0]))
 ESSAI_POLICES
 
+# --- LA TRADUCTION ARM RESTE UN GESTE, JAMAIS UN BINAIRE DANS L'IMAGE -------
+# Mesure du 2026-08-30 : Android n'a aucune traduction ARM sur cette machine
+# (ro.product.cpu.abilist = x86_64,x86 seul), et la seule source qui existe
+# (celle de l'amont, ublue-os/waydroid_script) est un binaire proprietaire
+# sans licence documentee — Code Noir nomme dans CLAUDE.md. La LOGIQUE (URL,
+# empreinte MD5, contenu de houdini.rc) peut vivre dans le depot ; le binaire
+# lui-meme ne doit JAMAIS etre pose par la construction — seul un geste
+# explicite de l'utilisateur, sur sa propre machine, le declenche.
+grep -q 's_android_traduction_arm_installer' /usr/lib/s/partage-android.sh \
+    || { echo "ECHEC : la fonction de traduction ARM a disparu de partage-android.sh." >&2; exit 1; }
+grep -q -- '--traduction-arm' /usr/bin/s-android \
+    || { echo "ECHEC : s-android ne sait plus reconnaitre --traduction-arm." >&2; exit 1; }
+echo "  traduction ARM : geste present (s-android --traduction-arm), aucun binaire dans l'image"
+
 echo "=== 40-coutures : fait ==="

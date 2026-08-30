@@ -22,9 +22,10 @@
 # privilege) ; seules les proprietes de DEMARRAGE (un fichier root:root) et
 # le « systemctl start » gardent un privilege — le second couvert par polkit.
 #
-#   s-android                 preparer + demarrer, ne rien ouvrir
-#   s-android --silencieux    pareil, sans phrase de fin (l'ouverture de session)
-#   s-android --magasin       pareil, puis ouvrir le Play Store
+#   s-android                     preparer + demarrer, ne rien ouvrir
+#   s-android --silencieux        pareil, sans phrase de fin (l'ouverture de session)
+#   s-android --magasin           pareil, puis ouvrir le Play Store
+#   s-android --traduction-arm    poser libhoudini, puis rien d'autre (Code Noir : CLAUDE.md 2026-08-30)
 set -uo pipefail
 source /usr/bin/s-monde
 
@@ -76,6 +77,33 @@ if [ ! -f /var/lib/waydroid/images/system.img ] || \
 "system.img ou vendor.img manque dans /var/lib/waydroid/images, et S ne sait \
 plus les telecharger depuis le retrait de Waydroid — voir CLAUDE.md, \
 2026-08-29."
+fi
+
+# --- Traduction ARM (libhoudini), posee le 2026-08-30 sur demande ----------
+#
+# UN VERBE A PART, PAS UNE ETAPE DE PLUS DANS LE DEMARRAGE NORMAL : poser un
+# binaire proprietaire de 300+ Mo n'a rien d'un geste silencieux
+# d'ouverture de session. Voir partage-android.sh pour le mecanisme complet
+# et le Code Noir qui va avec (CLAUDE.md, 2026-08-30).
+if [ "$MODE" = "--traduction-arm" ]; then
+    if s_android_traduction_arm_posee; then
+        _dire_android "Traduction ARM" "Deja posee sur cette machine." phone
+        exit 0
+    fi
+    _dire_android "Traduction ARM" \
+        "Telechargement de libhoudini — ca peut prendre une minute, et un mot de passe sera demande." phone
+    if ! s_android_traduction_arm_installer; then
+        s_echec "Traduction ARM" \
+            "L'installation a echoue — voir le journal de ce terminal pour la cause exacte."
+    fi
+    if [ "$(s_android_etat)" = "RUNNING" ]; then
+        _dire_android "Traduction ARM" "Redemarrage d'Android pour l'activer…" phone
+        s_android_service restart
+        "$LANCEUR" --attendre 240 || true
+    fi
+    _dire_android "Traduction ARM" \
+        "Posee — les applications qui n'existent qu'en ARM peuvent maintenant s'installer." phone
+    exit 0
 fi
 
 # --- Android en FENETRES — ET LE MODE A CHANGE LE 2026-08-25 AU SOIR --------

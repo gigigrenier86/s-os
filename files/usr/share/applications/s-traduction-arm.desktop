@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Traduction ARM (Android)
+GenericName=Rendre installables les jeux et applications qui n'existent qu'en ARM
+Comment=Pose libhoudini — un binaire proprietaire republié par la communauté, sans licence documentée, vérifié par MD5 seul. Un mot de passe sera demandé.
+Exec=/usr/bin/s-android --traduction-arm
+Icon=phone
+Terminal=false
+Categories=System;
+Keywords=android;arm;houdini;traduction;jeu;abi;

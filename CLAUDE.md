@@ -126,11 +126,38 @@ conteneur), puis retenter l'installation de l'App Bundle qui a echoue ce
 jour-la avec `INSTALL_FAILED_NO_MATCHING_ABIS` — verdict binaire, aucune
 ambiguite possible.
 
-**Rien n'a ete pose sur la machine ni dans le depot pour cette piste.**
-Le choix d'accepter un binaire proprietaire, verifie par MD5 seul, sans
-licence documentee, dans le monde Android de l'utilisateur, est exactement
-le genre de decision que ce projet a toujours laissee a l'utilisateur —
-jamais prise pour lui.
+**Decision demandee a l'utilisateur, et il a repondu oui.** Pose dans la
+foulee, en geste — `s-android --traduction-arm` (function `s_android_
+traduction_arm_installer`, `partage-android.sh`), jamais dans l'image
+publiee : la construction ne le pose pas, seul un clic ou un geste
+explicite sur la machine de l'utilisateur le declenche. Reference
+`s-traduction-arm.desktop`, meme famille que `s-magasin-android.desktop`.
+
+**Eprouve de bout en bout, sur cette machine, le 2026-08-30 :**
+
+```
+avant   ro.product.cpu.abilist    = x86_64,x86
+        ro.dalvik.vm.native.bridge = 0
+
+apres   ro.product.cpu.abilist    = x86_64,x86,arm64-v8a,armeabi-v7a,armeabi
+        ro.dalvik.vm.native.bridge = libhoudini.so
+```
+
+Un second appel du meme geste s'arrete tout de suite (« Deja posee sur
+cette machine ») — pas de second telechargement.
+
+**Un vrai bogue trouve en le faisant, pas en le relisant.** L'extraction de
+l'archive tournait a l'interieur de l'elevation `pkexec` (il fallait bien
+un privilege pour copier dans l'overlay systeme, `root:root`) — donc
+CHAQUE fichier extrait devenait root:root dans un dossier temporaire cree
+par l'utilisateur. Le nettoyage final (`rm -rf`), lui, tournait APRES
+l'elevation, donc sans privilege : cinquante et quelques « Permission non
+accordee », un par fichier, sur un dossier que l'utilisateur ne pouvait
+plus vider — la panne classique d'une elevation qui laisse un residu que
+seul root peut effacer. Corrige en deplacant le nettoyage DANS l'elevation
+(`try/finally` autour de l'extraction, `shutil.rmtree` dans le `finally`,
+donc nettoye meme sur une erreur en cours de route) — root efface ce que
+root a cree. Rejoue, aucun residu.
 
 ---
 
