@@ -33,6 +33,7 @@
 # « systemctl start s-android.service » que 50-s-android.rules autorise sans
 # mot de passe (repli pkexec sinon — voir service_commander).
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -170,6 +171,61 @@ def _installer_seul(apk):
     return 0
 
 
+def _dans_android(*args, limite=120):
+    """lxc-attach, root, pour ce qu'aucune transaction binder ne fait — voir
+    LXCPATH plus haut, et l'en-tete de partage-android.sh (« ce qui est
+    vraiment root »).
+
+    TOUJOURS UN PIPE POUR LA SORTIE, JAMAIS UN FICHIER — piege mesure a
+    nouveau le 2026-08-30, alors que ce depot le documente deja depuis le
+    2026-08-25 : lxc-attach chowne son PROPRE descripteur de sortie en
+    partant. Un fichier redirige (« > sortie.txt ») finit root:0600,
+    illisible par l'appelant meme s'il vient de l'ecrire. subprocess.PIPE
+    cree un vrai tube anonyme — rien a chowner qui persiste — et n'a donc
+    jamais ce probleme."""
+    r = subprocess.run(
+        ["timeout", "--foreground", str(limite), "pkexec",
+         "lxc-attach", "-P", LXCPATH, "-n", "android", "--"] + list(args),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    return r.returncode, (r.stdout or "").strip()
+
+
+def _session_creer():
+    # PAS « pm install-multiple » : ABSENT de ce pm — mesure le 2026-08-30,
+    # « Unknown command: install-multiple ». Son propre --help ne liste que
+    # le triplet install-create/install-write/install-commit, la forme bas
+    # niveau qu'AOSP garantit partout, la ou « install-multiple » n'est
+    # qu'une commodite que certains builds de pm ajoutent par-dessus.
+    code, sortie = _dans_android("pm", "install-create", "-r")
+    if code != 0:
+        print("session d'installation refusee : %s" % sortie, file=sys.stderr)
+        return None
+    trouve = re.search(r"\[(\d+)\]", sortie)
+    if not trouve:
+        print("session d'installation : reponse inattendue : %s" % sortie,
+              file=sys.stderr)
+        return None
+    return trouve.group(1)
+
+
+def _session_ecrire(session, chemin_android):
+    nom = os.path.basename(chemin_android)
+    code, sortie = _dans_android(
+        "pm", "install-write", session, nom, chemin_android, limite=180)
+    if code != 0:
+        print("ecriture de %s refusee : %s" % (nom, sortie), file=sys.stderr)
+        return False
+    return True
+
+
+def _session_commettre(session):
+    code, sortie = _dans_android("pm", "install-commit", session, limite=180)
+    if code != 0:
+        print("installation refusee : %s" % sortie, file=sys.stderr)
+        return False
+    return True
+
+
 def _installer_plusieurs(apks):
     # « plateforme_prete() » demarre Android si besoin, exactement comme le
     # chemin binder — lxc-attach n'a pas ce pouvoir, il n'attache qu'a un
@@ -187,14 +243,19 @@ def _installer_plusieurs(apks):
             os.chmod(dest, 0o644)
             chemins_android.append("/data/waydroid_tmp/splits/" + os.path.basename(dest))
         dire("Android", "Installation de %d fichiers…" % len(apks))
-        r = subprocess.run(
-            ["timeout", "--foreground", "300", "pkexec",
-             "lxc-attach", "-P", LXCPATH, "-n", "android", "--",
-             "pm", "install-multiple", "-r"] + chemins_android,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        if r.returncode != 0:
-            print("installation multiple refusee : %s" % (r.stdout or "").strip(),
-                  file=sys.stderr)
+        session = _session_creer()
+        if session is None:
+            return 1
+        for chemin in chemins_android:
+            if not _session_ecrire(session, chemin):
+                _dans_android("pm", "install-abandon", session)
+                return 1
+        if not _session_commettre(session):
+            # Un commit refuse (mauvais ABI, split manquant…) laisse la
+            # session ouverte cote Android, prete pour un nouvel essai —
+            # ce que ce geste ne fera jamais. On la ferme pour ne pas
+            # accumuler des sessions orphelines a chaque echec.
+            _dans_android("pm", "install-abandon", session)
             return 1
         return 0
     finally:
