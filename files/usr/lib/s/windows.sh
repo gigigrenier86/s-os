@@ -110,6 +110,11 @@ s_windows_deverrouiller() {
 # Quelle version de Proton, et ou est-elle depliee
 # ---------------------------------------------------------------------------
 s_windows_version() {
+    # « S_WIN_VERSION_FORCE » n'existe que pour essayer un autre Proton
+    # depuis le depot, avant une construction — meme principe que
+    # S_BIN/S_LIB partout ailleurs dans ce projet. /usr/lib/s/windows/
+    # proton.version reste la seule verite sur une machine normale.
+    [ -n "${S_WIN_VERSION_FORCE:-}" ] && { printf '%s' "$S_WIN_VERSION_FORCE"; return; }
     cat /usr/lib/s/windows/proton.version 2>/dev/null || echo inconnue
 }
 
@@ -126,7 +131,14 @@ s_windows_proton() {
 s_windows_pret() {
     [ -d "$S_WIN_PFX/drive_c" ]                      || return 1
     [ -s "$S_WIN_ENV" ]                              || return 1
-    [ -x "$(s_windows_proton)/files/bin/wine64" ]    || return 1
+    # « wine64 » OU « wine » : un Proton unifie (GE-Proton11 et plus) n'a
+    # PLUS DU TOUT de wine64 — un seul binaire, « files/bin/wine », qui
+    # heberge les deux architectures. Verifie le 2026-08-29 : ce test ne
+    # visant que wine64 rendait « pret() » faux en permanence sur
+    # GE-Proton11, et s-ouvrir-exe repartait dans un --preparer complet a
+    # chaque lancement au lieu d'utiliser le serveur deja construit.
+    { [ -x "$(s_windows_proton)/files/bin/wine64" ] || \
+      [ -x "$(s_windows_proton)/files/bin/wine" ]; }   || return 1
     [ "$(cat "$S_WIN_VERSION" 2>/dev/null)" = "$(s_windows_version)" ] || return 1
     return 0
 }
@@ -184,11 +196,18 @@ s_windows_capturer() {
     # defaut preexistant, jamais vu avant faute d'avoir jamais ete lance
     # pour de vrai sur cette machine. Rien a faire ici pour ca ce soir ;
     # voir CLAUDE.md pour ce que ca ouvre comme chantier a part.
+    # PROTON_USE_NTSYNC : demande la meme facon, pour le meme principe.
+    # Sans effet si le Proton en place n'a pas le code ntsync (verifie sur
+    # UMU-Proton-10.0-4 : aucune trace dans wineserver/ntdll.so) — mais
+    # eprouve reel avec un Proton qui l'a : « ntsync: up and running. »
+    # dans le journal, et wineserver/services.exe/svchost.exe avec de vrais
+    # descripteurs ouverts sur /dev/ntsync (lsof), pas seulement le message.
     WINEPREFIX="$S_PREFIXE" \
     GAMEID="${GAMEID:-umu-0}" \
     UMU_LOG="${UMU_LOG:-warn}" \
     PROTONPATH="$(s_windows_proton)" \
     PROTON_USE_WOW64=1 \
+    PROTON_USE_NTSYNC=1 \
         umu-run "$S_WIN_PFX/drive_c/windows/system32/cmd.exe" \
                 /c 'set > C:\capture-env.txt' >/dev/null 2>&1
 
@@ -272,8 +291,28 @@ s_windows_charger() {
     # WINELOADER. On le derive donc du MEME dossier que WINELOADER, plutot
     # que de le figer separement sur l'arbre classique : les deux binaires
     # vivent toujours cote a cote, dans l'un ou l'autre arbre.
-    if [ -z "${WINELOADER:-}" ]; then
-        export WINELOADER="$(s_windows_proton)/files/bin/wine64"
+    #
+    # « NON VIDE » NE SUFFIT PAS, ET C'EST UN DEUXIEME PIEGE TROUVE LA MEME
+    # NUIT, en testant GE-Proton (wine-11) pour la piste ntsync. Sa capture
+    # PORTE bien une ligne WINELOADER, mais sous forme d'un chemin NT
+    # (« \??\X:\... ») — la « game drive » que Proton construit pour les
+    # jeux Steam echoue a se batir hors d'une bibliotheque Steam
+    # (« unable to use parent for game drive »), benin en soi, mais qui
+    # laisse WINELOADER dans un format que bash ne peut pas executer. Un
+    # simple test de vide l'aurait laisse passer tel quel. On verifie
+    # maintenant qu'il s'agit d'un vrai fichier executable ; sinon, repli.
+    # « wine64 » d'abord : sur l'arbre classique, « files/bin/wine » est le
+    # loader 32 BITS SEUL — le prendre par defaut casserait tout logiciel
+    # 64 bits. « wine64 » n'existe pas du tout sur les Proton unifies
+    # (GE-Proton11 et plus), d'ou le second essai.
+    if [ -z "${WINELOADER:-}" ] || [ ! -x "$WINELOADER" ]; then
+        for _essai in "$(s_windows_proton)/files/bin/wine64" \
+                      "$(s_windows_proton)/files/bin/wine"; do
+            if [ -x "$_essai" ]; then
+                export WINELOADER="$_essai"
+                break
+            fi
+        done
     fi
     export WINESERVER="$(dirname "$WINELOADER")/wineserver"
     export WINEDEBUG="${WINEDEBUG:--all}"

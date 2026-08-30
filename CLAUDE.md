@@ -829,16 +829,129 @@ a l'utilisateur plutot que prise seule.
   redonne l'arbre classique, avant de relancer a la main depuis le
   depot). Il faut une construction et un `rpm-ostree upgrade` pour que la
   vraie unite systemd porte le changement.
-- **Cursor reste casse, sur les deux arbres, et rien n'a ete tente pour le
-  reparer ce soir** — hors scope du plan approuve, qui visait la parite
-  avec Android, pas un bogue preexistant decouvert en chemin. Chantier a
-  part, qui merite sa propre enquete (le message d'erreur pointe vers la
-  gestion des exceptions de Wine lui-meme, pas vers Cursor).
-- **ntsync n'a jamais tourne** — le Proton qui le supporterait n'est pas
-  installe sur cette machine. La ligne `NTSync up and running!` n'a
-  jamais ete cherchee parce qu'elle ne peut pas encore exister ici.
+- ~~**Cursor reste casse, sur les deux arbres, et rien n'a ete tente pour le
+  reparer ce soir.**~~ **Faux depuis la piste C, dixieme addendum, la meme
+  nuit** : le plantage SEH est absent sous GE-Proton (wine-11) — Cursor
+  quitte proprement, sans erreur. Il ne montre toujours pas de fenetre,
+  mais c'est un defaut distinct, jamais du a wow64 ni au Proton en place.
+- ~~**ntsync n'a jamais tourne.**~~ **Faux depuis la piste C, dixieme
+  addendum** : `ntsync: up and running.` obtenu pour de vrai, et confirme
+  au niveau noyau (`lsof /dev/ntsync`, plusieurs processus reels avec un
+  descripteur ouvert), pas seulement dans un message de log.
 - **Rien de tout ceci n'est dans l'image**, hormis ce qui est deja vrai
   plus haut pour chaque piste individuellement.
+
+### Dixieme addendum — la piste C essayee pour de vrai, ntsync confirme au niveau noyau, et trois bugs trouves en la faisant
+
+Demande explicite de l'utilisateur, juste apres l'addendum precedent :
+« essaie la piste C ». Contrairement au reste de la nuit, ceci touche le
+runtime Wine/Proton reel qui fait tourner les quatre logiciels de
+l'utilisateur — donc fait avec la meme prudence que d'habitude, mais
+jusqu'au bout, en direct, sur cette machine.
+
+**Le telechargement et la verification, comme toujours** : `GE-Proton11-6`
+(533 700 853 octets), condensat sha512 verifie **avant** de deplier quoi
+que ce soit — identique au fichier `.sha512sum` publie par l'amont.
+Deplie a cote de `UMU-Proton-10.0-4`, jamais par-dessus.
+
+**Preuve directe que ntsync tourne — pas juste un message, une utilisation
+reelle** : `umu-run … PROTON_USE_NTSYNC=1` rend `ntsync: up and running.`
+dans le journal, et `lsof /dev/ntsync` montre `wineserver`, `services.exe`,
+`winedevice.exe`, `svchost.exe`, `plugplay.exe` — **cinq processus reels,
+chacun avec un vrai descripteur ouvert sur le peripherique**, plusieurs
+dizaines d'`anon_inode:ntsync` rien que sur le wineserver resident. C'est
+la preuve la plus directe possible, au niveau noyau, que la primitive de
+synchronisation NT tourne reellement — pas seulement demandee.
+
+**Trois des quatre logiciels reels, confirmes sans regression** : PURPLE,
+Ibo Player Pro, CAP Player s'ouvrent et peignent normalement — captures
+d'ecran a l'appui pour chacun. Chronometrage a chaud (`cmd /c exit`,
+serveur resident) : **225-233 ms, identique aux deux autres arbres deja
+mesures cette nuit** (215 ms classique, 225-265 ms wow64).
+
+**Le quatrieme, Cursor, ne plante plus.** Le meme `EXCEPTION_WINE_
+ASSERTION` qui frappait les deux arbres UMU-Proton (voir neuvieme
+addendum) **est absent sous GE-Proton** — verifie deux fois, avec
+`WINEDEBUG=warn+all`, zero ligne `err:`/`exception` dans 454 lignes de
+journal. Le processus initialise ses fils V8/libuv (les vrais rouages
+d'Electron) bien au-dela du point ou il s'ecrasait avant, puis **sort
+proprement, code 0, sans fenetre**. Un defaut different, separe, jamais
+elucide ce soir — pas de verrou perime trouve, pas de piste evidente.
+**Ce que ca prouve quand meme : le vrai plantage qui bloquait Cursor cette
+nuit est resolu par la mise a jour de Wine, independamment de la question
+qui reste ouverte sur l'absence de fenetre.**
+
+**Trois bugs reels trouves en le faisant, aucun devine** — la raison
+d'etre d'un essai en direct plutot qu'un code ecrit et jamais rejoue :
+
+1. **`s_windows_charger()` acceptait un `WINELOADER` non vide mais
+   inutilisable.** La capture de GE-Proton porte bien la ligne, mais sous
+   une forme NT (`\??\X:\...`) que bash ne peut pas executer — consequence
+   benigne d'un avertissement Proton (« unable to use parent for game
+   drive »), attendu hors d'une bibliotheque Steam. Corrige : le chargeur
+   verifie maintenant que la valeur est un vrai fichier executable, sinon
+   il retombe sur le chemin calcule — `wine64` cherche en premier (le seul
+   binaire 64 bits correct sur l'arbre classique), `wine` en repli (le seul
+   qui existe sur un Proton unifie). Eprouve dans les deux sens : une
+   capture saine passe inchangee, une capture avec la valeur cassee de
+   GE-Proton retombe sur un vrai executable.
+2. **`s_windows_pret()` ne cherchait que `files/bin/wine64`.** GE-Proton11
+   n'en a pas du tout — un seul binaire, `files/bin/wine`. La fonction
+   rendait donc toujours faux sur ce Proton, et `s-ouvrir-exe` repartait
+   dans un `--preparer` complet a chaque lancement au lieu d'utiliser le
+   serveur deja construit. Corrige : elle accepte l'un ou l'autre.
+3. **`build_files/41-windows.sh` aurait ecrit un `proton.version` faux.**
+   Le TAG GitHub (`GE-Proton11-6`) et le dossier reellement deplie par
+   l'archive (`GE-Proton11-6-x86_64`) different — contrairement a
+   `umu-proton`, ou les deux coincidaient toujours. Ecrire le TAG tel quel
+   aurait casse tout le monde Windows au premier lancement suivant une
+   vraie construction, en silence, puisque rien n'aurait echoue avant ce
+   moment-la. Corrige : le script lit maintenant le vrai nom de dossier
+   **dans l'archive elle-meme** (`tar tzf … | head -1`), jamais devine
+   depuis le TAG.
+
+**Un incident de verrou, trouve et referme en cours de route.** Un premier
+essai de `s-ouvrir-exe` (avant le correctif du point 2) est reparti dans
+un `--preparer` complet qui s'est bloque 112 s sur `umu-run`, tenant le
+verrou `windows.verrou` — le genre de blocage deja documente ce mois-ci
+(« pfx.lock » dispute entre deux Proton). Le processus etait reellement
+mort, pas juste lent : `TERM` l'a arrete net et le verrou s'est libere
+aussitot. Pas un defaut de cette nuit — la consequence directe du bug 2
+ci-dessus, qui a disparu avec lui.
+
+**Nouvel outil de test, ajoute pour cette occasion et reutilisable** :
+`S_WIN_VERSION_FORCE`, meme principe que `S_BIN`/`S_LIB` deja partout dans
+ce depot — pointe `s_windows_version()` sur un autre Proton depuis le
+depot, sans toucher a `/usr/lib/s/windows/proton.version` (lecture seule,
+hors de portee sans root). C'est ce qui a permis de rejouer le VRAI code
+du depot (`s_windows_capturer`, `s_windows_charger`, `s_windows_pret`,
+jusqu'a `s-ouvrir-exe` lui-meme) contre GE-Proton, plutot que de simuler
+la mecanique a la main comme les tout premiers essais de cette piste.
+
+**Le serveur resident de cette session tourne desormais sur GE-Proton,
+avec ntsync actif** — meme decision que pour wow64 plus tot cette nuit :
+les resultats etaient assez solides pour la laisser active plutot que de
+revenir en arriere par prudence. `UMU-Proton-10.0-4` reste intact sur le
+disque, a cote, jamais efface.
+
+### Ce que cette passe ne prouve pas
+
+- **La fenetre absente de Cursor reste un mystere.** Le plantage SEH est
+  resolu, mais Cursor ne montre toujours rien a l'ecran, pour une raison
+  distincte et non identifiee. Aucun verrou de singleton trouve (verifie
+  deux fois, avant et apres plusieurs lancements). Chantier a part.
+- **Rien de tout ceci n'est dans l'image.** `build_files/41-windows.sh`
+  pointe vers GE-Proton dans le depot ; il faut une construction et un
+  `rpm-ostree upgrade` pour qu'une machine repartant a froid en beneficie.
+  D'ici la, `s-windows.service` deploye continuerait de lancer
+  `UMU-Proton-10.0-4` — c'est le `S_WIN_VERSION_FORCE` de cette session,
+  et lui seul, qui fait tourner GE-Proton ce soir.
+- **Ibo Player Pro et CAP Player n'ont pas ete rechronometres individ-
+  uellement** — seul `cmd /c exit` a ete chronometre ; leur ouverture a
+  seulement ete confirmee visuellement, comme pour PURPLE.
+- **binfmt_misc (piste B) n'a toujours pas ete enregistre pour de vrai** —
+  inchange depuis le neuvieme addendum, toujours hors de portee sans root
+  dans cette session.
 
 ---
 

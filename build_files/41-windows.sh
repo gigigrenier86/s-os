@@ -51,8 +51,20 @@ if [ "$ATTENDU" != "$OBTENU" ]; then
     exit 1
 fi
 
+# LE TAG N'EST PAS TOUJOURS LE DOSSIER — ON LE VERIFIE, ON NE LE SUPPOSE PAS.
+# Piege trouve le 2026-08-29 en testant en direct sur la machine, avant
+# qu'il ne casse une vraie construction : l'archive GE-Proton se deplie en
+# « ${TAG}-x86_64 », pas en « ${TAG} » tout court — contrairement a
+# umu-proton, ou les deux coincidaient exactement. « proton.version » doit
+# porter le VRAI nom du dossier de premier niveau dans l'archive : c'est lui
+# que s_windows_proton() recompose en chemin, et un mauvais nom casserait
+# tout le monde Windows au premier lancement suivant la construction — en
+# silence, puisque rien n'echouerait avant ce moment-la.
+DOSSIER_ARCHIVE="$(tar tzf "$TRAVAIL/proton.tar.gz" | head -1 | cut -d/ -f1)"
+[ -n "$DOSSIER_ARCHIVE" ] || { echo "ECHEC : impossible de lire le nom du dossier dans l'archive Proton." >&2; exit 1; }
+
 install -m 0644 "$TRAVAIL/proton.tar.gz" "$DEST/proton.tar.gz"
-printf '%s\n' "$TAG" > "$DEST/proton.version"
+printf '%s\n' "$DOSSIER_ARCHIVE" > "$DEST/proton.version"
 rm -rf "$TRAVAIL"
 
 set +x
