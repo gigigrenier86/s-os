@@ -8,6 +8,100 @@ Interface en français.
 
 ---
 
+## 2026-08-30, soir — la fenêtre absente de Cursor n'a jamais été un défaut de S
+
+**PREUVE :** `steam_proton | Cursor Agents | min=false` — une vraie fenêtre
+Cursor, capturée par kwin sur cette machine, le 2026-08-30, ouverte par
+`s-ouvrir-exe` (le vrai geste, pas un bricolage de banc), depuis une session
+dont l'environnement portait délibérément la contamination identifiée
+ci-dessous — le correctif tient même dans le pire cas.
+
+### Le mystère fermait le chapitre Windows depuis le dixième addendum, et il était mal posé
+
+Depuis plusieurs nuits, ce carnet portait la même réserve : *« Cursor ne
+montre toujours aucune fenêtre, plantage SEH résolu depuis GE-Proton, cause
+jamais élucidée. »* Rôle Voyeur invoqué le 2026-08-30 sur cette question
+précise, avec la règle du projet appliquée à la lettre : ne pas relire le
+code, **relancer et mesurer**.
+
+`Cursor.exe`, lancé avec `WINEDEBUG=warn+all,+win,+event,+process,+module` :
+
+```
+sans argument        exit_code 0, 530 DLL chargées, ZERO CreateWindowEx,
+                      ZERO RegisterClass, ZERO CreateProcess — un abandon
+                      volontaire, pas un plantage
+avec « essai »        Error: Cannot find module 'X:\S\essai'
+--version / -v         v24.15.0
+--no-sandbox            bad option: --no-sandbox
+--verbose               bad option: --verbose
+```
+
+**Ces quatre lignes sont la signature exacte de `ELECTRON_RUN_AS_NODE=1`** —
+la variable qui fait tourner un binaire Electron comme un simple interprète
+Node, sans jamais amorcer Chromium ni l'application. Elle explique tout d'un
+coup : le format d'erreur Node pour un module introuvable, la version de
+Node seul au lieu des trois lignes que Cursor annonce normalement, et le
+message d'erreur natif de Node pour un drapeau qu'il ne reconnaît pas.
+
+### La source, isolée jusqu'au bout
+
+```
+env | grep ELECTRON        -> ELECTRON_RUN_AS_NODE=1   (dans CE shell)
+bash -> claude -> code -> code                          (arbre de processus)
+```
+
+**VS Code — un Electron lui-même — pose cette variable pour ses propres
+sous-processus Node**, et elle fuit dans tout ce qu'un terminal de Claude
+Code lance. Vérifié qu'elle n'atteint PAS le vrai chemin de lancement :
+absente de `systemctl --user show-environment`, absente de l'environnement
+du `wineserver` résident (`s-windows.service`). **Un double-clic réel depuis
+Constellation n'a jamais eu cette contamination** — mais chaque test de
+Cursor documenté dans ce carnet depuis le dixième addendum a été mené
+depuis une session Claude Code, donc contaminé de la même façon, à chaque
+fois, sans que personne ne soupçonne l'outil de mesure.
+
+**Exactement le succès silencieux que ce carnet nomme partout ailleurs :**
+rien n'échoue bruyamment, le processus sort en `code 0`, et l'absence de
+fenêtre ressemble à un défaut du programme plutôt qu'à une variable héritée.
+
+### Le correctif, défensif plutôt que ponctuel
+
+`s_windows_charger()` dans `files/usr/lib/s/windows.sh` retire désormais
+`ELECTRON_RUN_AS_NODE` et `NODE_OPTIONS` avant tout lancement — pas
+seulement pour Cursor : pour tout futur logiciel Electron posé dans ce
+Windows, et pour toute future session qui testerait `s-ouvrir-exe` depuis un
+terminal d'éditeur plutôt que depuis un clic. Même principe que le filtrage
+déjà en place dans `s_windows_capturer()` pour `PATH`/`LD_LIBRARY_PATH` : on
+ne fait pas confiance à un environnement hérité pour lancer Windows. Garde
+posé dans `build_files/40-coutures.sh`, sur le patron des contrôles déjà en
+place pour ce fichier.
+
+**Éprouvé dans le pire cas, pas seulement le cas propre :** `s-ouvrir-exe`
+relancé avec `ELECTRON_RUN_AS_NODE=1` toujours présent dans le shell
+appelant — `CrBrowserMain`, `CrashpadMainThr`, `CrGpuMain`, `explorer.exe`,
+`xalia.exe` tous vivants, le propre journal de Cursor montrant de vrais
+messages d'application (`RendererPing enabled`, `updateURL …`), et la
+fenêtre `Cursor Agents` capturée par kwin.
+
+### Ce que ça corrige dans les entrées précédentes
+
+La réserve « Cursor ne montre toujours aucune fenêtre » (dixième addendum,
+« Ce que cette passe ne prouve pas ») est **fausse depuis ce soir**. Le vrai
+plantage SEH était déjà résolu par GE-Proton, comme documenté ; la fenêtre
+absente n'était jamais un second défaut de Cursor ou de Wine — c'était la
+même contamination, mesurée à chaque tentative précédente sans être vue.
+
+### Ce que cette passe ne prouve pas
+
+- **Aucun clic réel n'a été donné sur l'icône Cursor de Constellation.** La
+  preuve vient de `s-ouvrir-exe` lancé en direct, pas d'un geste souris —
+  la fenêtre actuellement ouverte peut être regardée telle quelle, mais le
+  premier vrai clic reste à faire.
+- **Rien n'est dans l'image.** Le correctif vit dans le dépôt ; il faut une
+  construction et un `bootc upgrade`.
+
+---
+
 ## 2026-08-30, apres-midi — le Wizard ferme deux dossiers ouverts et en trouve un vrai, avec le Code Noir dessus
 
 Demande de l'utilisateur : « ouvre les skills nécessaires pour étendre au

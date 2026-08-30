@@ -272,6 +272,24 @@ s_windows_charger() {
     # Proton mais de la facon dont on l'appelle.
     export WINEPREFIX="$S_WIN_PFX"
 
+    # ELECTRON_RUN_AS_NODE — LE MYSTERE DE CURSOR, ET IL N'EN ETAIT PAS UN.
+    #
+    # MESURE SUR CETTE MACHINE, LE 2026-08-30 : Cursor.exe ne montrait jamais
+    # de fenetre, sans une seule erreur, code de sortie 0, zero appel
+    # CreateWindowEx/CreateProcess dans un journal WINEDEBUG complet. La
+    # cause n'etait pas Wine, pas Proton, pas Cursor : c'est cette variable,
+    # heritee de la session Claude Code elle-meme (VS Code, un Electron, la
+    # pose pour ses propres sous-processus Node) qui faisait tourner
+    # Cursor.exe comme un simple interprete Node — jamais l'application.
+    #
+    # « unset -u ELECTRON_RUN_AS_NODE » sur wine seul n'aurait pas suffi :
+    # c'est ICI, au moment de composer l'environnement de TOUT lancement
+    # Windows, qu'il faut la retirer — pas seulement pour Cursor, pour
+    # n'importe quel futur logiciel Electron pose dans ce Windows, et pour
+    # n'importe quelle session future qui testerait depuis un terminal
+    # Claude Code plutot que depuis un vrai clic.
+    unset ELECTRON_RUN_AS_NODE NODE_OPTIONS
+
     # WINELOADER VIENT DE LA CAPTURE, ET IL NE FAUT PLUS L'ECRASER.
     #
     # CE QUI ETAIT FAUX AVANT CE SOIR : ces deux lignes forcaient en dur

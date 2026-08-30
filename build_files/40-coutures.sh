@@ -351,6 +351,17 @@ grep -q 'S_VERROU_WINDOWS' /usr/lib/s/windows.sh \
     || { echo "ECHEC : le verrou de windows.sh n'est pas reentrant." >&2; exit 1; }
 echo "  verrou         : reentrant entre s-ouvrir-exe et s-windows"
 
+# --- ELECTRON_RUN_AS_NODE NE DOIT JAMAIS SURVIVRE DANS UN LANCEMENT WINDOWS -
+# Mesure le 2026-08-30 : cette variable, heritee d'une session Claude Code
+# (VS Code, un Electron, la pose pour ses propres sous-processus), faisait
+# tourner Cursor.exe comme un simple interprete Node — zero fenetre, zero
+# CreateProcess, code de sortie 0, aucune erreur. Le vrai chemin de lancement
+# (un clic depuis Constellation) en etait deja indemne ; ce garde empeche que
+# la meme contamination revienne un jour par un autre chemin.
+grep -q 'unset ELECTRON_RUN_AS_NODE' /usr/lib/s/windows.sh \
+    || { echo "ECHEC : windows.sh ne nettoie plus ELECTRON_RUN_AS_NODE — un futur logiciel Electron pourrait ne jamais montrer sa fenetre." >&2; exit 1; }
+echo "  windows.sh     : ELECTRON_RUN_AS_NODE retire avant tout lancement"
+
 # --- LA FENETRE NOIRE -------------------------------------------------------
 # WPF dessine par Direct3D 9. Quand ce chemin echoue sous Wine, la fenetre
 # existe, elle a la bonne taille, et elle ne contient qu'une couleur.
