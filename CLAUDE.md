@@ -204,6 +204,66 @@ seul root peut effacer. Corrige en deplacant le nettoyage DANS l'elevation
 donc nettoye meme sur une erreur en cours de route) — root efface ce que
 root a cree. Rejoue, aucun residu.
 
+### Addendum, le soir — libhoudini installe un jeu ARM, et le jeu bloque quand meme
+
+Premier vrai test avec un jeu reel : « Soul Land: New World »
+(`com.soulland.us`) s'installe et se lance — la traduction ARM fonctionne,
+l'echec `INSTALL_FAILED_NO_MATCHING_ABIS` d'origine est bien resolu — mais
+le jeu reste bloque sur son ecran de demarrage, avec deux ANR consecutifs
+(« Input dispatching timed out… Waited 5000ms for MotionEvent »), 70 s
+d'ecart, aucune progression entre les deux.
+
+**Mesure, pas suppose, sur la vraie trace ANR** (`/data/anr/anr_*`) : le fil
+principal du processus (le seul qui compte pour un ANR d'input) a sa pile
+ENTIEREMENT a l'interieur de `/system/lib64/libhoudini.so` — quatre trames,
+aucune ne redescend dans le code Java ou natif du jeu. `/proc/5387/stat` lu
+deux fois a 3 s d'ecart montre `state=R` et un temps CPU qui progresse
+normalement : le processus n'est pas gele, il tourne activement, coince
+dans le traducteur lui-meme.
+
+**L'hypothese reseau a ete testee et ecartee.** Le ping depuis le
+conteneur passe, 15 sockets sont ouverts par le processus — mais la trame
+du fil principal ne porte AUCUN appel systeme reconnaissable (`connect`,
+`recvfrom`, `futex`) au bas de sa pile, contrairement aux autres fils du
+meme relevé qui, eux, montrent clairement `futex_do_wait` ou
+`do_sigtimedwait` quand ils attendent vraiment quelque chose. L'absence de
+trame d'attente est le signal qui distingue un blocage reseau d'une
+execution CPU-bound coincee — ici, c'est la seconde.
+
+**Wizard, recherche web faite dans l'ordre impose** (depot vide sur le
+sujet, machine deja mesuree ci-dessus, amont ensuite) : le meme symptome —
+un jeu 3D moderne (moteur Unreal, ARM64) qui bloque sur son ecran de
+demarrage sous Waydroid — est un probleme **connu et non resolu** dans la
+communaute. `waydroid/waydroid#2383` documente exactement ce cas
+(« TFT PBE… hangs at Splash then crashes with SIGSEGV — happens with both
+libhoudini and libndk on AMD CPU/iGPU ») : basculer d'un traducteur a
+l'autre a **change** le symptome (crash immediat avec libhoudini, crash
+plus tardif avec libndk) sans jamais le **resoudre** — zero reponse dans
+ce fil, aucune solution communautaire. `waydroid/waydroid#2051` confirme
+par ailleurs qu'installer libndk ET libhoudini en meme temps casse les
+applications ARM — les deux ne cohabitent pas, il faut choisir.
+
+**Alchimiste, consulte pour verdict : rien a forger ici, et c'est un
+constat, pas un renoncement.** Patcher ou deboguer `libhoudini.so`
+signifierait retro-ingenierer un binaire proprietaire compile, sans
+symboles au-dela de ses exports, sans source — hors de toute proportion
+pour un seul jeu qui ne fonctionne pas. Ce n'est pas un mur du meme genre
+que Wine/anneau 0 (structurel, jamais franchissable) : c'est une limite de
+qualite d'un binaire tiers, deja documentee ailleurs par la meme
+communaute qui le maintient, sans qu'aucune partie n'ait de levier dessus.
+
+**Ce qui reste un levier reel, jamais essaye, et c'est la mesure qui
+trancherait :** basculer `ro.dalvik.vm.native.bridge` de `libhoudini.so`
+vers `libndk.so` (le meme mecanisme, l'autre binaire de
+`ublue-os/waydroid_script`, deja identifie et son URL/empreinte deja
+extraits le 2026-08-30 apres-midi) puis relancer CE jeu precis. Le
+precedent `#2383` dit de ne pas en attendre un miracle — le symptome
+change plus souvent qu'il ne disparait — mais c'est la seule variable qui
+reste a tourner avant de conclure que ce jeu precis ne tournera jamais ici.
+
+Rien de tout ceci n'a ete pose sur la machine ni dans le depot ce soir :
+c'est une hypothese nommee avec sa mesure de refutation, pas un correctif.
+
 ---
 
 ## Deux malentendus à lever avant de lire la suite
