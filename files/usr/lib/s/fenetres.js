@@ -147,8 +147,32 @@ function agrandir(f) {
 
 function suivreGeometrie(f) {
     if (!f) return;
+    // ON REGAGNE LES DEUX OU TROIS PREMIERS CHANGEMENTS DE GEOMETRIE, PAS
+    // SEULEMENT L'INSTANT DE LA NAISSANCE. Mesure du 2026-08-30 : « agrandir »
+    // au « windowAdded » tient parfois et se fait ecraser d'autres fois, un
+    // instant plus tard, par l'application elle-meme qui restaure sa PROPRE
+    // position memorisee (Vivaldi dans ses Preferences, VS Code dans son
+    // storage) — apres sa creation, pas au meme instant. Aucun minuteur
+    // n'existe dans ce moteur de script (« typeof setTimeout » mesure
+    // « undefined » ici, sur cette machine) : on regagne donc la course par
+    // le NOMBRE de changements plutot que par le temps. Les premiers sont
+    // l'application qui s'installe ; les suivants sont l'utilisateur qui
+    // deplace ou redimensionne pour de vrai, et ceux-la on les laisse faire.
+    var essaisRestants = 3;
+    var reagir = function () {
+        // Sans cette garde, l'ecriture d'« agrandir » ci-dessous rappellerait
+        // ce meme gestionnaire — kwin et ce script se renverraient la
+        // fenetre tant qu'il reste des essais.
+        if (enTrainDeBorner) return;
+        if (essaisRestants > 0 && estAgrandissable(f)) {
+            essaisRestants -= 1;
+            agrandir(f);
+        } else {
+            borner(f);
+        }
+    };
     try {
-        f.frameGeometryChanged.connect(function () { borner(f); });
+        f.frameGeometryChanged.connect(reagir);
     } catch (e) {
     }
     try {
@@ -266,6 +290,45 @@ for (var i = 0; i < deja.length; i++) suivre(deja[i]);
 
 workspace.windowAdded.connect(function (f) { suivre(f); envoyer(); });
 workspace.windowRemoved.connect(envoyer);
-workspace.windowActivated.connect(envoyer);
+
+// LA BULLE VOLE L'ACTIVATION, MALGRE « Qt.WindowDoesNotAcceptFocus ». Mesure
+// sur cette machine le 2026-08-30, avant/apres, VS Code deja actif :
+//
+//   avant notify-send :  activeWindow = code
+//   1 s apres          :  activeWindow = s-constellation (la bulle)
+//
+// Le drapeau Qt empeche le vrai focus CLAVIER ; il n'empeche pas kwin de
+// considerer la bulle comme la « fenetre activee » au sens du scripting —
+// et c'est CE sens-la que la barre lit pour savoir qui surligner
+// (« decrire() », plus haut : active = workspace.activeWindow === f). Chaque
+// notification effacait donc le surlignage de la vraie fenetre en cours,
+// et l'utilisateur la voyait « descendre » dans la barre.
+//
+// On ne corrige pas la bulle elle-meme — son drapeau est deja le bon geste,
+// et Constellation n'a pas d'autre levier sur ce que kwin appelle
+// « activee ». On rattrape ici : des que la fenetre qui vient de s'activer
+// appartient a Constellation (bulle, bureau ou barre — aucune n'est une
+// application), l'activation repart vers la derniere VRAIE fenetre.
+var derniereFenetreReelle = null;
+
+function estConstellation(f) {
+    return !!f && String(f.resourceClass) === "s-constellation";
+}
+
+workspace.windowActivated.connect(function (f) {
+    if (estConstellation(f)) {
+        if (derniereFenetreReelle) {
+            try {
+                workspace.activeWindow = derniereFenetreReelle;
+            } catch (e) {
+                // La fenetre remembree a pu fermer entre-temps : rien a
+                // rattraper, la prochaine vraie activation la remplacera.
+            }
+        }
+        return;
+    }
+    derniereFenetreReelle = f;
+    envoyer();
+});
 
 envoyer();
