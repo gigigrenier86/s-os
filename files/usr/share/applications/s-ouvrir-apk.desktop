@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Installer une application Android
+Comment=Installe un .apk dans Android, sans ouvrir son installateur ni demander d'autorisation
+Exec=/usr/bin/s-android-lancer --installer %f
+Icon=phone
+Terminal=false
+NoDisplay=true
+MimeType=application/vnd.android.package-archive;

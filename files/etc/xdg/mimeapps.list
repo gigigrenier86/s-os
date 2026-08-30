@@ -11,4 +11,4 @@ application/x-appimage=s-ouvrir-appimage.desktop
 application/vnd.appimage=s-ouvrir-appimage.desktop
 application/vnd.flatpak=s-ouvrir-flatpak.desktop
 application/vnd.flatpak.ref=s-ouvrir-flatpak.desktop
-application/vnd.android.package-archive=waydroid.app.install.desktop
+application/vnd.android.package-archive=s-ouvrir-apk.desktop
