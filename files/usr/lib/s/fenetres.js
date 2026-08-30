@@ -166,6 +166,36 @@ function suivreGeometrie(f) {
         if (enTrainDeBorner) return;
         if (essaisRestants > 0 && estAgrandissable(f)) {
             essaisRestants -= 1;
+            // NE REGAGNER LA COURSE QUE SI LA FENETRE EST VRAIMENT PETITE.
+            //
+            // BOGUE TROUVE LE 2026-08-30, RAPPORTE PAR L'UTILISATEUR : passer
+            // une video en plein ecran ne devenait JAMAIS reellement plein
+            // ecran — la barre disparaissait (le correctif « efface »
+            // marchait), mais le contenu restait coince a la hauteur utile.
+            // Cause : un vrai passage en plein ecran CHANGE AUSSI
+            // frameGeometry, et ce changement peut arriver avant que
+            // « f.fullScreen » lui-meme ne soit passe a vrai — « estAgran-
+            // dissable » ne l'excluait donc pas encore, et « agrandir »
+            // clouait la fenetre a « basUtile() » (sous la barre) au moment
+            // meme ou elle grandissait vers l'ecran ENTIER. On ne regagne
+            // donc que ce qui est reellement petit : une fenetre deja proche
+            // de la taille utile n'a besoin de rien, et la laisser tranquille
+            // laisse un vrai plein ecran se terminer.
+            // « borner() » N'EST PAS APPELE NON PLUS DANS CETTE BRANCHE : une
+            // fenetre qui a deja depasse la hauteur utile a cet instant precis
+            // peut etre en train de grandir vers un vrai plein ecran (1080),
+            // et « borner » la ramenerait aussitot a la hauteur utile (1028)
+            // — exactement le clouage qu'on evite. Ne rien faire laisse la
+            // transition se terminer ; si elle echoue vraiment a devenir
+            // plein ecran, le prochain changement de geometrie ou
+            // « fullScreenChanged »/« maximizedChanged » la rattrapera.
+            var g = f.frameGeometry;
+            var z = null;
+            try { z = workspace.clientArea(KWin.FullScreenArea, f); } catch (e0) { }
+            if (z && g && g.width >= z.width - 4 &&
+                g.height >= (basUtile(f) - z.y) - 4) {
+                return;
+            }
             agrandir(f);
         } else {
             borner(f);
