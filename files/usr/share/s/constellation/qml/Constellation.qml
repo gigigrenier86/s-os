@@ -458,6 +458,12 @@ ApplicationWindow {
         // plus bas, qui les rafraichit a chaque nouvelle du compositeur.
         veille: bureau.veilleMode
         inactives: bureau.fenetresInactives
+        // Meme regle, et la meme source, que celle de la barre laterale
+        // juste en dessous dans ce fichier : « plein » vient du rapporteur
+        // de kwin, seul a pouvoir le savoir.
+        efface: ouvertures.some(function (f) {
+            return f.plein === true && f.reduite !== true;
+        })
 
         onActivation: function (ident, estActive) {
             if (typeof fenetres !== "undefined" && fenetres)

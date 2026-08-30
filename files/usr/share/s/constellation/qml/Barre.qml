@@ -76,7 +76,7 @@ Window {
     // ne repond plus, qui ne l'est pas.
     height: (typeof pont !== "undefined" && pont && pont.bornerBarre)
             ? hauteur + placeMenu : hauteur
-    visible: true
+    visible: !efface
     color: "transparent"
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
            | Qt.WindowDoesNotAcceptFocus
@@ -88,6 +88,18 @@ Window {
     // il a coute un clic mort a chaque entree de la barre.
     property string veille: "geler"
     property int inactives: 0
+
+    // ELLE S'EFFACE ENTIEREMENT PENDANT UN VRAI PLEIN ECRAN — meme raison
+    // que la barre laterale, plus bas dans ce meme depot (Constellation.qml).
+    // « WindowStaysOnTopHint » + la regle kwin qui garde cette fenetre
+    // au-dessus de tout la placent PAR-DESSUS n'importe quelle video ou jeu,
+    // meme un « fullScreen=true » reel : mesure le 2026-08-30, une fenetre
+    // en plein ecran restait contenue a 1028 px de haut plutot que les 1080
+    // de l'ecran, precisement pour ne jamais passer sous cette barre. Une
+    // barre visible par-dessus un plein ecran n'est pas mieux qu'une fenetre
+    // qui s'arrete avant le bord — les deux montrent la barre pendant un
+    // film. On la retire de l'ecran, pas seulement du dessus des autres.
+    property bool efface: false
     // DIX JOURS, PARCE QUE L'UTILISATEUR A DIT DIX JOURS. Le nombre est ici et
     // dans l'etiquette du menu, jamais ecrit deux fois.
     property int joursInactivite: 10
