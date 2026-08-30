@@ -8,6 +8,132 @@ Interface en français.
 
 ---
 
+## 2026-08-30, apres-midi — le Wizard ferme deux dossiers ouverts et en trouve un vrai, avec le Code Noir dessus
+
+Demande de l'utilisateur : « ouvre les skills nécessaires pour étendre au
+maximum la compatibilité Android et Windows sur S, recherche ce qui
+pourrais manquer ». Role Wizard invoque, ordre de recherche impose
+(depot, machine, amont, web — dans cet ordre).
+
+### Deux dossiers que ce carnet disait « pas encore dans l'image » sont clos
+
+Le dixieme addendum du 2026-08-29 (wow64, binfmt_misc, ntsync, GE-Proton)
+se terminait sur trois reserves. **Deux sont fausses aujourd'hui, mesurees
+sur la machine reellement demarree** — `rpm-ostree status` confirme
+`44.20260830.bc64333`, donc les commits `50876d5` et `572d6ed` sont bien
+dans le deploiement en cours, pas seulement dans le depot :
+
+```
+cat /proc/sys/fs/binfmt_misc/dosw
+    enabled, interpreter /usr/bin/s-ouvrir-exe, magic 4d5a
+
+pgrep -a wineserver
+    .../GE-Proton11-6-x86_64/files/bin/wineserver -f -p
+
+lsof /dev/ntsync
+    wineserver, services.exe, winedevice.exe (x2), svchost.exe, plugplay.exe
+    — 6 descripteurs reels ouverts, pas un message de log
+```
+
+**binfmt_misc est enregistre pour de vrai au demarrage**, sur un vrai
+redemarrage a froid, pas seulement teste hors ligne comme le neuvieme
+addendum le disait. **ntsync tourne au niveau noyau sur le deploiement
+reellement booté**, pas seulement dans une session forcee par
+`S_WIN_VERSION_FORCE` comme le dixieme addendum le mesurait. Les deux
+lignes « rien de ceci n'est dans l'image » sont perimees.
+
+Seule reserve authentique restante cote Windows : **Cursor ne montre
+toujours aucune fenetre**, plantage SEH resolu depuis GE-Proton mais cause
+de l'absence de fenetre jamais elucidee — inchange, pas de nouvelle piste
+trouvee dans cette passe.
+
+### La vraie trouvaille : le monde Android n'a AUCUNE traduction ARM, et c'est mesure, pas suppose
+
+**Mesure sur cette machine, via le service binder `waydroidplatform`,**
+pas devine :
+
+```
+ro.product.cpu.abilist    = x86_64,x86        (aucun arm64-v8a, aucun armeabi-v7a)
+ro.dalvik.vm.native.bridge = 0                  (aucun pont natif configure)
+```
+
+**C'est exactement la cause de l'echec `INSTALL_FAILED_NO_MATCHING_ABIS`**
+rencontre plus tot cette meme journee en installant l'App Bundle du jeu de
+l'utilisateur (voir le geste `s-android-lancer --installer`, corrige le
+meme jour pour le format App Bundle lui-meme — mais le format n'etait pas
+la seule cause : sans traduction ARM, aucun jeu mobile qui n'expose que
+des bibliotheques natives ARM ne peut s'installer, quel que soit le
+mecanisme d'installation employe).
+
+**Rien dans S ne pose cette traduction, et rien ne l'a jamais mentionnee**
+— confirme par une recherche vide dans tout `files/usr/`. C'est un vrai
+manque, jamais adresse, et directement responsable d'un echec observe le
+jour meme.
+
+### Le Code Noir, nomme plutot que contourne
+
+`ujust configure-waydroid` (l'amont, `82-bazzite-waydroid.just`) offre deja
+la reponse — « on ne reimplemente pas ce que l'amont maintient » vaut ici
+aussi : l'option « configure » clone `ublue-os/waydroid_script` et lance
+son `main.py`, qui propose entre autres `libhoudini` (« better for Intel
+CPUs » — cette machine) et `libndk` (« better for AMD CPUs »), en plus de
+gapps, widevine, magisk, microg.
+
+**Les deux binaires de traduction ARM sont proprietaires, sans licence
+documentee, repackages par un tiers communautaire — pas par Google ni par
+Waydroid.** Verifie en lisant les deux modules sources, pas suppose :
+
+| | `stuff/houdini.py` | `stuff/ndk.py` |
+|---|---|---|
+| Depot source | `supremegamers/vendor_intel_proprietary_houdini` | `supremegamers/vendor_google_proprietary_ndk_translation-prebuilt` |
+| Provenance annoncee | Intel, proprietaire (le nom du depot le dit) | Google, proprietaire (le nom du depot le dit) |
+| Verification | **MD5 seul**, contre un hash fige dans le script — verifie l'integrite du telechargement, pas l'authenticite de l'editeur | **MD5 seul**, meme forme |
+| Licence documentee | **aucune** trouvee dans le fichier | **aucune** trouvee dans le fichier |
+| Installation | copie `lib/libhoudini.so` + `lib64/libhoudini.so` dans la partition systeme du conteneur, plus un `houdini.rc` qui enregistre des gestionnaires binfmt_misc ARM **a l'interieur d'Android** | meme forme, `libndktranslation.zip` |
+
+**Aucun des deux n'a une provenance plus propre que l'autre.** Les deux
+sont des binaires vendor extraits d'images ROM tierces (Chrome OS pour
+houdini, images Google/OEM pour ndk_translation) et republies sans
+document de licence par un mainteneur communautaire unique
+(`supremegamers`). C'est la meme famille de risque que celle deja nommee
+pour Antigravity (`gpgcheck=0`, decision assumee par l'utilisateur) — sauf
+qu'ici, contrairement a Antigravity, **le transport lui-meme n'est verifie
+que par MD5**, un algorithme casse pour la resistance aux collisions
+volontaires (il protege contre une corruption de telechargement, pas
+contre une substitution deliberee du fichier source cote GitHub).
+
+**Ce que ca implique concretement pour S, image publique et signee :**
+poser ce binaire DANS l'image (`build_files/`) le distribuerait a quiconque
+tire `ghcr.io/gigigrenier86/s-os`, sous la signature de S — un engagement
+de provenance que ce depot n'a jamais pris pour un binaire de statut aussi
+trouble. La forme deja retenue pour la traduction ARM par Bazzite
+lui-meme est **un geste a la demande, hors image**, exactement comme S le
+fait deja pour tout ce qui est proprietaire ou volumineux (Proton, F-Droid).
+
+### La mesure qui trancherait, et la decision qui reste a l'utilisateur
+
+Cette trouvaille n'a **pas** de ligne `PREUVE:` et ne migre pas au
+Grimoire — elle est une hypothese nommee avec sa mesure de refutation,
+comme la regle du Wizard l'exige :
+
+**Hypothese : poser libhoudini (Intel, cette machine) rendrait
+installables les jeux/applications qui n'exposent que du code natif
+ARM.**
+*Mesure qui la confirmerait ou la tuerait :* installer `libhoudini` via le
+meme mecanisme que `ublue-os/waydroid_script` (copie dans
+`system/lib(64)/libhoudini.so`, `native_bridge` regle, redemarrage du
+conteneur), puis retenter l'installation de l'App Bundle qui a echoue ce
+jour-la avec `INSTALL_FAILED_NO_MATCHING_ABIS` — verdict binaire, aucune
+ambiguite possible.
+
+**Rien n'a ete pose sur la machine ni dans le depot pour cette piste.**
+Le choix d'accepter un binaire proprietaire, verifie par MD5 seul, sans
+licence documentee, dans le monde Android de l'utilisateur, est exactement
+le genre de decision que ce projet a toujours laissee a l'utilisateur —
+jamais prise pour lui.
+
+---
+
 ## Deux malentendus à lever avant de lire la suite
 
 Ils sont revenus plusieurs fois pendant la conception. Ils reviendront.
