@@ -60,7 +60,18 @@ fi
 # que s_windows_proton() recompose en chemin, et un mauvais nom casserait
 # tout le monde Windows au premier lancement suivant la construction — en
 # silence, puisque rien n'echouerait avant ce moment-la.
-DOSSIER_ARCHIVE="$(tar tzf "$TRAVAIL/proton.tar.gz" | head -1 | cut -d/ -f1)"
+# « || true » A LA FIN, PAS PAR PARESSE : « head -1 » ferme son entree des
+# la premiere ligne lue, et tar — qui continuerait a ecrire les milliers de
+# lignes suivantes — recoit SIGPIPE. Avec « set -o pipefail » (ligne 16), ce
+# SIGPIPE fait echouer tout le pipeline (141 = 128+13), et « set -e » arrete
+# le script net, SANS LE MOINDRE MESSAGE — mesure en local le 2026-08-30,
+# reproduction fidele de l'echec de construction #33317639535 : le script
+# meurt exactement apres cette ligne, code de sortie 141. La valeur de
+# DOSSIER_ARCHIVE est deja correcte au moment ou tar recoit son signal —
+# c'est cut qui a fini d'ecrire avant que tar ne finisse d'echouer — donc
+# neutraliser l'echec du pipeline ici est sur, pas un pansement sur une
+# vraie erreur.
+DOSSIER_ARCHIVE="$(tar tzf "$TRAVAIL/proton.tar.gz" | head -1 | cut -d/ -f1 || true)"
 [ -n "$DOSSIER_ARCHIVE" ] || { echo "ECHEC : impossible de lire le nom du dossier dans l'archive Proton." >&2; exit 1; }
 
 install -m 0644 "$TRAVAIL/proton.tar.gz" "$DEST/proton.tar.gz"
