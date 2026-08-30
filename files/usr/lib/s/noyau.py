@@ -501,8 +501,37 @@ def lancer_en_root(entree):
     pkexec = chemin_executable("pkexec")
     if not pkexec:
         return False, "pkexec n'est pas sur cette machine"
+
+    # PKEXEC VIDE L'ENVIRONNEMENT DU PROGRAMME LANCE — sa propre page de
+    # manuel le dit : « The environment that PROGRAM will run in, will be set
+    # to a minimal known and safe environment… pkexec will not by default
+    # allow you to run X11 applications… since $DISPLAY and $XAUTHORITY are
+    # not set ». WAYLAND_DISPLAY, XDG_RUNTIME_DIR et DBUS_SESSION_BUS_ADDRESS
+    # ne font pas plus partie de cet environnement minimal. C'est exactement
+    # le symptome rapporte le 2026-08-30 : pkexec authentifie (le mot de
+    # passe est demande), puis le programme meurt en silence, incapable de
+    # joindre le compositeur — jamais teste contre un vrai clic avant ce
+    # jour, le carnet le disait deja.
+    #
+    # RIEN N'EMPECHE ROOT DE PARLER AU COMPOSITEUR UNE FOIS QU'ON LUI DONNE
+    # CES VARIABLES : mesure sur cette machine, /run/user/<uid>/wayland-0 est
+    # « srwxr-xr-x » et le bus de session « srw-rw-rw- » — seule la racine
+    # /run/user/<uid> (0700) protege le socket, et root la traverse sans
+    # restriction. On ne devine pas ces valeurs, on les relit dans l'environ-
+    # nement de Constellation lui-meme, qui EST la session graphique.
+    env_exe = chemin_executable("env")
+    env_args = []
+    if env_exe:
+        for var in ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY",
+                     "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"):
+            valeur = os.environ.get(var)
+            if valeur:
+                env_args.append("%s=%s" % (var, valeur))
+        env_args = [env_exe] + env_args
+
     timeout = chemin_executable("timeout")
-    argv = ([timeout, "--foreground", "120", pkexec] if timeout else [pkexec]) + cmd
+    argv = (([timeout, "--foreground", "120", pkexec] if timeout else [pkexec])
+            + env_args + cmd)
     return _lancer_detache(argv)
 
 
