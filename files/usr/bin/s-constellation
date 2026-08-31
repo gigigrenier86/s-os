@@ -64,6 +64,17 @@ class Pont(QObject):
     continue de se comporter pareil, seul le transport a disparu.
     """
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # LE PRESSE-PAPIERS DE FICHIERS, ET POURQUOI IL VIT ICI PLUTOT QUE
+        # DANS UN FICHIER. Une seule cible a la fois, retenue en memoire pour
+        # la duree de la session — exactement ce qu'un presse-papiers est
+        # cense etre. L'ecrire sur disque comme les autres etats de S
+        # (epingles.json, placees.json…) survivrait a une fermeture de
+        # Constellation et proposerait un jour de coller un fichier qu'on a
+        # oublie avoir marque des semaines plus tot.
+        self._presse_papiers = None   # {"chemin": str, "couper": bool} ou None
+
     # ---- Lecture ---------------------------------------------------------
     @Slot(result="QVariant")
     def etoiles(self):
@@ -226,6 +237,55 @@ class Pont(QObject):
         if chemin and not os.path.isdir(chemin):
             chemin = os.path.dirname(chemin)
         return noyau.terminal_ici(chemin)[1]
+
+    # ---- Copier / Couper / Coller -----------------------------------------
+    # LE GESTE DE FICHIER LE PLUS COMMUN DE TOUT BUREAU, ET IL N'AVAIT AUCUNE
+    # PLACE ICI. Voir noyau.coller() pour le mecanisme (kioclient) ; le
+    # presse-papiers lui-meme — quel fichier, copier ou couper — est un etat
+    # de session, retenu sur « self », pas sur le disque.
+
+    @Slot(str, bool)
+    def marquerPressePapiers(self, ident, couper):
+        chemin = self._chemin(ident)
+        if not chemin:
+            return
+        self._presse_papiers = {"chemin": chemin, "couper": bool(couper)}
+
+    @Slot(result=bool)
+    def pressePapiersActif(self):
+        return self._presse_papiers is not None
+
+    @Slot(result=str)
+    def coller(self):
+        if self._presse_papiers is None:
+            return "rien a coller"
+        chemin = self._presse_papiers["chemin"]
+        couper = self._presse_papiers["couper"]
+        ok, dit = noyau.coller(chemin, noyau.dossier_bureau(), couper)
+        # UN COUPER SE CONSOMME, UN COPIER RESTE DISPONIBLE — meme convention
+        # que tout gestionnaire de fichiers : coller deux fois de suite un
+        # fichier COPIE le pose deux fois, coller deux fois un fichier COUPE
+        # ne peut pas le deplacer deux fois puisqu'il n'est plus a sa place
+        # d'origine apres le premier coup.
+        if ok and couper:
+            self._presse_papiers = None
+        return dit
+
+    # ---- Ouvrir avec… ------------------------------------------------------
+    @Slot(str, result="QVariant")
+    def applicationsPour(self, ident):
+        chemin = self._chemin(ident)
+        if not chemin:
+            return []
+        return noyau.applications_pour_type(chemin)
+
+    @Slot(str, str, result=str)
+    def ouvrirAvec(self, ident, fichier_desktop):
+        chemin = self._chemin(ident)
+        if not chemin:
+            return "pas un fichier"
+        ok, dit = noyau.ouvrir_avec(chemin, fichier_desktop)
+        return dit
 
     @Slot(str, bool, result=str)
     def creerSurLeBureau(self, nom, est_dossier):

@@ -1,0 +1,14 @@
+[Unit]
+Description=S - accueil de premiere session (comptes, pilotes)
+# MEME PATRON QUE s-egaliseur.service : gate par un marqueur DANS le script,
+# jamais par ConditionPathExists=!, pour rester coherent avec s-play-store,
+# le seul autre geste « une fois dans la vie du compte » de ce depot.
+After=s-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/s-accueil
+TimeoutStartSec=60
+
+[Install]
+WantedBy=s-session.target

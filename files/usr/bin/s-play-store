@@ -48,7 +48,13 @@ s_dire "Identifiant copie : $ID" \
 # Un vrai repli : on essaie chaque navigateur, et on s'arrete au premier qui
 # existe. La forme « && cmd & break » echouait ici — le break tombait au premier
 # tour, donc xdg-open n'etait jamais atteint si Vivaldi manquait.
-for n in vivaldi-stable xdg-open; do
+#
+# « vivaldi-stable » N'EST PLUS le premier essai : mesure le 2026-08-30,
+# c'est un lien mort sur cette machine (voir s-accueil pour le detail).
+# Cette branche tombait donc deja, silencieusement, sur xdg-open — sans
+# jamais gener personne puisque xdg-open marche aussi, mais sans jamais
+# emprunter le chemin voulu non plus.
+for n in /usr/lib/opt/vivaldi/vivaldi xdg-open; do
     if command -v "$n" >/dev/null 2>&1; then
         "$n" "https://www.google.com/android/uncertified" >/dev/null 2>&1 &
         break

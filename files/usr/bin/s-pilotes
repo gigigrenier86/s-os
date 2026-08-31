@@ -1,0 +1,55 @@
+#!/usr/bin/bash
+# Les pilotes materiels de S, par fwupd — jamais reimplemente.
+#
+# fwupd (2.1.7 sur cette machine, herite de Bazzite) est le mecanisme Linux
+# de mise a jour de firmware — BIOS, disques, controleurs, ecrans... Rien de
+# tout ca n'est reecrit ici, seulement pilote : meme principe que EasyEffects
+# pour l'egaliseur (voir 48-son.sh), on ne reimplemente pas ce que l'amont
+# maintient deja.
+#
+# CE QUE CE SCRIPT NE FAIT JAMAIS SANS --appliquer : ecrire un firmware.
+# Un flash rate peut rendre un appareil inutilisable, et ca ne se defait pas
+# par un « bootc rollback » — c'est hors de portee d'ostree, qui ne gouverne
+# que le systeme de fichiers, jamais le microcode d'un peripherique. La
+# recherche et le telechargement des metadonnees sont automatiques ;
+# l'ecriture reste un geste voulu, jamais silencieux.
+set -uo pipefail
+source /usr/bin/s-monde
+
+command -v fwupdmgr >/dev/null 2>&1 || exit 0
+
+if [ "${1:-}" = "--appliquer" ]; then
+    # fwupdmgr parle a son propre demon par D-Bus/polkit : jamais besoin de
+    # pkexec ici, c'est fwupd lui-meme qui demande l'autorisation si le
+    # systeme l'exige.
+    if fwupdmgr update -y --no-reboot-check; then
+        s_dire "Pilotes mis a jour" \
+"Un redemarrage peut etre necessaire pour que certains prennent effet." \
+"software-update-available"
+    else
+        s_echec "La mise a jour des pilotes a echoue" \
+"Relance « S — Pilotes » plus tard, ou lis le journal de fwupd (fwupdmgr get-history)."
+    fi
+    exit 0
+fi
+
+# Rafraichir les metadonnees echoue sans reseau — sans consequence, on
+# continue avec ce que fwupd connait deja localement.
+fwupdmgr refresh --force >/dev/null 2>&1 || true
+
+# --json est le seul format qui se parse sans supposer une langue d'affichage.
+SORTIE="$(fwupdmgr get-updates --json 2>/dev/null)"
+N="$(printf '%s' "$SORTIE" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+print(len(d.get("Devices", [])))
+' 2>/dev/null)"
+
+[ "${N:-0}" -gt 0 ] 2>/dev/null || exit 0
+
+s_dire "$N mise(s) a jour materielle(s) disponible(s)" \
+"Ouvre « S — Pilotes » dans le menu pour les installer, quand tu veux." \
+"software-update-available"

@@ -149,6 +149,13 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/39-materiel.sh
 
+# EasyEffects (~13 Mo installe) — l'egaliseur que pilote l'etoile
+# « Egaliseur » de la barre laterale. Voir build_files/48-son.sh.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/48-son.sh
+
 # L'ecran de connexion aux couleurs de S, et la session preselectionnee.
 # APRES les COPY, puisqu'il verifie le fond d'ecran et la session qu'ils posent.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \

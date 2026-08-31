@@ -473,6 +473,10 @@ ApplicationWindow {
             if (typeof fenetres !== "undefined" && fenetres)
                 fenetres.fermer(ident);
         }
+        onForcerFermeture: function (ident) {
+            if (typeof fenetres !== "undefined" && fenetres)
+                fenetres.forcerFermeture(ident);
+        }
         onSommeil: function (ident) {
             if (typeof fenetres !== "undefined" && fenetres)
                 fenetres.endormir(ident);
@@ -1020,6 +1024,20 @@ ApplicationWindow {
             }
         }
 
+        // ── « Ouvrir avec… », demandee le 2026-08-30 ────────────────────────
+        // Sans objet pour une application : elle N'A qu'une commande, ouvrir
+        // « avec autre chose » n'a pas de sens pour elle. La liste des
+        // candidates est demandee ICI, a l'ouverture du menu, jamais recalculee
+        // en direct — meme raison que « inactivesDemandees » pour la barre :
+        // un appel de fonction nu dans une liaison QML ne se reevalue jamais
+        // tout seul, seule une propriete qui change le declenche.
+        ArticleMenu {
+            visible: menuContextuel.estFichier
+            height: visible ? implicitHeight : 0
+            text: "Ouvrir avec…"
+            onTriggered: ouvrirAvec.ouvrirPour(menuContextuel.cible)
+        }
+
         SeparateurMenu { }
 
         ArticleMenu {
@@ -1082,6 +1100,25 @@ ApplicationWindow {
         // ── Les gestes qui n'ont de sens que sur un fichier ─────────────────
         SeparateurMenu { visible: menuContextuel.estFichier
                          height: visible ? implicitHeight : 0 }
+
+        // \u00ab Copier \u00bb / \u00ab Couper \u00bb, le geste le plus commun de tout
+        // gestionnaire de fichiers, absent d'ici jusqu'au 2026-08-30. Le
+        // presse-papiers ne retient qu'UNE cible (voir Pont.__init__ dans
+        // s-constellation) \u2014 marquer un second fichier remplace le premier,
+        // exactement comme sur n'importe quel bureau.
+        ArticleMenu {
+            visible: menuContextuel.estFichier
+            height: visible ? implicitHeight : 0
+            text: "Copier"
+            onTriggered: pont.marquerPressePapiers(menuContextuel.cible.id, false)
+        }
+
+        ArticleMenu {
+            visible: menuContextuel.estFichier
+            height: visible ? implicitHeight : 0
+            text: "Couper"
+            onTriggered: pont.marquerPressePapiers(menuContextuel.cible.id, true)
+        }
 
         ArticleMenu {
             visible: menuContextuel.estFichier
@@ -1146,7 +1183,14 @@ ApplicationWindow {
         id: menuDuFond
         objectName: "menuDuFond"
 
+        // DEMANDE ICI, PAS LIEE EN DIRECT — meme raison que « inactivesDemandees »
+        // pour la barre des taches : « pont.pressePapiersActif() » est un appel
+        // de fonction nu, QML ne le reevalue jamais tout seul. On le relit donc
+        // a l'instant precis ou le menu s'ouvre, la seule fois ou ca compte.
+        property bool collerDisponible: false
+
         function ouvrirA(ex, ey) {
+            collerDisponible = pont.pressePapiersActif();
             x = Math.min(ex, bureau.width - width - 8);
             y = Math.min(ey, bureau.height - height - 8);
             open();
@@ -1179,6 +1223,20 @@ ApplicationWindow {
         ArticleMenu {
             text: "Ouvrir le dossier Bureau"
             onTriggered: pont.ouvrirDossier(pont.dossierBureau())
+        }
+
+        // « Coller », le pendant du « Copier »/« Couper » du menu contextuel.
+        // Absent plutot que grise a vide : un article qu'on ne peut jamais
+        // cliquer n'apprend rien, il intrigue pour rien — meme regle deja
+        // ecrite pour « Desinstaller » plus haut dans ce fichier.
+        ArticleMenu {
+            visible: menuDuFond.collerDisponible
+            height: visible ? implicitHeight : 0
+            text: "Coller"
+            onTriggered: {
+                bureau.dire(pont.coller());
+                bureau.relire();
+            }
         }
 
         SeparateurMenu { }
@@ -1325,6 +1383,84 @@ ApplicationWindow {
             bureau.dire(dit);
             close();
             bureau.relire();
+        }
+    }
+
+    // ══ 5 quater. « OUVRIR AVEC… » ═════════════════════════════════════════
+    // UNE BOITE CENTREE, PAS UN SOUS-MENU EN CASCADE — et ce n'est pas un
+    // pis-aller. Ce depot a paye plusieurs fois le prix d'un Popup positionne
+    // a la main sous ce compositeur (« un client Wayland ne se positionne pas
+    // lui-meme », voir bornerBarre() dans s-constellation) ; un sous-menu en
+    // cascade ajouterait exactement ce risque pour un gain cosmetique. Une
+    // boite centree, dans le style deja eprouve de « saisie » juste au-dessus,
+    // est aussi le choix de GNOME Fichiers pour ce meme geste — ce n'est pas
+    // une boite de secours, c'est une convention a part entiere.
+    Popup {
+        id: ouvrirAvec
+        modal: true
+        focus: true
+        anchors.centerIn: Overlay.overlay
+        width: 340
+        padding: 18
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        property var cible: null
+        property var candidats: []
+
+        function ouvrirPour(app) {
+            cible = app;
+            candidats = pont.applicationsPour(app.id);
+            open();
+        }
+
+        background: Verre { radius: Theme.rayon }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 10
+
+            Text {
+                text: "Ouvrir avec"
+                color: Theme.texte
+                font.family: Theme.police
+                font.pixelSize: 15
+            }
+
+            Text {
+                visible: ouvrirAvec.candidats.length === 0
+                Layout.fillWidth: true
+                text: "Aucune application ne declare savoir ouvrir ce type de fichier."
+                color: Theme.texte3
+                font.family: Theme.police
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+            }
+
+            Repeater {
+                model: ouvrirAvec.candidats
+                delegate: ArticleMenu {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    // Le coche marque l'associee ACTUELLE — meme convention
+                    // que les trois modes de veille du menu des fenetres.
+                    text: (modelData.defaut ? "✓  " : "     ") + modelData.nom
+                    onTriggered: {
+                        bureau.dire(pont.ouvrirAvec(ouvrirAvec.cible.id, modelData.fichier));
+                        ouvrirAvec.close();
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Item { Layout.fillWidth: true }
+                ArticleMenu {
+                    text: "Fermer"
+                    implicitWidth: 96
+                    onTriggered: ouvrirAvec.close()
+                }
+            }
         }
     }
 

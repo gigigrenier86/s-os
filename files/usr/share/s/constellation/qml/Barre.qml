@@ -106,6 +106,10 @@ Window {
 
     signal menuDemande()
     signal fermeture(string ident)
+    // « Forcer l'arret », demande le 2026-08-30 — distinct de « fermeture »
+    // ci-dessus, qui reste une demande polie. Voir fenetres.forcerFermeture()
+    // pour le pourquoi.
+    signal forcerFermeture(string ident)
     signal sommeil(string ident)
     signal menageDemande(int jours)
     signal veilleChoisie(string mode)
@@ -538,6 +542,18 @@ Window {
                 grave: true
                 text: "Fermer la fenetre"
                 onTriggered: barre.fermeture(menuFenetre.cibleId)
+            }
+
+            // « Forcer l'arret » — DEMANDE LE 2026-08-30, ET CE CARNET EN AVAIT
+            // DEJA LA PREUVE PLUSIEURS FOIS. « Fermer la fenetre » ci-dessus
+            // envoie une DEMANDE ; un programme qui ne repond plus a ses
+            // evenements (Cursor plante, Soul Land bloque, PURPLE en fenetre
+            // noire) ne la recoit jamais. Celui-ci tue le processus directement
+            // — voir fenetres.forcerFermeture().
+            ArticleMenu {
+                grave: true
+                text: "Forcer l'arret"
+                onTriggered: barre.forcerFermeture(menuFenetre.cibleId)
             }
 
             ArticleMenu {

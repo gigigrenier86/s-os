@@ -300,6 +300,17 @@ test -L /etc/systemd/user/s-session.target.wants/s-windows.service \
     || { echo "ECHEC : s-windows.service n'est pas tire par s-session.target." >&2; exit 1; }
 echo "  s-windows.service : resident, tire par s-session.target"
 
+# --- L'EGALISEUR RESIDENT — MEME PATRON QUE s-windows.service --------------
+# L'etoile « Egaliseur » pilote EasyEffects par sa ligne de commande, qui a
+# besoin d'un exemplaire deja en vie pour repondre sans attendre. Voir
+# reglages.py::_egaliseur et s-egaliseur.service.
+test -s /usr/lib/systemd/user/s-egaliseur.service \
+    || { echo "ECHEC : s-egaliseur.service absent — l'etoile Egaliseur n'aurait rien a piloter." >&2; exit 1; }
+systemctl --global enable s-egaliseur.service
+test -L /etc/systemd/user/s-session.target.wants/s-egaliseur.service \
+    || { echo "ECHEC : s-egaliseur.service n'est pas tire par s-session.target." >&2; exit 1; }
+echo "  s-egaliseur.service : resident, tire par s-session.target"
+
 # --- LA LETTRE P: A DEMENAGE AVEC LA CREATION DU PREFIXE ---------------------
 # On ancre sur l'APPEL et non sur le mot : la version precedente cherchait
 # « s-partage » dans s-ouvrir-exe et aurait continue de passer sur une simple
@@ -426,5 +437,43 @@ grep -q '/usr/lib/s/android/libhoudini.zip' /usr/lib/s/partage-android.sh \
 grep -q -- '--traduction-arm' /usr/bin/s-android \
     || { echo "ECHEC : s-android ne sait plus reconnaitre --traduction-arm." >&2; exit 1; }
 echo "  traduction ARM : archive dans l'image, installation en geste (s-android --traduction-arm)"
+
+# --- L'ACCUEIL DE PREMIERE SESSION — COMPTES, PILOTES -----------------------
+# Demande du 2026-08-30 : incorporer a l'installateur une creation de compte
+# Linux (deja faite par plasma-setup, voir CLAUDE.md 2026-08-20 — rien a
+# ecrire ici), une connexion Microsoft et Google, et une recherche de
+# pilotes materiels. s-accueil tourne une seule fois par compte, tire par
+# s-session.target sur le meme patron que s-egaliseur.service ; s-pilotes le
+# sert aussi pour la verification hebdomadaire (s-pilotes.timer).
+test -x /usr/bin/s-accueil \
+    || { echo "ECHEC : s-accueil absent ou non executable — l'accueil de premiere session n'existerait pas." >&2; exit 1; }
+test -x /usr/bin/s-pilotes \
+    || { echo "ECHEC : s-pilotes n'est pas executable — ni l'accueil ni la verification hebdomadaire ne pourraient tourner." >&2; exit 1; }
+grep -q 'account.microsoft.com' /usr/bin/s-accueil \
+    || { echo "ECHEC : s-accueil n'ouvre plus la connexion Microsoft." >&2; exit 1; }
+grep -q 'accounts.google.com' /usr/bin/s-accueil \
+    || { echo "ECHEC : s-accueil n'ouvre plus la connexion Google." >&2; exit 1; }
+grep -q -- '--appliquer' /usr/bin/s-pilotes \
+    || { echo "ECHEC : s-pilotes n'a plus de garde --appliquer — une mise a jour firmware pourrait s'ecrire sans geste voulu." >&2; exit 1; }
+
+test -s /usr/lib/systemd/user/s-accueil.service \
+    || { echo "ECHEC : s-accueil.service absent." >&2; exit 1; }
+systemctl --global enable s-accueil.service
+test -L /etc/systemd/user/s-session.target.wants/s-accueil.service \
+    || { echo "ECHEC : s-accueil.service n'est pas tire par s-session.target." >&2; exit 1; }
+echo "  s-accueil.service : premiere session, tire par s-session.target"
+
+test -s /usr/lib/systemd/user/s-pilotes.timer \
+    || { echo "ECHEC : s-pilotes.timer absent." >&2; exit 1; }
+test -s /usr/lib/systemd/user/s-pilotes.service \
+    || { echo "ECHEC : s-pilotes.service absent — s-pilotes.timer n'aurait rien a declencher." >&2; exit 1; }
+systemctl --global enable s-pilotes.timer
+test -L /etc/systemd/user/s-session.target.wants/s-pilotes.timer \
+    || { echo "ECHEC : s-pilotes.timer n'est pas tire par s-session.target." >&2; exit 1; }
+echo "  s-pilotes.timer   : verification hebdomadaire, tire par s-session.target"
+
+test -s /usr/share/applications/s-pilotes.desktop \
+    || { echo "ECHEC : le lanceur « S — Pilotes » a disparu." >&2; exit 1; }
+echo "  s-pilotes.desktop : lanceur present, applique les mises a jour a la demande"
 
 echo "=== 40-coutures : fait ==="

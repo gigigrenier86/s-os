@@ -187,6 +187,26 @@ class PontLeurre(QObject):
     def terminalIci(self, ident):
         return ident
 
+    @Slot(str, bool)
+    def marquerPressePapiers(self, ident, couper):
+        pass
+
+    @Slot(result=bool)
+    def pressePapiersActif(self):
+        return False
+
+    @Slot(result=str)
+    def coller(self):
+        return "colle"
+
+    @Slot(str, result="QVariant")
+    def applicationsPour(self, ident):
+        return []
+
+    @Slot(str, str, result=str)
+    def ouvrirAvec(self, ident, fichier_desktop):
+        return ident
+
     @Slot(str, bool, result=str)
     def creerSurLeBureau(self, nom, est_dossier):
         return nom
@@ -336,11 +356,12 @@ def main():
     # qu'un Menu vide est un Menu valide. Sans ce controle, « fermer la
     # fenetre » aurait pu n'exister que dans le fichier : la scene se serait
     # verifiee verte, et le menu se serait ouvert vide chez l'utilisateur.
-    # NEUF, ET LE COMPTE INCLUT LES SEPARATEURS : quatre articles ecrits a la
-    # main (ranger, veille immediate, fermer, menage), TROIS poses par le
-    # Repeater — les modes de veille, la partie qu'on verifie vraiment — et
-    # deux traits. « count » compte tout ce que le Menu porte.
-    ARTICLES_ATTENDUS = 9
+    # DIX, ET LE COMPTE INCLUT LES SEPARATEURS : cinq articles ecrits a la
+    # main (ranger, veille immediate, fermer, forcer l'arret, menage), TROIS
+    # poses par le Repeater — les modes de veille, la partie qu'on verifie
+    # vraiment — et deux traits. « count » compte tout ce que le Menu porte.
+    # « Forcer l'arret » ajoute le 2026-08-30 : neuf devient dix.
+    ARTICLES_ATTENDUS = 10
     manque_articles = {"valeur": 0, "trouve": False}
     # La hauteur du menu une fois ouvert, et celle qu'il demande. Voir le
     # controle plus bas : c'est la mesure qui manquait le 2026-08-26.

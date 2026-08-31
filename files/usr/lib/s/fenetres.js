@@ -345,8 +345,40 @@ function estConstellation(f) {
     return !!f && String(f.resourceClass) === "s-constellation";
 }
 
+// SEULE LA BULLE VOLE LE FOCUS, PAS LES AUTRES FENETRES DE CONSTELLATION —
+// ET LES CONFONDRE ETAIT LE BOGUE, TROUVE LE 2026-08-30 EN REJOUANT LE
+// SCRIPT EN DIRECT SUR CETTE MACHINE, PAS EN RELISANT LE CODE.
+//
+// « estConstellation(f) » seul matche AUSSI le bureau, la barre et la barre
+// laterale — les quatre fenetres partagent le meme resourceClass
+// « s-constellation ». Le titre les distingue ; « TITRE_BULLE » dans
+// regles-kwin.py est la meme chaine, recopiee ici a la main puisque deux
+// scripts kwin independants (l'un en Python, l'autre en JS) ne partagent
+// rien.
+function estBulleNotification(f) {
+    return estConstellation(f) && String(f.caption) === "S - notification";
+}
+
 workspace.windowActivated.connect(function (f) {
-    if (estConstellation(f)) {
+    // AVANT CE SOIR, LE GARDE PORTAIT SUR « estConstellation », PAS SUR LA
+    // BULLE SEULE. Consequence mesuree en direct : « activerBureau() »
+    // (le geste « montrer le bureau », et le menu Demarrer qui en depend)
+    // pose « workspace.activeWindow = bureau », ce qui declenche CE MEME
+    // gestionnaire avec f = le bureau — matche par « estConstellation »,
+    // annule aussitot vers « derniereFenetreReelle ». Le bureau redevenait
+    // donc inactif dans l'instant meme ou on demandait de l'activer :
+    // « impossible d'aller sur la Constellation ».
+    //
+    // MEME MECANISME POUR LES FENETRES QUI NE SE MINIMISENT PLUS. Reduire la
+    // fenetre active fait parfois transiter l'activation par le bureau, le
+    // temps que kwin choisisse la suivante — un instant assez court pour ne
+    // rien montrer a l'ecran, assez long pour que ce gestionnaire le voie et
+    // rebascule vers « derniereFenetreReelle », c'est-a-dire la fenetre
+    // qu'on venait justement de demander de ranger. Vu sur cette machine :
+    // « avant=false » puis « apres=false » sur une demande de minimiser,
+    // alors que le meme script rejoue seul, sans ce gestionnaire, minimise
+    // pour de vrai.
+    if (estBulleNotification(f)) {
         if (derniereFenetreReelle) {
             try {
                 workspace.activeWindow = derniereFenetreReelle;
@@ -357,7 +389,14 @@ workspace.windowActivated.connect(function (f) {
         }
         return;
     }
-    derniereFenetreReelle = f;
+    // « derniereFenetreReelle » NE DOIT JAMAIS POINTER SUR UNE FENETRE DE
+    // CONSTELLATION — sinon un jour ou la bulle vole vraiment le focus, on la
+    // rebasculerait vers le bureau ou la barre plutot que vers une vraie
+    // application. Le bureau et la barre, eux, ont quand meme le droit
+    // d'etre actives ; on laisse juste passer l'evenement sans les retenir.
+    if (!estConstellation(f)) {
+        derniereFenetreReelle = f;
+    }
     envoyer();
 });
 

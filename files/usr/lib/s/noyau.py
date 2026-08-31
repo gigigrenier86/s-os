@@ -1021,6 +1021,118 @@ def ouvrir_fichier(chemin):
     return True, os.path.basename(chemin)
 
 
+def applications_pour_type(chemin):
+    """Les applications qui declarent savoir ouvrir ce fichier.
+
+    « Ouvrir avec… » — le troisieme reflexe universel d'un clic droit sur un
+    fichier (apres Ouvrir et Renommer), reste absent jusqu'ici.
+
+    ON NE DEVINE RIEN. Le vrai type MIME vient de QMimeDatabase — la meme
+    source qu'icone_de_fichier() consulte deja — et chaque .desktop de la
+    machine dit LUI-MEME, dans sa cle MimeType=, ce qu'il sait ouvrir ;
+    lire_desktop() la capture deja, puisqu'elle lit tout le groupe
+    [Desktop Entry] sans liste blanche de cles. Rien de neuf a lire.
+
+    Rend une liste de {id, nom, ico, fichier, defaut}, l'associee courante
+    en tete quand on la connait — « xdg-mime query default » est la meme
+    source que kioclient/gio consultent pour choisir tout seuls, on la relit
+    au lieu de la recalculer.
+    """
+    if not os.path.exists(chemin):
+        return []
+    type_mime = ""
+    base = _base_mime()
+    if base is not None:
+        type_mime = base.mimeTypeForFile(chemin).name()
+    if not type_mime:
+        import mimetypes
+        type_mime = mimetypes.guess_type(chemin)[0] or ""
+    if not type_mime:
+        return []
+
+    par_defaut = ""
+    xdg_mime = _outil("xdg-mime")
+    if xdg_mime:
+        try:
+            r = subprocess.run([xdg_mime, "query", "default", type_mime],
+                               capture_output=True, text=True, timeout=5)
+            par_defaut = (r.stdout or "").strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    trouves = {}
+    for dossier in dossiers_applications():
+        try:
+            noms = sorted(os.listdir(dossier))
+        except OSError:
+            continue
+        for nom_fichier in noms:
+            if not nom_fichier.endswith(".desktop") or nom_fichier in trouves:
+                continue
+            fichier = os.path.join(dossier, nom_fichier)
+            champs = lire_desktop(fichier)
+            if not champs:
+                continue
+            declares = [t.strip() for t in champs.get("MimeType", "").split(";") if t.strip()]
+            if type_mime not in declares:
+                continue
+            if champs.get("Type", "Application") != "Application":
+                continue
+            if vrai(champs, "NoDisplay") or vrai(champs, "Hidden"):
+                continue
+            essai = champs.get("TryExec")
+            if essai and not chemin_executable(essai):
+                continue
+            nom = nom_affiche(champs)
+            if not nom:
+                continue
+            trouves[nom_fichier] = {
+                "id": nom_fichier[:-len(".desktop")],
+                "nom": nom,
+                "ico": choisir_icone(nom, champs.get("Categories", "")),
+                "fichier": fichier,
+                "defaut": nom_fichier == par_defaut,
+            }
+    # Le defaut en tete, le reste par nom — comme n'importe quel sous-menu
+    # « Ouvrir avec » d'un vrai bureau.
+    return sorted(trouves.values(), key=lambda a: (not a["defaut"], a["nom"].lower()))
+
+
+def ouvrir_avec(chemin, fichier_desktop):
+    """Ouvre un fichier avec UNE application precise, sans toucher au defaut.
+
+    MEME OUTIL QUE lancer() : « gio launch » applique les regles du .desktop
+    vise (repertoire de travail, Terminal=true…) et sait deja passer un
+    fichier en argument selon les codes %f/%F/%u/%U qu'il declare — rien a
+    reconstruire. Le repli sans gio va un cran plus loin que celui de
+    lancer(), qui n'a jamais eu de fichier a transmettre : ici il en faut un.
+    """
+    if not os.path.exists(chemin):
+        return False, "ce fichier n'existe plus"
+    if not os.path.isfile(fichier_desktop):
+        return False, "cette application n'existe plus"
+    gio = chemin_executable("gio")
+    if gio:
+        cmd = [gio, "launch", fichier_desktop, chemin]
+    else:
+        champs = lire_desktop(fichier_desktop) or {}
+        brut = champs.get("Exec", "")
+        if not brut:
+            return False, "aucune commande dans %s" % os.path.basename(fichier_desktop)
+        if re.search(r"%[fFuU]", brut):
+            brut = re.sub(r"%[fFuU]", shlex.quote(chemin), brut, count=1)
+        else:
+            brut = brut + " " + shlex.quote(chemin)
+        brut = re.sub(r"%[dDnNickvm]", "", brut).strip()
+        cmd = shlex.split(brut)
+    try:
+        subprocess.Popen(cmd, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as err:
+        return False, str(err)
+    return True, "ouvert"
+
+
 def composer_etoiles():
     """Tout ce que la coquille affiche, en une seule lecture.
 
@@ -1264,6 +1376,36 @@ def compresser(chemins):
         return False, "Ark n'est pas sur cette machine"
     ok, err = _lancer_detache([outil, "--add", "--changetofirstpath"] + chemins)
     return (True, "%d element(s)" % len(chemins)) if ok else (False, err)
+
+
+def coller(source, dossier_cible, deplacer):
+    """Copie ou deplace « source » dans « dossier_cible », par kioclient.
+
+    LE GESTE LE PLUS COMMUN DE TOUT GESTIONNAIRE DE FICHIERS, ET IL N'AVAIT
+    PAS DE PLACE ICI. Meme outil que corbeille() (« kioclient move »), la
+    meme discipline : on ne reimplemente pas ce que l'amont maintient.
+    « --interactive » laisse KDE poser sa propre boite de conflit si un nom
+    existe deja a l'arrivee — meme raisonnement que proprietes_fichier() :
+    on ne redevine pas la boite que Dolphin sait deja montrer.
+
+    DETACHE, PAS ATTENDU — meme choix que compresser() et terminal_ici().
+    Un fichier peut peser plusieurs gigaoctets, et le grand disque de ce
+    projet est deja documente comme lent (plateau USB). Attendre la fin
+    bloquerait le clic pour un temps qu'on ne connait pas d'avance. Le bureau
+    se relit tout seul toutes les 15 secondes (voir le Timer de
+    Constellation.qml) ; le fichier colle finira par y apparaitre sans qu'on
+    ait rien a faire de plus ici.
+    """
+    if not os.path.exists(source):
+        return False, "ce fichier n'existe plus"
+    if not os.path.isdir(dossier_cible):
+        return False, "le dossier de destination n'existe plus"
+    outil = _outil("kioclient")
+    if not outil:
+        return False, "kioclient n'est pas sur cette machine"
+    verbe = "move" if deplacer else "copy"
+    ok, err = _lancer_detache([outil, "--interactive", verbe, source, dossier_cible])
+    return (True, os.path.basename(source)) if ok else (False, err)
 
 
 def terminal_ici(dossier):

@@ -33,6 +33,7 @@ DANS LES DEUX SENS, ET PAR DEUX CHEMINS DIFFERENTS :
 
 import json
 import os
+import signal
 import time
 
 from PySide6.QtCore import QObject, QTimer, Signal, Slot
@@ -363,6 +364,46 @@ class Fenetres(QObject):
             "fermer")
         if parti:
             self._repli = propre
+
+    @Slot(str)
+    def forcerFermeture(self, ident):
+        """Tue le processus de la fenetre, plutot que de le lui demander.
+
+        « fermer() » ENVOIE UNE DEMANDE (closeWindow, WM_CLOSE) : un programme
+        qui ne repond plus a ses evenements ne la recoit jamais. Ce depot en a
+        la preuve a repetition, dans ce meme carnet — Cursor qui plantait sans
+        fenetre, Soul Land bloque sur son ecran de demarrage, PURPLE en
+        fenetre noire, un wineserver fige. Dans chacun de ces cas, « Fermer la
+        fenetre » n'aurait rien fait : il n'y avait personne pour lire la
+        demande.
+
+        « pid » VIENT DEJA DU RAPPORTEUR — fenetres.js l'envoie pour chaque
+        fenetre (champ « pid »), et _portee() le lit deja pour la veille. Rien
+        de neuf a demander a kwin.
+        """
+        propre = _ident(ident)
+        if not propre:
+            return
+        pid = 0
+        for f in (self._toutes or self._liste):
+            if f.get("id") == propre:
+                pid = int(f.get("pid") or 0)
+                break
+        if pid <= 1:
+            return
+        # ON DEGELE D'ABORD, MEME RAISON QUE fermer(). Un cgroup gele ne
+        # traite pas les signaux qu'on lui envoie : un SIGKILL vers un
+        # programme fige y resterait en attente, invisible, jusqu'au degel —
+        # et l'utilisateur verrait « forcer l'arret » ne rien faire.
+        self._reveiller(propre)
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+        # MEME JETON QUE fermer() ET activer() : tuer cette fenetre fait
+        # remonter la suivante, et sans lui la regle « une seule debout »
+        # rangerait et endormirait tout le reste du bureau au passage.
+        self._repli = propre
 
     @Slot(str)
     def endormir(self, ident):

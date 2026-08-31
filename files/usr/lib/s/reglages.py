@@ -21,6 +21,7 @@ disent.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -97,6 +98,193 @@ def _basculer_muet():
     code, sortie = _lire(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
     _oublier("volume")
     return (code == 0), (sortie.strip()[:120] or "son")
+
+
+# --------------------------------------------------------------------------
+# L'egaliseur — EasyEffects, jamais reimplemente
+# --------------------------------------------------------------------------
+#
+# DEMANDE DE L'UTILISATEUR LE 2026-08-30. Aucun outil n'etait deja pose : ni
+# EasyEffects ni son ancetre PulseEffects. Recherche faite avant d'ecrire une
+# ligne — le format « etoile » (bascule/glissiere/choix) de cette barre ne se
+# prete pas a un vrai egaliseur a plusieurs bandes, et personne ne le
+# reimplemente : EasyEffects (paquet Fedora officiel, 8.2.8 au moment
+# d'ecrire, ~2,8 Mo) EST cet outil, entretenu par l'amont. L'etoile ne fait
+# que le PILOTER — bascule d'un coup d'oeil, fenetre complete pour regler les
+# bandes elle-meme.
+#
+# LE VRAI OUTIL, INSPECTE AVANT DE DEVINER SON APPEL. « easyeffects --help »
+# donne, entre autres :
+#   -b, --bypass <bypass-state>   1 pour activer le bypass (donc ETEINDRE les
+#                                  effets), 2 pour le desactiver (les ALLUMER),
+#                                  3 pour lire l'etat actuel.
+#   -w, --hide-window              lance sans montrer la fenetre.
+# La forme exacte de la reponse a « --bypass 3 » n'a pas ete observee en
+# direct — aucune session PipeWire dans le conteneur ou l'outil a ete
+# inspecte — mais son propre binaire porte l'expression reguliere qu'il
+# emploie pour SE relire lui-meme : « ^global_bypass:([01]) ». C'est donc son
+# propre format, pas une supposition batie a cote.
+_MOTIF_BYPASS = re.compile(r"global_bypass:([01])")
+
+
+def _assurer_egaliseur_lance():
+    """Demarre le service resident s'il ne tourne pas deja — sans attendre.
+
+    EasyEffects doit tourner pour repondre a « --bypass ». Le service
+    resident (s-egaliseur.service, meme patron que s-windows.service pour le
+    wineserver) le tient deja pret des l'ouverture de session ; cet appel
+    n'est qu'un filet pour le jour ou il n'aurait pas encore demarre.
+    """
+    _lire(["systemctl", "--user", "start", "s-egaliseur.service"], delai=15)
+
+
+def _egaliseur():
+    if not _outil("easyeffects"):
+        return None
+    _assurer_egaliseur_lance()
+    code, sortie = _lire(["easyeffects", "--bypass", "3"], delai=10)
+    if code != 0:
+        return None
+    m = _MOTIF_BYPASS.search(sortie)
+    if not m:
+        return None
+    # bypass=1 veut dire « les effets sont COUPES » : « actif », pour cette
+    # etoile, c'est l'inverse du bypass.
+    return {"actif": m.group(1) == "0"}
+
+
+def _regler_egaliseur(actif):
+    if not _outil("easyeffects"):
+        return False, "aucun egaliseur sur cette machine"
+    _assurer_egaliseur_lance()
+    code, sortie = _lire(["easyeffects", "--bypass", "2" if actif else "1"], delai=10)
+    _oublier("egaliseur")
+    if code != 0:
+        return False, (sortie.strip()[:120] or "reglage refuse")
+    if actif:
+        # OUVRIR LA FENETRE POUR REGLER LES BANDES — DEMANDE EXPLICITE DE
+        # L'UTILISATEUR, PAS SEULEMENT LA BASCULE. EasyEffects est une
+        # application a instance unique (GApplication) : le relancer SANS
+        # « --hide-window » ne demarre pas un second exemplaire, il active
+        # l'exemplaire existant — le meme mecanisme qu'un second clic sur une
+        # icone deja ouverte fait remonter sa fenetre.
+        #
+        # NON VERIFIE EN DIRECT : aucune session PipeWire complete n'etait
+        # disponible pour l'observer au moment d'ecrire ce fichier — c'est le
+        # comportement attendu d'une GApplication a instance unique, pas une
+        # mesure sur cette machine.
+        try:
+            subprocess.Popen(["easyeffects"], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass
+    return True, ("egaliseur allume" if actif else "egaliseur eteint")
+
+
+# --------------------------------------------------------------------------
+# La webcam — une bascule de confidentialite, jamais un chmod a l'aveugle
+# --------------------------------------------------------------------------
+#
+# DEMANDE DE L'UTILISATEUR LE 2026-08-30. MESURE AVANT D'ECRIRE : cette
+# machine porte une vraie webcam USB (« j5 WebCam JVCU100 », /dev/video1 et
+# /dev/video2) ET une camera VIRTUELLE (« OBS Virtual Camera », /dev/video0,
+# posee par v4l2loopback pour recevoir ce qu'OBS y ecrit). Les confondre
+# aurait pose une etoile qui bloque la sortie d'OBS au lieu du micro-espion —
+# exactement l'inverse de ce qu'on cherche.
+#
+# LA DISTINCTION, MESUREE ET NON DEVINEE : le lien « device » de chaque noeud
+# sous /sys/class/video4linux/videoN/ resout, pour la webcam reelle, a travers
+# un vrai bus USB (« .../usb1/1-7/1-7:1.0 ») ; pour la camera virtuelle, il
+# resout a « /sys/devices/VIRTUAL/video4linux/video0/device ». Le mot
+# « virtual » dans le chemin resolu est le seul signal fiable trouve — aucun
+# champ dedie n'existe pour ca en v4l2.
+#
+# LE MECANISME DE BLOCAGE : PAS DE RFKILL POUR UNE CAMERA — verifie,
+# « rfkill list » sur cette machine n'a qu'une entree, le Wi-Fi. Et cette
+# machine n'appartient PAS au groupe unix « video » (verifie : « id » ne le
+# liste pas) : le SEUL acces qu'elle a au noeud vient d'une ACL POSIX precise
+# — « user:RyuRex:rw- », posee par systemd-logind (uaccess) a l'ouverture de
+# session. Retirer PRECISEMENT cette entree ACL coupe l'acces sans toucher au
+# proprietaire, au groupe, ni au mode de base — et la remettre restaure
+# exactement ce que logind avait pose.
+def _noeuds_camera_reels():
+    """(nom, [/dev/videoN, ...]) des vraies cameras — jamais une virtuelle."""
+    racine = "/sys/class/video4linux"
+    try:
+        entrees = sorted(os.listdir(racine))
+    except OSError:
+        return None, []
+    nom = None
+    noeuds = []
+    for entree in entrees:
+        reel = os.path.realpath(os.path.join(racine, entree, "device"))
+        if "/virtual/" in reel:
+            continue
+        if nom is None:
+            try:
+                with open(os.path.join(racine, entree, "name"),
+                          encoding="utf-8") as f:
+                    nom = f.read().strip()
+            except OSError:
+                nom = entree
+        noeuds.append("/dev/" + entree)
+    return nom, noeuds
+
+
+def _utilisateur_courant():
+    return os.environ.get("USER") or os.environ.get("LOGNAME") or ""
+
+
+def _acl_utilisateur_presente(noeud, utilisateur):
+    code, sortie = _lire(["getfacl", "--omit-header", noeud])
+    if code != 0:
+        return None
+    motif = "user:%s:" % utilisateur
+    return any(l.startswith(motif) for l in sortie.splitlines())
+
+
+def _webcam():
+    if not _outil("getfacl") or not _outil("setfacl"):
+        return None
+    nom, noeuds = _noeuds_camera_reels()
+    if not noeuds:
+        return None
+    utilisateur = _utilisateur_courant()
+    if not utilisateur:
+        return None
+    # UN SEUL NOEUD OUVERT SUFFIT A FILMER — « actif » (la camera est
+    # accessible) reste donc vrai des que L'UN des noeuds porte encore
+    # l'acces, jamais seulement quand ils le portent tous.
+    etats = [_acl_utilisateur_presente(n, utilisateur) for n in noeuds]
+    if any(e is None for e in etats):
+        return None
+    return {"actif": any(etats), "nom": nom, "noeuds": noeuds}
+
+
+def _basculer_webcam(actif):
+    outil = _outil("setfacl")
+    if not outil:
+        return False, "aucun controle d'acces sur cette machine"
+    nom, noeuds = _noeuds_camera_reels()
+    if not noeuds:
+        return False, "aucune camera sur cette machine"
+    utilisateur = _utilisateur_courant()
+    if not utilisateur:
+        return False, "utilisateur inconnu"
+    pkexec = _outil("pkexec")
+    if not pkexec:
+        return False, "pkexec n'est pas sur cette machine"
+    # « root » possede le noeud, pas nous : meme si l'ACL nous donne
+    # actuellement rw-, modifier une ACL exige d'etre le proprietaire ou root.
+    drapeaux = (["-m", "u:%s:rw-" % utilisateur] if actif
+                else ["-x", "u:%s" % utilisateur])
+    ok_tout = True
+    for noeud in noeuds:
+        code, _s = _lire([pkexec, outil] + drapeaux + [noeud], delai=10)
+        ok_tout = ok_tout and (code == 0)
+    _oublier("webcam")
+    return ok_tout, ("%s accessible" % (nom or "camera") if actif
+                     else "%s bloquee" % (nom or "camera"))
 
 
 # --------------------------------------------------------------------------
@@ -534,6 +722,18 @@ def rapides():
                        "max": 150, "actif": not son["muet"],
                        "detail": "muet" if son["muet"] else "%d %%" % son["valeur"]})
 
+    eg = _cache("egaliseur", _egaliseur)
+    if eg is not None:
+        sortie.append({"cle": "egaliseur", "nom": "Egaliseur", "ico": "i-egaliseur",
+                       "type": "bascule", "actif": eg["actif"],
+                       "detail": "allume" if eg["actif"] else "eteint"})
+
+    wc = _cache("webcam", _webcam)
+    if wc is not None:
+        sortie.append({"cle": "webcam", "nom": "Webcam", "ico": "i-video",
+                       "type": "bascule", "actif": wc["actif"],
+                       "detail": "accessible" if wc["actif"] else "bloquee"})
+
     lum = _cache("luminosite", lambda: _ddc(10))
     if lum is not None:
         sortie.append({"cle": "luminosite", "nom": "Luminosite", "ico": "i-ecran",
@@ -611,6 +811,10 @@ def regler(cle, valeur):
         return _regler_volume(valeur)
     if cle == "volume-muet":
         return _basculer_muet()
+    if cle == "egaliseur":
+        return _regler_egaliseur(bool(valeur))
+    if cle == "webcam":
+        return _basculer_webcam(bool(valeur))
     if cle == "luminosite":
         return _regler_ddc(10, valeur)
     if cle == "contraste":

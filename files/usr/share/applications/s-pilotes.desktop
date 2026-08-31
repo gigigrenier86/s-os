@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=S — Pilotes
+Comment=Installer les mises a jour materielles trouvees (fwupd)
+Exec=/usr/bin/s-pilotes --appliquer
+Icon=software-update-available
+Terminal=false
+Categories=System;

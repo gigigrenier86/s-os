@@ -8,6 +8,445 @@ Interface en français.
 
 ---
 
+## 2026-08-30, nuit — l'accueil de premiere session : comptes et pilotes, construit et verifie
+
+**PREUVE :** construction locale complete (`podman build`, meme methode que le
+depot emploie depuis le 2026-08-27 pour reproduire une panne avant de pousser),
+verte de bout en bout, image `7ab31f98be55`, 18,4 Go. Le bloc de couture neuf
+tourne et rend exactement le verdict attendu :
+
+```
+Created symlink '/etc/systemd/user/s-session.target.wants/s-accueil.service' -> ...
+  s-accueil.service : premiere session, tire par s-session.target
+Created symlink '/etc/systemd/user/s-session.target.wants/s-pilotes.timer' -> ...
+  s-pilotes.timer   : verification hebdomadaire, tire par s-session.target
+  s-pilotes.desktop : lanceur present, applique les mises a jour a la demande
+```
+
+Demande de l'utilisateur : « incorpore, dans l'installateur de S, une
+creation de compte Linux, se connecter a Microsoft et se connecter a Google
+et une recherche de pilotes et telechargement automatique ».
+
+### Une des quatre pieces n'avait rien a construire
+
+**« Creation de compte Linux » existe deja**, depuis le 2026-08-20 :
+`plasma-setup.service` tourne `Before=display-manager.service`, donc aucune
+session graphique ne peut exister avant qu'un compte soit cree. `s-accueil`,
+le nouveau geste ecrit ce soir, est tire par `s-session.target` — qui ne
+s'active QUE dans une session graphique deja ouverte. L'ordre garantit donc
+la chose sans une ligne de code : on ne reimplemente pas ce que l'amont
+maintient deja, et ici l'amont la maintenait avant meme que la question soit
+posee.
+
+### La forme retenue pour Microsoft et Google — et pourquoi
+
+Aucun precedent de « connexion a un compte » n'existait dans ce depot pour
+Microsoft — S n'a pas de coquille Windows complete qui en aurait besoin, son
+monde Windows n'est que des `.exe` isoles sous Proton. Le seul precedent
+proche est **s-play-store**, qui gere une chose differente (la certification
+d'un appareil Android precis aupres de Google, un identifiant a coller) mais
+partage la meme philosophie : automatiser ce qui est automatisable, et
+laisser un vrai humain faire le clic de connexion — Google et Microsoft
+verifient cote serveur, aucun contournement n'existe, et en inventer un
+serait mentir.
+
+`s-accueil` ouvre donc simplement deux onglets Vivaldi — `account.microsoft.com`
+et `accounts.google.com` — dans une **vraie fenetre de navigateur** (jamais
+`--app=`, contrairement a RapidO/Gemini : ces comptes doivent rester
+utilisables ensuite pour du courriel, du calendrier, OneDrive, Drive). Une
+seule fois dans la vie du compte, meme mecanique que `s-play-store` : un
+marqueur dans `$S_ETAT`, jamais un `ConditionPathExists=!` cote systemd — la
+forme deja eprouvee dans ce depot, pas une nouvelle inventee pour l'occasion.
+
+### Un vrai bug trouve en testant, pas en relisant — et il dormait depuis le 2026-08-23
+
+Mesure sur cette machine avant meme d'ecrire `s-accueil` en entier :
+
+```
+which vivaldi-stable        -> introuvable, code 1
+readlink -f /usr/bin/vivaldi-stable
+    -> /opt/vivaldi -> /var/opt/vivaldi (VRAI DOSSIER, pas le lien attendu)
+    -> /var/opt/vivaldi/vivaldi : No such file or directory
+```
+
+**`/usr/bin/vivaldi-stable` est un lien mort sur cette machine.** C'est
+exactement le defaut que l'entree du 2026-08-23 avait deja nomme et
+« corrige » — sauf que le correctif de ce soir-la n'avait touche QUE les
+`.desktop` de RapidO et Gemini (`Exec=/usr/lib/opt/vivaldi/vivaldi`), jamais
+le lien `vivaldi-stable` lui-meme ni les scripts qui l'appellent par son nom
+de commande. **`s-play-store` portait deja ce meme defaut, en silence,
+depuis ce jour-la** — sa boucle de repli tombait sur `xdg-open` sans jamais
+avertir personne que sa premiere branche etait morte.
+
+Corrige aux deux endroits — `s-accueil` et `s-play-store` — sur le patron
+deja etabli : le chemin direct dans l'image, `/usr/lib/opt/vivaldi/vivaldi`,
+jamais le pont `/opt` qui peut se rompre. **Eprouve a l'ecran, par un script
+kwin temoin** (meme mecanisme que `grimoire/kwin-capturer-la-coquille.sh`) :
+apres le correctif, `s-accueil --force` a fait apparaitre une vraie fenetre
+Vivaldi, capturee par kwin, titree *« Microsoft account | Accueil -
+Vivaldi »*. Le marqueur `$S_ETAT/accueil-fait` a ete pose au meme instant, et
+un second appel sans `--force` sort aussitot sans rien rouvrir.
+
+### Les pilotes : recherche et telechargement automatiques, jamais l'ecriture
+
+`s-pilotes` pilote **fwupd** (2.1.7, deja dans l'image via Bazzite — jamais
+reimplemente, meme principe que EasyEffects pour l'egaliseur). Sans
+`--appliquer` : `fwupdmgr refresh` puis `fwupdmgr get-updates --json`,
+notification si des mises a jour existent, silence sinon. **Avec
+`--appliquer`** (seulement via le lanceur « S — Pilotes » du menu, jamais
+automatique) : `fwupdmgr update -y`.
+
+**Pourquoi la coupure est la, et pas plus loin.** Un firmware mal ecrit peut
+rendre un appareil inutilisable, et ca ne se rattrape PAS par
+`bootc rollback` — ostree gouverne le systeme de fichiers, jamais le
+microcode d'un peripherique. « Telechargement automatique » est donc pris au
+mot exact : la recherche et le telechargement des metadonnees sont
+automatiques ; l'ecriture reste un geste voulu, jamais silencieux — meme
+principe que celui deja pose pour la traduction ARM ou pour tout `pkexec` de
+ce depot.
+
+`s-pilotes.timer` (hebdomadaire, `Persistent=true`) garde la recherche
+active apres le premier demarrage — pas seulement a l'installation.
+
+### Ce que cette passe ne prouve pas
+
+- **Aucune vraie mise a jour de pilote n'a ete appliquee.** Cette machine
+  n'en avait aucune de disponible au moment du test (`fwupdmgr get-updates
+  --json` a rendu une liste vide) — le chemin `--appliquer` n'a jamais ete
+  exerce pour de vrai.
+- **`s-pilotes.timer` n'a jamais declenche** — une semaine ne s'est pas
+  ecoulee. Seul le service qu'il declenche (`s-pilotes.service`) a ete
+  verifie present et bien tire.
+- **Le deuxieme onglet (Google) n'a pas ete confirme par une capture
+  separee** — seule la fenetre active (« Microsoft account ») a ete
+  capturee ; l'onglet Google est suppose ouvert par le meme appel Vivaldi
+  qui a reussi pour le premier, jamais verifie individuellement.
+- **Rien de tout ceci n'est dans l'image publiee.** La construction verte est
+  locale (`podman build`, image `s-os-verif-accueil`, jamais poussee). Il
+  faut un commit, un push, une construction GitHub Actions et un
+  `bootc upgrade` pour qu'une vraie machine en beneficie.
+
+---
+
+## 2026-08-30, nuit — le Microsoft Store, mesuré et fermé : un vrai mur, pas une lacune
+
+**PREUVE :** `Microsoft Store Installer.exe` (815 136 octets, .NET/Mono i386,
+déjà présent dans `~/Téléchargements` d'un essai antérieur du 2026-08-27,
+`windows-repli.log` en témoigne) relancé avec `WINEDEBUG=warn+all,+win,
++event,+process,+module` sur cette machine. Rôle Wizard invoqué, question de
+l'utilisateur : « peux-tu inclure Microsoft Store ? ».
+
+### Ce que le dépôt et la machine disaient déjà, avant toute recherche externe
+
+`windows-repli.log` portait deux lignes du 2026-08-27, jamais creusées :
+
+```
+2026-08-27T15:07:00-04:00 chemin direct : code 82 en 1s pour Microsoft Store Installer.exe — repli sur umu-run
+2026-08-27T15:07:20-04:00 chemin direct : code 82 en 1s pour Microsoft Store Installer.exe — repli sur umu-run
+```
+
+Un échec en une seconde, deux fois, sans qu'aucune fenêtre Store n'existe
+nulle part dans le dépôt Windows de S. Le fichier lui-même est encore là.
+
+### La vraie cause, dans la trace .NET elle-même — pas devinée
+
+Le journal complet (13 279 lignes) montre `mscoree.dll`/`clr.dll`/
+`clrjit.dll` **charger avec succès** — le vrai .NET Framework 4.x est déjà
+posé dans ce préfixe (400 Mio, 1033 fichiers sous `Framework64\v4.0.30319`,
+vérifié). Ce n'est donc PAS le défaut déjà documenté pour PURPLE
+(« wine-mono ne suffit pas »). Le programme démarre, initialise ses
+bibliothèques, ouvre ses connexions — puis lève, en clair, sa propre
+exception .NET :
+
+```
+Unhandled Exception:
+System.Windows.Markup.XamlParseException: The invocation of the constructor
+on type 'StoreInstaller.MainWindow' ... threw an exception.
+ ---> System.TypeLoadException: Could not find Windows Runtime type
+      'Windows.Web.Http.HttpResponseMessage'.
+   at StoreInstaller.ViewModels.InstallViewModel.CallSFEdgeAsync()
+   at StoreInstaller.ViewModels.InstallViewModel.Init()
+   at StoreInstaller.MainWindow..ctor()
+```
+
+**`Windows.Web.Http` est un espace de noms WinRT** — l'API projetée de
+l'*Universal Windows Platform*, pas l'API Win32 classique que Wine
+réimplémente. Le simple bootstrapper du Store (une fenêtre WPF ordinaire)
+appelle déjà cette API pour parler aux serveurs de Microsoft, et Wine ne
+fournit tout simplement pas ce type — l'exception le dit au mot près, ce
+n'est pas une supposition.
+
+### La recherche externe confirme un second mur, plus profond encore
+
+Recherche web faite APRÈS la mesure locale, pour confirmer plutôt que pour
+deviner : **Wine n'a aucun support UWP/AppX**, un manque structurel connu et
+documenté par le projet Wine lui-même — les forums WineHQ le disent en
+toutes lettres, aucune annonce de support natif à l'horizon. Le vrai
+Microsoft Store (`Microsoft.WindowsStore_8wekyb3d8bbwe`) N'EST PAS un
+programme Win32 : c'est un paquet UWP/AppX complet, qui exige le modèle
+d'application WinRT (déploiement AppX, `Windows.ApplicationModel`,
+`AppXDeploymentClient.dll`) que Wine ne fournit pas du tout — deux murs
+distincts empilés, et le premier (le bootstrapper) tombe déjà avant même
+d'atteindre le second.
+
+**Deux murs, pas un seul** — et le premier tombe avant même d'atteindre le
+second :
+1. Le simple bootstrapper échoue déjà sur `Windows.Web.Http` (mesuré, prouvé
+   ci-dessus).
+2. Même si ce premier mur n'existait pas, le vrai Store est un paquet
+   UWP/AppX, structurellement hors de portée de Wine (confirmé par l'amont
+   lui-même).
+
+Sources : [Wine (software) — Wikipedia](https://en.wikipedia.org/wiki/Wine_(software)),
+[UWP/APPX support — WineHQ Forums](https://forum.winehq.org/viewtopic.php?t=39125),
+[Wine, Gamepass and the MS Store — WineHQ Forums](https://forum.winehq.org/viewtopic.php?t=36418)
+
+### Verdict — corrigé dans la même nuit : le Store lui-même est fermé, mais ce n'était pas la bonne question
+
+**Le Store lui-même reste hors de portée, et ça, c'est definitif** — même
+famille que le point 1 de « Limites, connues d'avance » (un pilote NT en
+anneau 0 ne tournera jamais sous Wine). Aucun contournement honnête de CE
+mur précis n'existe : sideloader un `.appx` directement se heurterait au
+même mur de déploiement.
+
+**Mais l'utilisateur a redemandé — « t'avais pas une alternative ? » — et la
+première réponse ci-dessus s'était arrêtée trop tôt.** Ce que le Store offre
+VRAIMENT, ce n'est pas seulement une fenêtre : c'est un catalogue de
+logiciels installables par nom, sans chercher un installateur à la main. Ce
+besoin-là, lui, a une vraie réponse, mesurée en partie dans la même nuit :
+
+**Chocolatey** — le gestionnaire de paquets Windows le plus établi
+(existe depuis 2011, des milliers de paquets, `choco install <nom>`), qui ne
+touche à AUCUNE API WinRT : c'est du PowerShell et des scripts d'installation
+silencieux, la même famille que ce que `s-ouvrir-exe` fait déjà à la main.
+
+**Deux découvertes en le testant, pas en le devinant :**
+
+1. **Le PowerShell intégré à Wine est un simulacre.** `powershell.exe`
+   existe dans le préfixe (`system32\WindowsPowerShell\v1.0\`) mais
+   `WINEDEBUG` le dit sans détour : `fixme:powershell:wmain stub.` — il
+   affiche ses arguments dans le journal et sort, sans jamais rien exécuter.
+2. **Le vrai PowerShell 7 (`pwsh.exe`, .NET 8, distribué en ZIP portable par
+   Microsoft/GitHub, aucune dépendance UWP) charge et s'exécute réellement
+   sous ce Proton** — `AmsiInitialize`, `AmsiOpenSession`, `AmsiCloseSession`
+   : la trace montre le vrai moteur PowerShell tourner de bout en bout, sans
+   la moindre exception, contrairement au Store. **Mais aucune sortie
+   n'atteint jamais stdout, un fichier, ni le terminal hérité** — testé dans
+   les trois formes, trois fois de suite, toujours `exit 0`, toujours muet.
+
+**Ce silence n'est pas une impasse : c'est un bogue déjà nommé par la
+communauté.** Recherche web faite après la mesure : `PietJankbal/
+powershell-wrapper-for-wine` documente exactement ce symptôme et installe
+**ConEmu** aux côtés de PowerShell « pour contourner un bogue précis de
+Wine » sur la sortie console des applications .NET Core. Le même auteur
+maintient **`PietJankbal/Chocolatey-for-wine`** — un installateur qui pose
+PowerShell 7 + ConEmu + Chocolatey dans un préfixe Wine, avec des exemples
+réels (`choco install chromium`, `choco search --exact microsoft-edge
+--all`). La documentation officielle de Chocolatey elle-même a une page
+« Running on Non-Windows Systems ».
+
+**Code Noir, nommé avant de trancher :** `Chocolatey-for-wine` est un projet
+à un seul mainteneur, pas un éditeur établi — mais ce qu'il POSE dans le
+préfixe (PowerShell, Chocolatey, ConEmu) sont trois outils légitimes et
+largement connus ; le code tiers lui-même n'est qu'une colle d'installation,
+inspectable (`main.c`, `install_pwshwrapper.c`, tout sur GitHub). Risque
+modéré, pas nul — plus proche de la famille « petit outil communautaire
+non signé » que d'un binaire propriétaire sans source. **Avertissement du
+projet lui-même, à respecter à la lettre** : ne jamais relancer son
+installateur une seconde fois sur un préfixe où Chocolatey a déjà réussi à
+installer quelque chose.
+
+Sources ajoutées : [powershell-wrapper-for-wine](https://github.com/PietJankbal/powershell-wrapper-for-wine),
+[Chocolatey-for-wine](https://github.com/PietJankbal/Chocolatey-for-wine),
+[PowerShell releases (GitHub)](https://github.com/PowerShell/PowerShell/releases)
+
+Ce que S offre déjà, sans rien installer de neuf : poser un `.exe`/`.msi`
+et double-cliquer, `s-menu-windows` moissonne le raccourci — ça reste la
+voie la plus simple pour un logiciel dont on a déjà l'installateur. Chocolatey
+répondrait à un besoin différent : installer par NOM, sans avoir
+l'installateur sous la main.
+
+### Addendum, la même nuit — essayé pour de vrai, et l'hypothèse tombe : ni sur cette machine, ni ce soir
+
+L'utilisateur a demandé l'essai réel : « oui ». **Jamais sur le vrai Windows
+de S** — le README de `Chocolatey-for-wine`, lu avant d'exécuter quoi que ce
+soit, porte un avertissement explicite jamais vu avant de le télécharger :
+*« Do NOT use on existing wineprefix, only on fresh new created prefix!
+[...] If you have any dotnet version already installed [...] it will likely
+fail, and even if it succeeds, you'll likely end up with a broken
+prefix. »* — exactement l'état du vrai préfixe de S (.NET 4.x réel déjà
+posé, quatre logiciels réels en usage). Question reposée à l'utilisateur,
+qui a choisi : un second préfixe Wine, **jetable**, rien que pour cet essai.
+
+**Chaîne complète éprouvée, jusqu'à l'échec réel :**
+
+1. Archive `Chocolatey-for-wine.7z` (v0.5c.765) téléchargée ; SHA-256
+   comparé à celui que GitHub calcule lui-même sur l'objet — identique.
+2. `choc_install.ps1` (857 lignes) lu en entier avant exécution : aucun
+   appel réseau suspect, aucune commande encodée en base64, les seules URL
+   sont un certificat racine DigiCert (pour réparer le magasin TLS de
+   Wine, un défaut déjà documenté) et des liens d'attribution en
+   commentaire. Rien qui ressemble à du Code Noir.
+3. Un second préfixe Wine créé (`WINEPREFIX` distinct, GE-Proton11,
+   `ntsync: up and running` confirmé) — jamais le préfixe réel.
+4. `ChoCinstaller_0.5a.765.exe /q` lancé dedans. Il a réellement travaillé :
+   dépaquetage du `c_drive.7z` embarqué (12 dossiers, 14 fichiers), du vrai
+   paquet `chocolatey.2.6.0.nupkg`, puis d'une archive de 2,37 Go — jusqu'à :
+
+```
+Cannot get symbol u_charsToUChars from libicuuc
+Error: 127
+```
+
+**La cause, mesurée et non supposée** : Fedora 44 sert `libicuuc.so.77`
+(paquet `libicu-77.1-3.fc44`), qui n'exporte **que** le symbole versionné
+`u_charsToUChars_77` — vérifié par `nm -D` sur la vraie bibliothèque de
+cette machine. Un composant de Wine (son intégration ICU) appelle le nom
+**nu**, `u_charsToUChars`, que cette version d'ICU ne fournit plus sous
+cette forme. **Un défaut Wine/Fedora réel, indépendant de S** — ni
+Chocolatey ni PowerShell n'ont fini de s'installer dans le préfixe jetable
+après cet échec, vérifié : ni `ProgramData\chocolatey`, ni
+`Program Files\Powershell` n'existent.
+
+**Le mérite de l'essai reste entier malgré l'échec** : il confirme que ce
+n'est PAS le même mur que le Store (aucune exception WinRT, aucun blocage
+structurel) — c'est un accroc de version entre l'ICU très récent de
+Fedora 44 et l'intégration ICU de Wine, la même famille de panne que le
+silence de `pwsh.exe` mesuré plus haut dans cette même nuit (l'hypothèse la
+plus probable, non confirmée davantage : les deux partagent la même cause
+ICU). **Une hypothèse réfutée par la mesure est un bon résultat** — elle
+ferme cette piste précise (cet installateur, sur cette version de Fedora,
+ce soir) plutôt que de laisser un doute.
+
+**Le préfixe jetable n'a jamais touché le vrai Windows de S** — vérifié :
+aucun fichier sous le vrai `$S_WIN_PFX` n'a bougé pendant tout l'essai.
+
+### Ce que cette passe ne prouve pas
+
+- **Aucun contournement du défaut ICU n'a été cherché** — un lien symbolique
+  `u_charsToUChars -> u_charsToUChars_77` réglerait peut-être le symptôme
+  précis vu ce soir, mais ce serait une rustine fragile et propre à cette
+  version d'ICU, pas un correctif à poser dans l'image de S sans le
+  comprendre mieux.
+- **`Microsoft Store Installer.exe` reste dans `~/Téléchargements`**, sans
+  effet sur la machine — ni lancé de nouveau ni supprimé au-delà des essais
+  de diagnostic. Le préfixe jetable, le ZIP de PowerShell 7 et l'archive
+  Chocolatey-for-wine vivent tous dans le scratchpad de session, jamais
+  posés dans le vrai préfixe.
+
+---
+
+## 2026-08-30, tard le soir — le correctif du 30 août contre la bulle voleuse de focus cassait le reste : plus une fenêtre ne se baissait
+
+**PREUVE :** reproduit deux fois en direct sur cette machine, sur le
+mécanisme réellement déployé. Avant correctif : demander l'activation de la
+fenêtre de bureau (`workspace.activeWindow = <Constellation>`) laisse
+`workspace.activeWindow` égal à Visual Studio Code une seconde plus tard —
+annulé tout seul. Après avoir rechargé le rapporteur corrigé, à chaud, sans
+redémarrer Constellation : la même demande tient,
+`workspace.activeWindow` reste `s-constellation | Constellation`.
+
+### Le signalement de l'utilisateur, mot pour mot
+
+« les fenêtres ne se baissent plus et c'est pratiquement impossible d'aller
+sur la constellation à moins d'être chanceux ». Rôle Voyeur invoqué —
+mesurer avant de deviner.
+
+### La fausse piste, écartée par la mesure avant d'écrire une ligne
+
+Rien dans le travail de la session en cours (copier/couper/coller,
+« forcer l'arrêt », « ouvrir avec… ») n'était en cause : `diff` entre les
+fichiers déployés (`/usr/lib/s/fenetres.py`, les QML) et la copie du dépôt
+montre que le déployé ne porte AUCUN de ces ajouts — Constellation n'avait
+pas redémarré depuis, et ces ajouts sont de toute façon purement additifs
+(rien ne touchait `activer()`, `_ranger()`, `_veiller()`, ni le QML de la
+barre existant). Le mode de veille est `"non"` sur cette machine
+(`reglages.json`), donc `_veiller()` ne pouvait pas non plus être en cause —
+elle retourne tout de suite dans ce mode.
+
+### La vraie cause, isolée en rejouant le script de kwin, pas en le relisant
+
+Rejeu du script exact que `fenetres.activer(ident, true)` (la branche
+« minimiser ») produit, contre une vraie fenêtre VS Code active :
+
+```
+avant = false   (min. pas encore posee)
+apres = false   (min. TOUJOURS pas posee, alors que le script vient
+                 de faire « l[i].minimized = true »)
+```
+
+Suivi d'une reproduction du symptôme rapporté, directe : demander
+`workspace.activeWindow = <fenêtre de bureau Constellation>` — la vraie
+requête que fait `activerBureau()` — puis relire `workspace.activeWindow`
+une seconde après, depuis un script séparé : **`code`, pas
+`s-constellation`.** L'activation du bureau était annulée toute seule,
+dans la seconde.
+
+**La cause vit dans `fenetres.js`, dans le correctif du même 30 août contre
+la bulle de notification qui vole le focus** (« LA BULLE VOLE
+L'ACTIVATION, MALGRE `Qt.WindowDoesNotAcceptFocus` »). Ce correctif
+écoutait `workspace.windowActivated` et, dès qu'une fenêtre de
+Constellation était activée, rebasculait aussitôt vers la dernière
+« vraie » fenêtre — sur la seule base de `resourceClass === "s-constellation"`.
+
+**Or les QUATRE fenêtres de Constellation partagent ce même
+`resourceClass`** — le bureau, la barre, la barre latérale, ET la bulle de
+notification. Le garde-fou écrit pour une seule d'entre elles (la bulle)
+matchait les quatre. Toute activation légitime du bureau —
+`activerBureau()`, appelée par le menu Démarrer et par tout clic sur la
+barre — se faisait donc annuler par son propre garde-fou, dans l'instant
+même où on la demandait. Et pour une fenêtre qu'on minimise : kwin fait
+parfois transiter l'activation par le bureau le temps de choisir la
+suivante — assez bref pour ne rien montrer à l'écran, assez long pour que
+ce même gestionnaire le voie et rebascule vers la fenêtre qu'on venait
+justement de ranger. D'où « pratiquement impossible, à moins d'être
+chanceux » : ça dépendait de si cette transition intermédiaire par le
+bureau avait ou non le temps de se produire.
+
+### Le correctif — distinguer la bulle des trois autres, par le titre
+
+`regles-kwin.py` porte déjà `TITRE_BULLE = "S - notification"`, la même
+chaîne pour les quatre fenêtres au niveau des règles kwin persistantes.
+`fenetres.js` (un script JS indépendant, qui ne partage rien avec le
+Python) la recopie à la main dans une nouvelle fonction
+`estBulleNotification(f)`, qui exige la classe **et** ce titre précis —
+plus large `estConstellation(f)` seul.
+
+Le gestionnaire de `windowActivated` ne rebascule plus que sur la bulle ;
+le bureau et la barre gardent le droit d'être activés. `derniereFenetreReelle`,
+elle, continue d'ignorer les quatre fenêtres de Constellation pour son
+propre compte — sinon, le jour où la bulle volerait vraiment le focus, on
+rebasculerait vers le bureau au lieu d'une vraie application.
+
+### Éprouvé dans les deux sens, sur cette machine, avant et après le correctif
+
+| | Avant | Après |
+|---|---|---|
+| `estBulleNotification("Constellation")` | n'existait pas | `false` |
+| `estBulleNotification("S - barre")` | n'existait pas | `false` |
+| `estBulleNotification("S - barre laterale")` | n'existait pas | `false` |
+| Activer le bureau, relire 1 s après | reverti vers VS Code | reste `Constellation` |
+| Minimiser VS Code, relire 1 s après | reste `min=false` | `min=true`, tient |
+
+**Appliqué à chaud sur cette machine**, en rechargeant le script résident
+`s-fenetres` (`unloadScript` puis `loadScript` sur le fichier corrigé du
+dépôt, `start`) — sans redémarrer Constellation, sans perdre les fenêtres
+ouvertes. L'utilisateur devrait retrouver un bureau accessible et des
+fenêtres qui se rangent immédiatement, sans attendre une construction.
+
+### Ce que cette passe ne prouve pas
+
+- **La bulle de notification elle-même n'a pas été redéclenchée** pour
+  vérifier que `estBulleNotification` la reconnaît en vrai — son titre est
+  recopié depuis `regles-kwin.py::TITRE_BULLE`, jamais mesuré une seconde
+  fois sur une vraie bulle affichée pendant cette passe.
+- **Rien n'est dans l'image.** Le correctif tourne à chaud dans le kwin de
+  cette session depuis le fichier du dépôt ; il faut une construction et un
+  `bootc upgrade` pour qu'il survive au prochain redémarrage — et tant que
+  ce n'est pas fait, un redémarrage de la machine ramènerait le bogue.
+
+---
+
 ## 2026-08-30, soir — la fenêtre absente de Cursor n'a jamais été un défaut de S
 
 **PREUVE :** `steam_proton | Cursor Agents | min=false` — une vraie fenêtre

@@ -23,6 +23,9 @@ var GLYPHES = {
     "i-cadenas": ["M6.5 10.5H17.5A2 2 0 0 1 19.5 12.5V18.5A2 2 0 0 1 17.5 20.5H6.5A2 2 0 0 1 4.5 18.5V12.5A2 2 0 0 1 6.5 10.5Z", "M8 10.5V7a4 4 0 0 1 8 0v3.5"],
     "i-code": ["m8 8-5 4 5 4M16 8l5 4-5 4M14 5l-4 14"],
     "i-disque": ["M4 6A8 3 0 1 1 20 6A8 3 0 1 1 4 6", "M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"],
+    // Trois glissieres de mixage a hauteurs differentes — l'icone commune
+    // d'un egaliseur. Ajoute le 2026-08-30, pour l'etoile « Egaliseur ».
+    "i-egaliseur": ["M6 4v16", "M12 4v16", "M18 4v16", "M3.5 9h5", "M9.5 15h5", "M15.5 7h5"],
     "i-doc": ["M6 3h8l4 4v14H6z", "M14 3v4h4M9 12h6M9 16h6"],
     "i-dossier": ["M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
     "i-ecran": ["M4.5 4H19.5A2 2 0 0 1 21.5 6V15A2 2 0 0 1 19.5 17H4.5A2 2 0 0 1 2.5 15V6A2 2 0 0 1 4.5 4Z", "M8.5 20.5h7M12 17v3.5"],

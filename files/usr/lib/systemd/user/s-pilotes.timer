@@ -1,0 +1,13 @@
+[Unit]
+Description=S - verification hebdomadaire des pilotes materiels (fwupd)
+
+[Timer]
+OnCalendar=weekly
+# La session n'est pas forcement ouverte au moment prevu (machine eteinte) :
+# Persistent=true rattrape au demarrage de session suivant plutot que de
+# perdre la semaine.
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=s-session.target

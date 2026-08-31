@@ -1,0 +1,63 @@
+#!/usr/bin/bash
+# L'accueil de S — une seule fois, a la toute premiere session.
+#
+# « Creation de compte Linux » n'a rien a faire ici : plasma-setup.service
+# tourne « Before=display-manager.service », donc aucune session graphique —
+# et donc aucun s-session.target, qui est ce qui lance ce script — ne peut
+# exister avant qu'un compte ait ete cree. On ne reimplemente pas ce que
+# l'amont maintient deja (voir CLAUDE.md, 2026-08-20 : « la creation de
+# compte a l'installation existait deja »).
+#
+# Ce script fait ce qui reste, une seule fois dans la vie du compte : ouvrir
+# les deux comptes en ligne que Windows et Android voudront tot ou tard
+# (Microsoft, Google — DIFFERENT de la certification Android que
+# s-play-store fait deja, qui vise un identifiant d'appareil precis, pas une
+# connexion generale), et lancer la premiere recherche de pilotes materiels.
+# Meme forme que s-play-store : un marqueur dans $S_ETAT, jamais un service
+# qui reharcele a chaque demarrage.
+set -uo pipefail
+source /usr/bin/s-monde
+
+MARQUE="$S_ETAT/accueil-fait"
+[ "${1:-}" = "--force" ] && rm -f "$MARQUE"
+[ -f "$MARQUE" ] && exit 0
+
+# --- Comptes en ligne -----------------------------------------------------
+# Une fenetre ordinaire, PAS --app= : contrairement a RapidO ou Gemini, cette
+# fenetre doit rester un vrai navigateur ensuite (courriel, calendrier,
+# OneDrive, Drive...). Vivaldi pose les deux adresses d'un seul lancement en
+# deux onglets d'une meme fenetre ; le repli xdg-open n'a pas cette capacite,
+# donc il ouvre les deux separement.
+#
+# « vivaldi-stable » (le nom de commande) N'EST PAS employe : mesure en
+# direct le 2026-08-30, /usr/bin/vivaldi-stable est un lien MORT sur cette
+# machine (-> /opt/vivaldi/vivaldi -> /var/opt/vivaldi/vivaldi, et
+# /var/opt/vivaldi est un vrai dossier — les codecs proprietaires — pas le
+# lien que tmpfiles.d est cense y poser). Meme defaut deja nomme le
+# 2026-08-23 pour Gemini et RapidO ; on prend le meme remede : le chemin
+# reel dans l'image, jamais le pont /opt qui peut se rompre.
+for n in /usr/lib/opt/vivaldi/vivaldi xdg-open; do
+    if command -v "$n" >/dev/null 2>&1; then
+        if [ "$n" = "/usr/lib/opt/vivaldi/vivaldi" ]; then
+            "$n" "https://account.microsoft.com" "https://accounts.google.com" \
+                >/dev/null 2>&1 &
+        else
+            "$n" "https://account.microsoft.com" >/dev/null 2>&1 &
+            "$n" "https://accounts.google.com" >/dev/null 2>&1 &
+        fi
+        break
+    fi
+done
+
+s_dire "Bienvenue sur S" \
+"Deux onglets viennent de s'ouvrir : connecte-toi a ton compte Microsoft \
+(utile aux logiciels Windows) et a ton compte Google (utile a Android, au \
+Play Store et a la synchronisation). Rien n'est obligatoire — ce sont tes \
+comptes, ta decision, a tout moment."
+
+# --- Pilotes materiels ------------------------------------------------------
+# Delegue a s-pilotes, qui sert aussi la verification hebdomadaire — un seul
+# endroit qui sait parler a fwupd, jamais deux qui pourraient diverger.
+/usr/bin/s-pilotes || true
+
+touch "$MARQUE"

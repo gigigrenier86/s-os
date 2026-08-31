@@ -1,0 +1,11 @@
+[Unit]
+Description=S - verifie les mises a jour materielles disponibles (fwupd)
+After=s-session.target
+
+[Service]
+Type=oneshot
+# Recherche et notifie seulement — jamais --appliquer. Voir l'en-tete de
+# /usr/bin/s-pilotes : ecrire un firmware est un geste voulu, pas un service
+# de fond.
+ExecStart=/usr/bin/s-pilotes
+TimeoutStartSec=120

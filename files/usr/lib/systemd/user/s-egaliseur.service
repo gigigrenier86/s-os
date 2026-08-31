@@ -1,0 +1,26 @@
+[Unit]
+Description=S - l'egaliseur audio resident
+Documentation=https://github.com/wwmm/easyeffects
+
+# MEME PATRON QUE s-windows.service, POUR LA MEME RAISON. L'etoile
+# « Egaliseur » de la barre laterale pilote EasyEffects par sa ligne de
+# commande (« easyeffects --bypass ... ») — et cette commande a besoin d'un
+# exemplaire deja en vie pour repondre. Sans unite residente, le tout premier
+# clic sur l'etoile devrait d'abord attendre le demarrage complet d'une
+# application Qt/PipeWire avant de pouvoir lire ou changer quoi que ce soit.
+#
+# « --hide-window » : l'etoile bascule les effets, pas une fenetre. La
+# fenetre complete ne s'ouvre que si l'utilisateur l'allume — voir
+# reglages.py::_regler_egaliseur, qui relance easyeffects SANS ce drapeau
+# pour faire remonter la fenetre de l'exemplaire deja en vie.
+PartOf=s-session.target
+After=s-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/easyeffects --service-mode --hide-window
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=s-session.target
