@@ -958,19 +958,55 @@ ApplicationWindow {
             }
         }
 
-        // La recherche filtre sur le nom ET sur le commentaire : « navigateur »
-        // doit trouver Vivaldi meme si le mot n'est pas dans son nom.
+        // La recherche universelle classe par pertinence : correspondance exacte,
+        // debut de nom, corps du nom, description/commentaire, monde, puis catalogue unifie.
         function filtrees() {
             var q = recherche.text.toLowerCase().trim();
             if (q === "") return bureau.donnees.etoiles;
-            var sortie = [];
+            var exacts = [];
+            var debutNom = [];
+            var contientNom = [];
+            var contientDesc = [];
+            var contientMonde = [];
+
             for (var i = 0; i < bureau.donnees.etoiles.length; i++) {
                 var e = bureau.donnees.etoiles[i];
-                if (e.nom.toLowerCase().indexOf(q) >= 0 ||
-                    (e.txt || "").toLowerCase().indexOf(q) >= 0)
-                    sortie.push(e);
+                var nomMin = (e.nom || "").toLowerCase();
+                var descMin = (e.txt || "").toLowerCase();
+                var srcMin = (e.src || "").toLowerCase();
+
+                if (nomMin === q) {
+                    exacts.push(e);
+                } else if (nomMin.startsWith(q)) {
+                    debutNom.push(e);
+                } else if (nomMin.indexOf(q) >= 0) {
+                    contientNom.push(e);
+                } else if (descMin.indexOf(q) >= 0) {
+                    contientDesc.push(e);
+                } else if (srcMin.indexOf(q) >= 0) {
+                    contientMonde.push(e);
+                }
             }
-            return sortie;
+
+            // Suggestions du catalogue unifie pour applications non installees
+            var catalogueRecommandes = [];
+            if (bureau.donnees.catalogue && bureau.donnees.catalogue.length > 0) {
+                var nomsInstalles = exacts.concat(debutNom).concat(contientNom).map(function(item) {
+                    return (item.nom || "").toLowerCase();
+                });
+                for (var j = 0; j < bureau.donnees.catalogue.length; j++) {
+                    var cat = bureau.donnees.catalogue[j];
+                    var catNomMin = (cat.nom || "").toLowerCase();
+                    var catDescMin = (cat.txt || "").toLowerCase();
+                    if (nomsInstalles.indexOf(catNomMin) < 0) {
+                        if (catNomMin.indexOf(q) >= 0 || catDescMin.indexOf(q) >= 0) {
+                            catalogueRecommandes.push(cat);
+                        }
+                    }
+                }
+            }
+
+            return exacts.concat(debutNom).concat(contientNom).concat(contientDesc).concat(contientMonde).concat(catalogueRecommandes);
         }
     }
 

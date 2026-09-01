@@ -96,6 +96,14 @@ else
 fi
 
 # --------------------------------------------------------------------------
+# PRECHAUFFAGE DISCRET DES REPERTOIRES ET ETATS DE SESSION
+# --------------------------------------------------------------------------
+(
+    mkdir -p "$HOME/Partage" "${XDG_STATE_HOME:-$HOME/.local/state}/s"
+    chmod 775 "$HOME/Partage" 2>/dev/null || true
+) >/dev/null 2>&1 &
+
+# --------------------------------------------------------------------------
 # LES REGLES kwin NE SE POSENT PLUS ICI
 # --------------------------------------------------------------------------
 # Elles y etaient le 2026-08-25 au matin, pour la bulle. Il en faut une seconde

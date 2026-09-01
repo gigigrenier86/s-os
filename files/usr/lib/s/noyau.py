@@ -454,14 +454,27 @@ def sauver_placees(placees):
 # --------------------------------------------------------------------------
 
 def lancer(entree):
-    """Lancer par le .desktop lui-meme, jamais par une commande recomposee.
+    """Lancer par le .desktop lui-meme ou par l'action du catalogue unifie.
 
     « gio launch » applique les regles du fichier — repertoire de travail,
     Terminal=true, variables — que reconstruire a la main ferait perdre. Le
     repli n'existe que si gio manquait : on retire alors les codes de champ
     (%f %u %i...), qui sinon arriveraient tels quels au programme.
     """
-    fichier = entree["fichier"]
+    if not entree:
+        return False, "aucune etoile fournie"
+    if entree.get("action"):
+        cmd = shlex.split(entree["action"])
+        try:
+            subprocess.Popen(cmd, start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True, "action lancee"
+        except OSError as err:
+            return False, str(err)
+
+    fichier = entree.get("fichier")
+    if not fichier:
+        return False, "cette etoile n'a pas de fichier executable"
     if chemin_executable("gio"):
         cmd = ["gio", "launch", fichier]
     else:
@@ -1207,11 +1220,35 @@ def composer_etoiles():
             "txt": a["txt"],
             "compte": usage.get(a["id"], 0),
         })
+
+    # Catalogue unifie : applications recommandees par moteur optimal
+    entrees_catalogue = []
+    try:
+        sys.path.insert(0, os.path.dirname(__file__))
+        import catalogue
+        for cle, info in catalogue.CATALOGUE_UNIFIE.items():
+            entrees_catalogue.append({
+                "id": "catalogue:%s" % cle,
+                "nom": info["nom"],
+                "src": info["moteur"],
+                "ico": info["ico"],
+                "ep": 0,
+                "epingle": 0,
+                "img": "",
+                "txt": info["description"],
+                "action": info["action"],
+                "compte": 0,
+                "catalogue": 1,
+            })
+    except Exception:
+        pass
+
     return {
         "etoiles": etoiles,
         "usage": usage,
         "placees": placees,
         "epingles": epinglees,
+        "catalogue": entrees_catalogue,
         # LES FICHIERS SONT UNE CLEF A PART, ET C'EST DELIBERE. Les verser dans
         # « etoiles » les ferait monter dans le menu Demarrer, qui liste les
         # applications de la machine — un menu ou l'on trouverait les captures

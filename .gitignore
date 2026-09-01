@@ -4,9 +4,10 @@
 *.qcow2
 *.raw
 
-# Bruit d'editeur
+# Bruit d'editeur et agents
 .vscode/
 .idea/
+.sixth/
 *~
 
 # Les caches de Python : produits en essayant le noyau, jamais livres.

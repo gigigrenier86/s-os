@@ -210,10 +210,29 @@ function suivreGeometrie(f) {
     } catch (e2) {
     }
     try {
-        f.fullScreenChanged.connect(function () { borner(f); });
+        f.fullScreenChanged.connect(function () {
+            if (!f.fullScreen) {
+                borner(f);
+            }
+            envoyer();
+        });
     } catch (e3) {
     }
     borner(f);
+}
+
+function estPleinEcran(f) {
+    if (!f) return false;
+    if (f.fullScreen === true) return true;
+    if (f.normalWindow && !f.minimized && String(f.resourceClass) !== "s-constellation") {
+        var z = null;
+        try { z = workspace.clientArea(KWin.FullScreenArea, f); } catch (e0) { }
+        var g = f.frameGeometry;
+        if (z && g && g.x <= z.x && g.y <= z.y && g.width >= z.width - 2 && g.height >= z.height - 2) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function estMontrable(f) {
@@ -253,11 +272,10 @@ function decrire(f, montrable) {
         pid: (f.pid || 0),
         // LE PLEIN ECRAN SORT D'ICI PARCE QUE PERSONNE D'AUTRE NE PEUT LE
         // SAVOIR. Un client Wayland ne voit pas l'etat des fenetres des
-        // autres — c'est la raison meme de ce script. La barre laterale s'en
-        // sert pour ne pas surgir par-dessus un jeu : une languette qui
-        // s'ouvre au bord de l'ecran pendant une partie est exactement ce
-        // qu'on ne veut pas.
-        plein: (f.fullScreen === true)
+        // autres — c'est la raison meme de ce script. La barre et la barre
+        // laterale s'en servent pour s'effacer completement pendant une
+        // video ou un jeu en plein ecran (Vivaldi, YouTube, jeux).
+        plein: estPleinEcran(f)
     };
 }
 
@@ -309,6 +327,7 @@ function suivre(f) {
         f.captionChanged.connect(envoyer);
         f.minimizedChanged.connect(envoyer);
         f.skipTaskbarChanged.connect(envoyer);
+        f.fullScreenChanged.connect(envoyer);
     } catch (e) {
         // Une propriete absente dans une version de kwin ne doit pas emporter
         // le reste du branchement : on garde ce qui a marche.

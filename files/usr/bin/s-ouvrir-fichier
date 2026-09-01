@@ -1,0 +1,76 @@
+#!/usr/bin/bash
+# S — Pont universel de glisser-déposer et d'ouverture de fichiers.
+#
+# Permet de passer un fichier à une application sans friction, quel que soit le monde :
+# - Si l'application cible est Windows (.exe / Proton) : traduit le chemin en Z:\...
+# - Si l'application cible est Android (Waydroid) : synchronise dans ~/Partage et notifie
+# - Si l'application cible est Linux : lance directement avec le chemin natif.
+set -euo pipefail
+source /usr/bin/s-monde
+
+if [ $# -lt 1 ]; then
+    echo "Usage: s-ouvrir-fichier <chemin_fichier> [commande_ou_application_cible]" >&2
+    exit 1
+fi
+
+FICHIER="$1"
+CIBLE="${2:-}"
+
+[ -e "$FICHIER" ] || s_echec "Fichier introuvable" "Le fichier « $FICHIER » n'existe pas."
+
+# Résoudre le chemin absolu
+FICHIER_ABS="$(realpath "$FICHIER")"
+
+# Déterminer le monde cible
+MONDE="linux"
+if [ -n "$CIBLE" ]; then
+    CIBLE_MIN="$(echo "$CIBLE" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$CIBLE_MIN" =~ s-ouvrir-exe|umu-run|wine|proton|\.exe ]]; then
+        MONDE="windows"
+    elif [[ "$CIBLE_MIN" =~ waydroid|s-android ]]; then
+        MONDE="android"
+    fi
+fi
+
+case "$MONDE" in
+    windows)
+        # Convertir en chemin Windows sous Proton (Z:\...)
+        CHEMIN_WIN="Z:${FICHIER_ABS//\//\\}"
+        if [ -n "$CIBLE" ]; then
+            exec /usr/bin/s-ouvrir-exe "$CIBLE" "$CHEMIN_WIN"
+        else
+            s_dire "S — Pont Windows" "Fichier prêt pour Windows : $CHEMIN_WIN"
+        fi
+        ;;
+
+    android)
+        # Déposer dans ~/Partage pour visibilité immédiate dans Android
+        PARTAGE="$HOME/Partage"
+        mkdir -p "$PARTAGE"
+        NOM_BASE="$(basename "$FICHIER_ABS")"
+        DEST_PARTAGE="$PARTAGE/$NOM_BASE"
+
+        if [ "$FICHIER_ABS" != "$DEST_PARTAGE" ]; then
+            cp -f "$FICHIER_ABS" "$DEST_PARTAGE" 2>/dev/null || ln -sf "$FICHIER_ABS" "$DEST_PARTAGE"
+        fi
+
+        # Notifier l'utilisateur
+        s_dire "S — Pont Android" "Fichier « $NOM_BASE » synchronisé dans Partage." phone
+
+        if [ -n "$CIBLE" ]; then
+            exec /usr/lib/s/android-lancer.sh "$CIBLE" "/sdcard/Partage/$NOM_BASE" 2>/dev/null || true
+        fi
+        ;;
+
+    linux)
+        if [ -n "$CIBLE" ]; then
+            exec $CIBLE "$FICHIER_ABS"
+        else
+            if command -v gio >/dev/null 2>&1; then
+                exec gio open "$FICHIER_ABS"
+            else
+                exec xdg-open "$FICHIER_ABS"
+            fi
+        fi
+        ;;
+esac

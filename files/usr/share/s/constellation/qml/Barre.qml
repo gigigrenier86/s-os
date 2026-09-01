@@ -149,6 +149,14 @@ Window {
 
     onWidthChanged: borner()
     onHeightChanged: borner()
+    onEffaceChanged: {
+        if (efface) {
+            if (typeof pont !== "undefined" && pont && pont.bornerBarre)
+                pont.bornerBarre(barre, 0);
+        } else {
+            borner();
+        }
+    }
     Component.onCompleted: borner()
 
     // LA BANDE VISIBLE EST EN BAS, LE RESTE DE LA FENETRE EST DU VIDE. Ce vide
