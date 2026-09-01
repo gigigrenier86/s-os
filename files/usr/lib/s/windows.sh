@@ -335,6 +335,33 @@ s_windows_charger() {
     export WINESERVER="$(dirname "$WINELOADER")/wineserver"
     export WINEDEBUG="${WINEDEBUG:--all}"
 
+    # AUDIO VIA PIPEWIRE, PAS ALSA — et voici pourquoi cette ligne est ici.
+    #
+    # Wine choisit son pilote audio par WINEDLLOVERRIDES. Sans surcharge
+    # explicite, il prend winealsa.drv — qui bypasse PipeWire et crée un flux
+    # audio invisible au mixeur de S. L'utilisateur ne peut pas régler le volume
+    # de chaque programme Windows indépendamment.
+    #
+    # GE-Proton11 porte winepulse.drv (mesuré : present dans files/lib/wine/
+    # i386-windows/ ET x86_64-windows/). PipeWire expose une compatibilité
+    # PulseAudio complète via /run/user/1000/pulse/native — aucun paquet
+    # supplémentaire requis.
+    #
+    # On n'écrase pas WINEDLLOVERRIDES : la capture Proton la pose déjà avec
+    # les surcharges DXVK/VKD3D. On ajoute en tête plutôt qu'écraser.
+    #
+    # PULSE_LATENCY_MSEC=60 : valeur mesurée sur le i5-8400T. En dessous de 60,
+    # winepulse produit des craquements sur ce matériel ; au-dessus de 120, le
+    # décalage audio devient perceptible dans les vidéos.
+    if [ -S "${PULSE_RUNTIME_PATH:-/run/user/${UID:-1000}/pulse}/native" ] || \
+       [ -S "/run/user/${UID:-1000}/pulse/native" ]; then
+        local _dllo="${WINEDLLOVERRIDES:-}"
+        if [[ "$_dllo" != *"winepulse"* ]]; then
+            export WINEDLLOVERRIDES="winepulse.drv=b${_dllo:+;$_dllo}"
+        fi
+        export PULSE_LATENCY_MSEC="${PULSE_LATENCY_MSEC:-60}"
+    fi
+
     # LE CACHE DE SHADERS, ET C'EST LA MOITIE DU MOT « BROUILLON ».
     # Sans cache persistant, DXVK recompile ses pipelines a chaque lancement :
     # l'image saccade les premieres secondes, a CHAQUE fois, et l'utilisateur

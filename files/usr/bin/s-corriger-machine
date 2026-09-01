@@ -60,7 +60,26 @@ for compte in "${COMPTES[@]}"; do
         dire "ECHEC : impossible d'ajouter $compte a wheel"
     fi
 
-    # --- 2. L'avatar, et pourquoi il compte plus qu'il n'y parait -----------
+    # --- 1b. Groupes matériels pour Android et périphériques -----------------
+    # CAMÉRA → ANDROID : /dev/video0 appartient au groupe « video ».
+    # Sans ce groupe, le bind-mount de /dev/video0 dans le conteneur LXC
+    # d'Android est présent mais inaccessible — Android Camera2 échoue
+    # silencieusement. Même raison pour « input » (manettes, tablettes).
+    # Mesure de l'absence : `id RyuRex | grep video` → absent sur la machine
+    # de développement, alors que /dev/video0 existe (uvcvideo chargé).
+    for grp in video input; do
+        if getent group "$grp" >/dev/null 2>&1; then
+            if id -nG "$compte" 2>/dev/null | tr ' ' '\n' | grep -qx "$grp"; then
+                dire "$compte est deja dans $grp"
+            elif usermod -aG "$grp" "$compte"; then
+                dire "$compte ajoute a $grp — webcam/manette accessible a la prochaine connexion"
+            else
+                dire "AVERTISSEMENT : impossible d'ajouter $compte a $grp (groupe peut-etre absent)"
+            fi
+        fi
+    done
+
+
     #
     # Le logo de S est grave dans le fond d'ecran de connexion, faute de tout
     # autre vecteur : ce greeter n'a aucun systeme de themes et ne dessine ni

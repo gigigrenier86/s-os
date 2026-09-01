@@ -130,3 +130,19 @@ echo "demarrage automatique et icones Android : fichiers verifies presents."
 # graphique (graphical-session.target) n'existe.
 systemctl --global enable s-android-applications.service s-android-demarrer.service
 echo "Android : demarrage automatique et icones par application actives pour chaque compte."
+
+# --------------------------------------------------------------------------
+# LES NOTIFICATIONS ANDROID → BULLE S — 2026-09-01
+# --------------------------------------------------------------------------
+# Meme patron que le presse-papiers et les icones : service Binder
+# « waydroidnotification » enregistre sur /dev/binder, appele par le greffon
+# Android existant dans system.img a chaque notify(). Le service hote
+# (android-notifications.py) reçoit les champs (app, titre, corps, icone
+# base64) et les retransmet via notify-send.
+test -x /usr/lib/s/android-notifications.py \
+    || { echo "ECHEC : android-notifications.py absent ou non executable." >&2; exit 1; }
+test -f /usr/lib/systemd/user/s-android-notifications.service \
+    || { echo "ECHEC : l'unite de notifications Android est absente." >&2; exit 1; }
+
+systemctl --global enable s-android-notifications.service
+echo "notifications Android : service utilisateur active pour chaque compte."
