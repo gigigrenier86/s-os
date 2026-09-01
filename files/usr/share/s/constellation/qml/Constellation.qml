@@ -38,30 +38,6 @@ ApplicationWindow {
     visibility: Window.FullScreen
     color: Theme.espace
     title: "Constellation"
-    focus: true
-
-    // Capture universelle du clavier sur le bureau :
-    // Quand l'utilisateur tape sur le clavier n'importe où sur le bureau,
-    // sans avoir préalablement cliqué sur un champ ou un menu, on ouvre
-    // directement le menu démarrer et on injecte le texte tapé dans la recherche.
-    Keys.onPressed: function (event) {
-        if (event.key === Qt.Key_Escape) {
-            if (menuDemarrer.visible) menuDemarrer.close();
-            event.accepted = true;
-            return;
-        }
-        if (event.text.length > 0 && event.text.charCodeAt(0) >= 32) {
-            if (!menuDemarrer.visible) {
-                menuDemarrer.open();
-                recherche.text = event.text;
-            } else if (!recherche.activeFocus) {
-                recherche.text = recherche.text + event.text;
-            }
-            recherche.forceActiveFocus();
-            recherche.cursorPosition = recherche.text.length;
-            event.accepted = true;
-        }
-    }
 
     // --- L'etat, tel que le noyau le rend ---------------------------------
     property var donnees: ({ etoiles: [], usage: ({}), placees: ({}), epingles: [], fichiers: [] })
@@ -210,6 +186,30 @@ ApplicationWindow {
     Item {
         id: ciel
         anchors.fill: parent
+        focus: true
+
+        // Capture universelle du clavier sur le bureau :
+        // Quand l'utilisateur tape sur le clavier n'importe où sur le bureau,
+        // sans avoir préalablement cliqué sur un champ ou un menu, on ouvre
+        // directement le menu démarrer et on injecte le texte tapé dans la recherche.
+        Keys.onPressed: function (event) {
+            if (event.key === Qt.Key_Escape) {
+                if (menuDemarrer.visible) menuDemarrer.close();
+                event.accepted = true;
+                return;
+            }
+            if (event.text.length > 0 && event.text.charCodeAt(0) >= 32) {
+                if (!menuDemarrer.visible) {
+                    menuDemarrer.open();
+                    recherche.text = event.text;
+                } else if (!recherche.activeFocus) {
+                    recherche.text = recherche.text + event.text;
+                }
+                recherche.forceActiveFocus();
+                recherche.cursorPosition = recherche.text.length;
+                event.accepted = true;
+            }
+        }
 
         // LE CLIC DROIT SUR LE VIDE NE FAISAIT RIEN, ET C'EST LA MOITIE
         // MANQUANTE DU GESTE. Le menu du 2026-08-24 ne s'ouvrait que sur une
@@ -225,7 +225,7 @@ ApplicationWindow {
             onTapped: function (evenement) {
                 var cible = ciel.childAt(evenement.position.x, evenement.position.y);
                 if (cible && cible.app !== undefined) return;
-                bureau.forceActiveFocus();
+                ciel.forceActiveFocus();
                 if (menuDemarrer.visible) menuDemarrer.close();
             }
         }
