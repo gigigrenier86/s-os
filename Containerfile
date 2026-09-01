@@ -156,6 +156,13 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/48-son.sh
 
+# GameMode — le complement du mode « Jeu » de la barre laterale. Voir
+# build_files/49-jeu.sh : rien a piloter, il s'auto-active par jeu.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/49-jeu.sh
+
 # L'ecran de connexion aux couleurs de S, et la session preselectionnee.
 # APRES les COPY, puisqu'il verifie le fond d'ecran et la session qu'ils posent.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \

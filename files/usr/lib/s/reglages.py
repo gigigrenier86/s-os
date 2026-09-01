@@ -20,6 +20,7 @@ Aucun de ces quatre n'est reecrit ici — on les appelle, et on rend ce qu'ils
 disent.
 """
 
+import grp
 import os
 import re
 import shutil
@@ -243,6 +244,28 @@ def _acl_utilisateur_presente(noeud, utilisateur):
     return any(l.startswith(motif) for l in sortie.splitlines())
 
 
+def _membres_groupe_video():
+    """Comptes qui contourneraient ce reglage par le groupe unix « video »
+    (gid 39, permission de base root:video 0660 sur /dev/video*) plutot
+    que par l'ACL nommee que ce fichier pose et retire. Vide sur cette
+    machine au 2026-09-01 — aucun second compte n'existe — mais rien ne le
+    garantit pour demain, et l'ACL ne protege qu'UN utilisateur nomme.
+    Voir CLAUDE.md, 2026-09-01, « le meme probleme est-il ailleurs »."""
+    try:
+        return [m for m in grp.getgrnam("video").gr_mem
+                if m != _utilisateur_courant()]
+    except KeyError:
+        return []
+
+
+# CE REGLAGE NE PROTEGE QUE L'UTILISATEUR LINUX COURANT, JAMAIS ANDROID.
+# Mesure du 2026-09-01 (CLAUDE.md) : le processus camera de Waydroid tourne
+# sous un uid etranger (1047 sur cette machine), sans ACL, sans membre du
+# groupe video, sans capacite DAC_OVERRIDE — le bind-mount LXC rend le
+# noeud VISIBLE dans le conteneur, jamais ACCESSIBLE. Android n'a donc
+# aujourd'hui aucun acces reel a la camera, dans aucun des deux etats de ce
+# reglage : il n'y a rien a etendre, seulement un nom a ne pas faire mentir
+# sur sa portee — d'ou « Webcam (Linux) » plutot que « Webcam » nu.
 def _webcam():
     if not _outil("getfacl") or not _outil("setfacl"):
         return None
@@ -258,7 +281,8 @@ def _webcam():
     etats = [_acl_utilisateur_presente(n, utilisateur) for n in noeuds]
     if any(e is None for e in etats):
         return None
-    return {"actif": any(etats), "nom": nom, "noeuds": noeuds}
+    return {"actif": any(etats), "nom": nom, "noeuds": noeuds,
+            "autres_comptes": _membres_groupe_video()}
 
 
 def _basculer_webcam(actif):
@@ -334,6 +358,153 @@ def _regler_ddc(code_vcp, valeur):
     _oublier("contraste")
     return (code == 0), (sortie.strip().splitlines()[-1][:120] if code and sortie
                          else "%d %%" % valeur)
+
+
+# --------------------------------------------------------------------------
+# Mode S — un seul reglage qui en bascule plusieurs a la fois
+# --------------------------------------------------------------------------
+#
+# DEMANDE DE L'UTILISATEUR LE 2026-09-01 : trois modes interchangeables,
+# « pour optimiser au maximum chaque aspect » — Travail (bureautique/code/IA),
+# Jeu, Art (dessin/rendu/creation). Aucun de ces trois mots ne designe un
+# outil de la machine ; chacun designe une COMBINAISON de leviers deja
+# separement reels :
+#
+#   - le profil tuned-adm (deja cable pour trois autres profils dans
+#     « energie » ci-dessus — on reutilise _regler_energie, jamais duplique) ;
+#   - la frequence plancher du GPU Intel (root, via pkexec — /sys est en
+#     0644/root ici, mesure sur cette machine) ;
+#   - les effets du compositeur kwin (jamais « le compositing » lui-meme :
+#     SOUS WAYLAND, kwin_wayland EST le compositeur, il n'y a rien a
+#     desactiver comme sous X11 — seuls les EFFETS individuels se coupent) ;
+#   - GameMode (build_files/49-jeu.sh), qui s'auto-active par jeu via D-Bus
+#     des qu'il est installe — rien a piloter ici, seulement a poser.
+#
+# LE SIGNAL DE LECTURE EST LE PROFIL TUNED, JAMAIS UN FICHIER D'ETAT ECRIT
+# A PART. Meme principe que « mode-android » (qui relit une propriete
+# Android plutot que de se souvenir d'un choix) : un reglage qui ment sur
+# l'etat reel de la machine est pire qu'un reglage absent. Travail et Art
+# partagent le meme profil tuned (« throughput-performance-bazzite ») — on
+# les distingue par la frequence GPU, elle aussi relue en direct.
+
+_GPU_MIN = "/sys/class/drm/card0/gt_min_freq_mhz"
+_GPU_MAX = "/sys/class/drm/card0/gt_max_freq_mhz"
+_GPU_RPN = "/sys/class/drm/card0/gt_RPn_freq_mhz"  # le plancher materiel reel
+
+_MODES = [("travail", "Travail"), ("jeu", "Jeu"), ("art", "Art")]
+
+# Effets kwin coupes en mode Jeu — identifiants verifies sur cette machine
+# (« Id » dans /usr/share/kwin-wayland/builtin-effects/*.json et
+# /usr/share/kwin/effects/*/metadata.json), jamais devines : blur et
+# translucency coutent reellement du GPU en compositing, les trois glissements
+# sont l'essentiel des animations visibles. wobblywindows est deja hors
+# service par defaut sur cette image (EnabledByDefault: false), pas la peine
+# d'y toucher.
+_EFFETS_A_COUPER = ("blur", "translucency", "slide", "slidingpopups",
+                     "slidingnotifications")
+
+
+def _lire_int_sysfs(chemin):
+    try:
+        with open(chemin, encoding="utf-8") as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _gpu_pinne_haut():
+    """None si illisible (carte differente demain), sinon vrai/faux."""
+    mn, mx = _lire_int_sysfs(_GPU_MIN), _lire_int_sysfs(_GPU_MAX)
+    if mn is None or mx is None:
+        return None
+    return mn >= mx
+
+
+def _regler_gpu(pinner_haut):
+    pkexec = _outil("pkexec")
+    if not pkexec:
+        return False, "pkexec absent"
+    mx, rpn = _lire_int_sysfs(_GPU_MAX), _lire_int_sysfs(_GPU_RPN)
+    if mx is None or rpn is None:
+        return False, "frequence GPU illisible sur cette machine"
+    cible = mx if pinner_haut else rpn
+    # _lire() ne sait pas nourrir un stdin — la redirection se fait donc
+    # DANS le sh eleve par pkexec, pas dans notre propre shell non privilegie.
+    code, sortie = _lire([pkexec, "sh", "-c",
+                          "echo %d > %s" % (cible, _GPU_MIN)], delai=8)
+    return (code == 0), (sortie.strip()[:120] or "%d MHz" % cible)
+
+
+def _regler_effets_kwin(actifs):
+    kwriteconfig6 = _outil("kwriteconfig6")
+    if not kwriteconfig6:
+        return False, "kwriteconfig6 absent"
+    ok = True
+    code, _s = _lire([kwriteconfig6, "--file", "kdeglobals", "--group", "KDE",
+                      "--key", "AnimationDurationFactor",
+                      "" if actifs else "0"])
+    ok = ok and (code == 0)
+    for effet in _EFFETS_A_COUPER:
+        code, _s = _lire([kwriteconfig6, "--file", "kwinrc", "--group", "Plugins",
+                          "--key", "%sEnabled" % effet,
+                          "true" if actifs else "false"])
+        ok = ok and (code == 0)
+    # Recharger a chaud, meme geste que regles-kwin.py — sans lui, kwin ne
+    # relirait ces fichiers qu'a la prochaine ouverture de session.
+    _lire(["busctl", "--user", "call", "org.kde.KWin", "/KWin",
+          "org.kde.KWin", "reconfigure"], delai=8)
+    return ok, ("effets actifs" if actifs else "effets reduits")
+
+
+def _mode():
+    en = _energie()
+    if en is None:
+        return None
+    gpu_haut = _gpu_pinne_haut()
+    profil = en["profil"]
+    if profil == "accelerator-performance":
+        cle = "jeu"
+    elif profil == "throughput-performance-bazzite" and gpu_haut is True:
+        cle = "art"
+    elif profil == "throughput-performance-bazzite" and gpu_haut is False:
+        cle = "travail"
+    else:
+        # Un profil touche a la main ailleurs (reglage « Energie »), ou une
+        # machine sans le meme GPU : aucun des trois modes ne correspond, et
+        # on le dit plutot que de deviner lequel s'en rapproche le plus.
+        cle = None
+    return {"mode": cle}
+
+
+def _regler_mode(cle):
+    noms = dict(_MODES)
+    if cle not in noms:
+        return False, "mode inconnu"
+    if cle == "jeu":
+        ok_e, msg_e = _regler_energie("accelerator-performance")
+        ok_g, msg_g = _regler_gpu(True)
+        ok_k, msg_k = _regler_effets_kwin(False)
+        code_a, _s = _arreter_android()
+        ok_a = (code_a == 0)
+    elif cle == "art":
+        ok_e, msg_e = _regler_energie("throughput-performance-bazzite")
+        ok_g, msg_g = _regler_gpu(True)
+        ok_k, msg_k = _regler_effets_kwin(True)
+        ok_a, msg_a = True, None
+    else:  # travail
+        ok_e, msg_e = _regler_energie("throughput-performance-bazzite")
+        ok_g, msg_g = _regler_gpu(False)
+        ok_k, msg_k = _regler_effets_kwin(True)
+        # ANDROID N'EST JAMAIS REDEMARRE AUTOMATIQUEMENT EN SORTANT DU MODE
+        # JEU. Rallumer tout un monde sans qu'on le demande serait plus
+        # surprenant que de le laisser eteint — le reglage « Android »
+        # existant s'en charge, a la main.
+        ok_a, msg_a = True, None
+    _oublier("mode")
+    _oublier("energie")
+    ok = ok_e and ok_g and ok_k and ok_a
+    detail = noms[cle] if ok else "%s (partiel)" % noms[cle]
+    return ok, detail
 
 
 # --------------------------------------------------------------------------
@@ -730,9 +901,16 @@ def rapides():
 
     wc = _cache("webcam", _webcam)
     if wc is not None:
-        sortie.append({"cle": "webcam", "nom": "Webcam", "ico": "i-video",
-                       "type": "bascule", "actif": wc["actif"],
-                       "detail": "accessible" if wc["actif"] else "bloquee"})
+        detail = "accessible" if wc["actif"] else "bloquee"
+        # Le nom porte deja « (Linux) » — voir le commentaire de _webcam().
+        # Ce suffixe-ci est l'autre moitie du meme aveu : si le groupe unix
+        # video n'est plus vide, le blocage n'est plus total, quel que soit
+        # l'etat de la bascule.
+        if wc["autres_comptes"]:
+            detail += " (+ groupe video)"
+        sortie.append({"cle": "webcam", "nom": "Webcam (Linux)",
+                       "ico": "i-video", "type": "bascule",
+                       "actif": wc["actif"], "detail": detail})
 
     lum = _cache("luminosite", lambda: _ddc(10))
     if lum is not None:
@@ -778,6 +956,15 @@ def rapides():
                        "type": "choix", "valeur": en["profil"],
                        "actif": True, "detail": en["nom"],
                        "choix": [{"cle": c, "nom": n} for c, n in _PROFILS]})
+
+    md = _cache("mode", _mode)
+    if md is not None:
+        noms = dict(_MODES)
+        sortie.append({"cle": "mode", "nom": "Mode S", "ico": "i-eclair",
+                       "type": "choix", "valeur": md["mode"] or "",
+                       "actif": True,
+                       "detail": noms.get(md["mode"], "personnalise"),
+                       "choix": [{"cle": c, "nom": n} for c, n in _MODES]})
 
     an = _cache("android", _android)
     if an is not None:
@@ -827,6 +1014,8 @@ def regler(cle, valeur):
         return _basculer_tailscale(bool(valeur))
     if cle == "energie":
         return _regler_energie(str(valeur))
+    if cle == "mode":
+        return _regler_mode(str(valeur))
     if cle == "android":
         return _basculer_android(bool(valeur))
     if cle == "mode-android":

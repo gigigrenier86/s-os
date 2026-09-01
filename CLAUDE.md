@@ -8,6 +8,253 @@ Interface en français.
 
 ---
 
+## 2026-09-01, apres-midi — « Mode S » : trois profils bascules d'un seul reglage, eprouves en direct
+
+Demande de l'utilisateur : « j'aimerais que S puisse avoir 3 modes facilement
+interchangeables pour optimiser au maximum chaque aspect » — Travail
+(bureautique/code/IA), Jeu, Art (dessin/rendu/creation), plus « télécharge ce
+qui doit l'etre pour le mode jeu ».
+
+### Aucun outil neuf a inventer — un patron deja eprouve, etendu
+
+Deux recherches en direct sur la machine (jamais supposees) ont montre que
+le reglage « Energie » (`_energie()`/`_regler_energie()`, type « choix »,
+profils `tuned-adm`) et « Android : affichage » (`mode-android`, choix a 2
+etats) suffisaient comme patron : la barre laterale QML lit ce type
+GENERIQUEMENT (`BarreLaterale.qml`, un `Repeater` sur le champ `choix`) —
+**ajouter un choix a 3 etats ne demande AUCUNE modification QML**, tout le
+travail est dans `reglages.py`.
+
+### Le design, mesure avant d'etre choisi
+
+Les profils `tuned-adm` reellement disponibles sur cette machine (19,
+seuls 3 cables avant ce soir) ont ete lus en entier
+(`/usr/lib/tuned/profiles/<nom>/tuned.conf`), pas juste listes par leur nom :
+
+- `accelerator-performance` — gouverneur `performance`, C-states profonds
+  desactives (`force_latency=99`), `min_perf_pct=100`, faible swappiness :
+  vraiment oriente latence, candidat Jeu.
+- `throughput-performance-bazzite` — inclut le `throughput-performance`
+  amont, plus `swappiness=180` et `audio timeout=0` proprs a Bazzite : bon
+  pour du debit soutenu (compilation, IA locale, export de rendu).
+- `desktop` — juste `balanced` + autogroupe du planificateur : trop faible
+  pour un mode « performance », ecarte.
+
+**Aucun gamemode/ananicy/irqbalance n'existait** sur cette machine ni dans le
+depot avant ce soir (`rpm -qa`, `systemctl list-unit-files` : rien).
+
+### Le mecanisme, sans fichier d'etat separe
+
+Trois modes, un seul reglage `"cle": "mode"` (type « choix ») dans
+`files/usr/lib/s/reglages.py` :
+
+| | Travail | Jeu | Art |
+|---|---|---|---|
+| `tuned-adm` | `throughput-performance-bazzite` | `accelerator-performance` | `throughput-performance-bazzite` |
+| GPU `gt_min_freq_mhz` | remis au plancher materiel (350) | force au maximum (1050) | force au maximum (1050) |
+| Effets kwin | remis a la normale | coupes | remis a la normale |
+| Android | inchange | **arrete** (`_arreter_android()`, decision de l'utilisateur) | inchange |
+| Windows (`s-windows.service`) | inchange | **inchange delibrement** — beaucoup de jeux de S passent par le monde Windows (Proton/umu), le couper serait contre-productif |
+
+**Le signal de lecture est le profil tuned lui-meme, jamais un fichier
+d'etat ecrit a part** — meme principe que `mode-android`, qui relit une
+propriete Android plutot que de se souvenir d'un choix. Travail et Art
+partagent le meme profil tuned ; ils se distinguent par la frequence GPU,
+elle aussi relue en direct (`/sys/class/drm/card0/gt_min_freq_mhz`, lecture
+libre, ecriture root via `pkexec sh -c "echo N > ..."` — `_lire()` n'a pas
+de support stdin, donc pas de `tee`).
+
+**Sous Wayland, kwin_wayland EST le compositeur** — rien a « desactiver »
+comme sous X11 ; seuls les EFFETS individuels se coupent. Les identifiants
+exacts ont ete verifies sur cette machine, jamais devines
+(`/usr/share/kwin-wayland/builtin-effects/*.json`, champ `"Id"`, et le
+dossier plugin separe pour `translucency`) : `blur`, `translucency`,
+`slide`, `slidingpopups`, `slidingnotifications`. `wobblywindows` est deja
+`EnabledByDefault: false` sur cette image, inutile d'y toucher.
+
+### Eprouve en direct, dans les deux sens, sur cette machine
+
+```
+_regler_mode("jeu")     tuned=accelerator-performance, GPU=1050, s-android
+                         inactive, les 5 effets coupes, AnimationDurationFactor=0
+                         -> _mode() relit correctement {"mode": "jeu"}
+
+_regler_mode("travail") tuned=throughput-performance-bazzite, GPU=350,
+                         effets remis (cle AnimationDurationFactor SUPPRIMEE,
+                         pas juste remise a 1 — kreadconfig6 rend alors le
+                         defaut systeme, code 3/vide, ce qui EST le comportement
+                         voulu, pas une panne)
+                         -> _mode() relit correctement {"mode": "travail"}
+
+_regler_mode("art")     tuned=throughput-performance-bazzite, GPU=1050
+                         -> _mode() relit correctement {"mode": "art"},
+                         distinct de "travail" au meme profil tuned
+```
+
+**Android n'est volontairement PAS redemarre automatiquement en sortant du
+mode Jeu** — rallumer tout un monde sans qu'on le demande serait plus
+surprenant que de le laisser eteint ; le reglage « Android » existant s'en
+charge, a la main.
+
+### GameMode, pose plutot que pilote
+
+`build_files/49-jeu.sh` (nouveau, meme patron que `48-son.sh` pour
+EasyEffects) installe `gamemode` (Fedora officiel, `1.8.2-4.fc44`, licence
+BSD-3-Clause, aucun COPR). **Rien ne le pilote depuis `reglages.py` :**
+`libgamemodeauto.so` est chargee par la plupart des jeux Steam/Proton
+d'eux-memes des qu'elle existe sur le systeme, via son service utilisateur
+active a la demande par D-Bus — poser l'outil suffit, comme EasyEffects
+avant lui, sur la meme regle : on ne reimplemente pas ce que l'amont
+maintient.
+
+Verifie en local, dans l'image de base, avant toute construction complete :
+`dnf5 install -y gamemode` reussit, `/usr/bin/gamemoderun` executable,
+aucun fichier hors de `/usr`.
+
+### Ce que cette passe ne prouve pas
+
+- **Rien n'a ete cliqué dans la vraie barre latérale** — tous les essais
+  ci-dessus passent par un import Python direct du module (meme methode
+  que pour le correctif du reglage webcam le meme apres-midi), jamais par
+  un clic reel sur le reglage « Mode S ».
+- **GameMode n'a jamais ete exerce par un vrai jeu** — seule son
+  installation est verifiee, pas son auto-activation reelle par Proton.
+- **Rien n'est encore dans l'image publiee.** Construction locale complete
+  lancee pour reproduire ce que le CI ferait, avant tout push.
+
+---
+
+## 2026-09-01, apres-midi — la webcam « bloquee » est un vrai reglage de S, pas une panne, et il ne protege qu'a moitie
+
+Demande de l'utilisateur : « verifie pourquoi la webcam est bloquee et
+enregistre pourquoi, puis verifie si le meme probleme est aussi ailleurs ».
+Role Voyeur — mesurer avant de conclure.
+
+### Ce qui bloque, trouve dans le journal, pas devine
+
+`/dev/video1` et `/dev/video2` (la vraie webcam, « j5 WebCam JVCU100 »,
+distincte de `/dev/video0` qui est la camera virtuelle OBS/v4l2loopback) sont
+`root:video`, mode `0660`. `RyuRex` n'est PAS dans le groupe `video`
+(`groups` -> `RyuRex wheel` seulement, `getent group video` -> liste vide).
+Le seul acces vient d'une ACL POSIX precise, `user:RyuRex:rw-`, posee par
+`systemd-logind` (le mecanisme `uaccess`, tag udev deja present :
+`TAGS=:uaccess:seat:`) a l'ouverture de session.
+
+Le journal du jour la nomme au caractere pres :
+
+```
+2026-09-01T14:51:25-04:00 s pkexec[14523]: RyuRex: Executing command
+    [USER=root] [COMMAND=/usr/bin/setfacl -x u:RyuRex /dev/video1]
+2026-09-01T14:51:26-04:00 s pkexec[14550]: RyuRex: Executing command
+    [USER=root] [COMMAND=/usr/bin/setfacl -x u:RyuRex /dev/video2]
+```
+
+**Ce n'est pas un defaut : c'est le reglage « Webcam » de la barre laterale**,
+deja ecrit dans `reglages.py` (`_webcam`, `_basculer_webcam`,
+`_noeuds_camera_reels`), expose generiquement par `rapides()`/`regler()` —
+aucune chaine « webcam » n'est cablee en dur dans le QML, la barre affiche
+n'importe quel reglage de ce type sans qu'on la touche, exactement comme son
+en-tete le decrit. Le mecanisme retire ou repose PRECISEMENT cette entree ACL,
+jamais le proprietaire, le groupe ni le mode de base — donc restaure
+exactement ce que `logind` avait pose. `getfacl` confirme l'etat actuel :
+plus aucune entree nommee sur les deux noeuds, seulement `owner/group/mask/
+other`. Un second bascule (mettre le reglage a « allume ») repose l'ACL et
+rend l'acces, sans redemarrage.
+
+### Le meme mecanisme, verifie ailleurs — et un vrai trou trouve
+
+**1. Rien d'autre ne tenait le peripherique ouvert au moment du retrait** :
+`fuser -v /dev/video1 /dev/video2` ne rend rien, et WirePlumber (le demon
+PipeWire de la session, PID releve) n'a aucun descripteur ouvert dessus. Le
+reglage coupe donc proprement, sans acces deja accorde qui survivrait a la
+revocation.
+
+**2. Le reglage ne protege QUE l'UID `RyuRex`, jamais le noeud lui-meme —
+et Android en est la preuve concrete, mesuree et non supposee.** Waydroid
+bind-monte directement `/dev/video0`, `/dev/video1` et `/dev/video2` dans son
+conteneur (`grep video /proc/<pid>/mounts`). Les deux processus reels de la
+camera Android — `android.hardware.camera.provider@2.7-external-service` et
+`cameraserver`, PID 5628/5699 — tournent sous **uid 1047, gid 1005**, un
+compte totalement etranger a `RyuRex` (1000) et au groupe `video` (39) :
+`Groups: 1004 1006 1018 1026` ne contient pas 39, et `CapEff` ne porte ni
+`CAP_DAC_OVERRIDE` ni `CAP_DAC_READ_SEARCH` (`0000000000800000`, un seul bit,
+`CAP_SYS_RESOURCE`). Verifie par un essai reel : `setpriv --reuid=1047
+--regid=1005 --clear-groups -- test -r /dev/video1` echoue, **meme avec l'ACL
+de RyuRex active**. **Le reglage « Webcam » de S n'a donc jamais eu — dans
+aucun des deux etats — le moindre effet sur la capacite d'Android a filmer.**
+Rien dans les scripts Android de ce depot (`android-lancer.sh`, `s-android`,
+la regle SELinux `s_android.te`) ne mentionne `video` ou `camera` : l'acces
+d'Android au capteur physique, s'il existe un jour par un autre chemin
+(SELinux, un binder externe, un service prive), est totalement independant
+de ce reglage — et n'a jamais ete mesure ici, dans un sens comme dans l'autre.
+
+**Consequence a dire clairement, et c'est la vraie trouvaille de cette
+passe :** un utilisateur qui bascule « Webcam » sur bloque en pensant se
+proteger d'une application Android indiscrete se protege en realite
+seulement des applications **Linux natives** qui ouvrent `/dev/video*` en
+direct (navigateurs, Zoom, OBS...). C'est un vrai angle mort du reglage, pas
+un bogue de ce jour — le mecanisme fait exactement ce que son commentaire
+annonce (« coupe l'acces … a ce noeud »), mais son nom dans la barre
+(« Webcam », sans qualificatif) laisse croire a une portee plus large que ce
+qu'il couvre.
+
+**Un second angle structurel, jamais exerce, note pour memoire :** le groupe
+`video` (gid 39) est actuellement vide sur cette machine. Le jour ou un
+second compte, ou un service tournant sous un autre uid, y serait ajoute, il
+recevrait l'acces par les permissions de base (`root:video`, `0660`) **quel
+que soit l'etat du reglage « Webcam »**, puisque celui-ci ne touche qu'une
+ACL nommee pour `RyuRex`. Hypothese non refutee, jamais mesuree : aucun autre
+compte n'existe sur cette machine pour la tester.
+
+### Ce que cette passe ne prouve pas
+
+- **Le chemin reel d'acces d'Android au capteur physique n'est pas identifie.**
+  Il se peut qu'il n'existe simplement aucun chemin — que la camera Android
+  d'un jeu ou d'une application, si jamais sollicitee, echoue silencieusement.
+  Non mesure : aucune application Android n'a ete lancee pour le verifier.
+- **Le reglage n'a pas ete rebascule a l'ecran** pour confirmer visuellement
+  que la barre laterale reflete bien l'etat « bloquee » — seule l'ACL sur
+  disque et le journal ont ete lus.
+
+### Correctif — le nom cesse de mentir, et le trou du groupe `video` est surveille
+
+Decision de l'utilisateur, les deux fois : renommer honnetement **et**
+chercher le vrai chemin d'Android **et** blinder le trou du groupe `video`
+des maintenant plutot que d'attendre un cas reel.
+
+**La recherche complementaire ferme la question Android** : un second
+passage (config LXC de Waydroid, regle SELinux `s_android.te`, tout le
+depot) ne trouve **aucun** mecanisme qui donnerait au processus camera
+d'Android (uid 1047) un acces DAC reel a `/dev/video1`. Le bind-mount LXC
+(`config_static`, lignes 52-54) rend le noeud VISIBLE dans le conteneur,
+jamais ACCESSIBLE — ni groupe `video`, ni ACL, ni `CAP_DAC_OVERRIDE`. La
+regle SELinux ne porte que `getattr`/`setattr`, jamais `open`/`read`. **La
+camera physique n'est donc probablement pas fonctionnelle pour Android du
+tout, aujourd'hui, independamment de ce reglage** — rien a etendre, seulement
+un nom a corriger.
+
+Fait dans `files/usr/lib/s/reglages.py` :
+- Le reglage s'appelle desormais **« Webcam (Linux) »** dans la barre
+  laterale, pas « Webcam » nu — la portee est dans le nom plutot que
+  supposee.
+- `_membres_groupe_video()` (nouvelle fonction, `import grp`) lit les
+  membres reels du groupe unix `video` (gid 39) autres que l'utilisateur
+  courant. Vide sur cette machine, verifie en direct :
+  `_webcam()` rend `'autres_comptes': []`. Si ce groupe cessait d'etre vide
+  un jour, le `detail` affiche par la barre latérale porterait
+  `« bloquee (+ groupe video) »` — le mensonge silencieux devient visible
+  au lieu d'etre corrige a l'aveugle.
+- Testé en direct par import du module depuis le dépôt
+  (`sys.path.insert(0, '.../files/usr/lib/s')`) : `rapides()` rend bien
+  `{'nom': 'Webcam (Linux)', 'detail': 'bloquee', ...}` sur cette machine.
+
+**Ce que ce correctif ne prouve pas** : rien n'est encore construit ni
+déployé — le fichier vit dans le dépôt, pas dans `/usr`. Le libellé n'a
+jamais été vu dans la barre latérale réelle, seulement lu par un import
+Python direct.
+
+---
+
 ## 2026-08-30, nuit — l'accueil de premiere session : comptes et pilotes, construit et verifie
 
 **PREUVE :** construction locale complete (`podman build`, meme methode que le
