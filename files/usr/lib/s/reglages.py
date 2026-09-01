@@ -21,6 +21,7 @@ disent.
 """
 
 import grp
+import json
 import os
 import re
 import shutil
@@ -866,6 +867,118 @@ def _capturer():
 
 
 # --------------------------------------------------------------------------
+# Le pont de developpement — tester une fois, dans les trois mondes
+# --------------------------------------------------------------------------
+#
+# DEMANDE DE L'UTILISATEUR LE 2026-09-01 : un geste qui lance le meme test
+# dans les trois mondes a la fois, « pour ne jamais briser son rythme de
+# travail ». Aucune detection magique du type de projet — un petit fichier
+# .s-dev.json a la racine du projet dit CE QU'IL FAUT LANCER, S se contente
+# d'appeler ce qui existe deja pour chaque monde :
+#
+#   - linux         : une commande shell, executee telle quelle ;
+#   - windows       : s-ouvrir-exe <chemin>, EXACTEMENT le geste du
+#                      double-clic — jamais umu-run appele a la main ;
+#   - android_apk /
+#     android_paquet: s-android-lancer --installer <apk> puis
+#                      s-android-lancer <paquet> — le meme service binder
+#                      que le Magasin Android, sans jamais ouvrir Android
+#                      (voir s-magasin-android : « une couture ne montre
+#                      jamais son moteur »).
+#
+# Un champ absent est saute, jamais un echec bruyant — un projet purement
+# Linux n'a pas a fournir un .exe qui n'existe pas. Aucune extraction de
+# nom de paquet depuis l'APK (aapt/apkanalyzer) : demande a l'utilisateur
+# de le dire une fois, plutot que de deviner.
+
+_DOSSIER_PROJETS = os.path.expanduser("~/Projets")
+
+
+def _projets_dev():
+    """Les dossiers de ~/Projets qui portent un .s-dev.json — jamais un nom
+    de fichier hypothetique cherche a l'aveugle, seulement ceux qui l'ont
+    reellement."""
+    try:
+        noms = sorted(os.listdir(_DOSSIER_PROJETS))
+    except OSError:
+        return []
+    return [n for n in noms
+            if os.path.isfile(os.path.join(_DOSSIER_PROJETS, n, ".s-dev.json"))]
+
+
+def _lire_config_dev(nom_projet):
+    chemin = os.path.join(_DOSSIER_PROJETS, nom_projet, ".s-dev.json")
+    try:
+        with open(chemin, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _lancer_test_projet(nom_projet):
+    cfg = _lire_config_dev(nom_projet)
+    if cfg is None:
+        return False, "%s : .s-dev.json illisible" % nom_projet
+
+    faits, manques = [], []
+    dossier = os.path.join(_DOSSIER_PROJETS, nom_projet)
+
+    linux = cfg.get("linux")
+    if linux:
+        try:
+            subprocess.Popen(linux, shell=True, cwd=dossier,
+                             start_new_session=True)
+            faits.append("Linux")
+        except OSError as err:
+            manques.append("Linux (%s)" % err)
+
+    windows = cfg.get("windows")
+    if windows:
+        outil = _outil("s-ouvrir-exe")
+        if not outil:
+            manques.append("Windows (s-ouvrir-exe absent)")
+        else:
+            try:
+                subprocess.Popen([outil, windows], start_new_session=True,
+                                 stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+                faits.append("Windows")
+            except OSError as err:
+                manques.append("Windows (%s)" % err)
+
+    apk, paquet = cfg.get("android_apk"), cfg.get("android_paquet")
+    if apk and paquet:
+        lanceur = _outil("s-android-lancer")
+        if not lanceur:
+            manques.append("Android (s-android-lancer absent)")
+        else:
+            # L'installation reste synchrone (on doit savoir si elle a
+            # reussi avant de lancer) ; le lancement, lui, est detache comme
+            # les deux autres mondes — on n'attend pas qu'une fenetre Android
+            # se ferme pour rendre la main.
+            code, _s = _lire([lanceur, "--installer", apk], delai=60)
+            if code == 0:
+                try:
+                    subprocess.Popen([lanceur, paquet], start_new_session=True,
+                                     stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+                    faits.append("Android")
+                except OSError as err:
+                    manques.append("Android (%s)" % err)
+            else:
+                manques.append("Android (installation en echec)")
+    elif apk or paquet:
+        manques.append("Android (android_apk et android_paquet vont ensemble)")
+
+    if not faits and not manques:
+        return False, "%s : .s-dev.json ne declare aucun monde" % nom_projet
+    detail = ", ".join(faits) if faits else "rien"
+    if manques:
+        detail += " — manque : " + ", ".join(manques)
+    return bool(faits), detail
+
+
+# --------------------------------------------------------------------------
 # La composition — ce que la barre laterale affiche
 # --------------------------------------------------------------------------
 #
@@ -986,6 +1099,13 @@ def rapides():
         sortie.append({"cle": "capture", "nom": "Capturer", "ico": "i-image",
                        "type": "action", "actif": True, "detail": "selection"})
 
+    projets = _cache("dev-pont", _projets_dev)
+    if projets:
+        sortie.append({"cle": "dev-pont", "nom": "Pont dev", "ico": "i-code",
+                       "type": "choix", "valeur": "", "actif": True,
+                       "detail": "%d projet(s)" % len(projets),
+                       "choix": [{"cle": n, "nom": n} for n in projets]})
+
     sortie.append({"cle": "verrouiller", "nom": "Verrouiller", "ico": "i-cadenas",
                    "type": "action", "actif": True, "detail": ""})
 
@@ -1022,4 +1142,6 @@ def regler(cle, valeur):
         return _regler_mode_android(str(valeur))
     if cle == "capture":
         return _capturer()
+    if cle == "dev-pont":
+        return _lancer_test_projet(str(valeur))
     return False, "reglage inconnu : %s" % cle

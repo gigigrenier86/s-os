@@ -8,6 +8,85 @@ Interface en français.
 
 ---
 
+## 2026-09-01, soir — le pont de developpement (Chantier 0 des cinq integrations demandees), et une regression stray trouvee au passage
+
+Demande de l'utilisateur : cinq chantiers d'integration plus poussee des
+trois mondes, « tout, dans l'ordre » — pont de developpement d'abord (le
+plus simple), puis assistant IA local (« Sora »), Constellation vivante,
+presse-papiers/glisser-depose inter-mondes, Quick Resume universel. Role
+Wizard invoque en premier : aucun des cinq n'a d'equivalent existant dans S
+ni chez l'amont — verifie en direct sur le depot et la machine avant
+d'ecrire une ligne (voir le plan complet, gardé dans les notes de session).
+Role Alchimiste ensuite, pour la construction.
+
+### Le pont de developpement, sur le patron « Mode S »
+
+Un geste dans la barre laterale (`"cle": "dev-pont"`, type « choix » —
+patron identique a « Mode S », aucune modification QML) qui compile/lance
+un test dans les trois mondes a la fois, sans detection magique du type de
+projet : un petit fichier `.s-dev.json` a la racine de chaque projet de
+`~/Projets/` declare ce qu'il faut lancer, S appelle ce qui existe deja
+pour chaque monde — jamais reimplemente :
+
+- `linux` : une commande shell, executee telle quelle ;
+- `windows` : `s-ouvrir-exe <chemin>` — le meme geste que le double-clic ;
+- `android_apk` + `android_paquet` : `s-android-lancer --installer <apk>`
+  puis `s-android-lancer <paquet>` — le service binder que le Magasin
+  Android utilise deja, sans jamais ouvrir Android.
+
+Un champ absent est saute ; les echecs partiels sont agreges dans le
+`detail` plutot que de faire echouer tout le geste (patron deja etabli par
+`_regler_mode`).
+
+**Eprouve en direct, avant tout push :**
+```
+_projets_dev()                    -> trouve un projet jetable dans ~/Projets
+                                      avec .s-dev.json, ignore les autres
+_lancer_test_projet(config normale)      -> (True, "Linux, Windows — manque : Android (installation en echec)")
+                                             (Android echoue parce que l'APK
+                                             de test n'existait pas, comme
+                                             attendu — la remontee d'erreur
+                                             fonctionne)
+_lancer_test_projet(config vide {})      -> (False, "... ne declare aucun monde")
+_lancer_test_projet(android_apk seul)    -> (False, "... android_apk et android_paquet vont ensemble")
+```
+Le fichier de test Linux reel (`echo ... > fichier`) a bien ete cree —
+la commande shell part vraiment.
+
+### Une regression stray trouvee dans le depot, hors de tout ce chantier
+
+La premiere construction locale a echoue sur
+`Constellation.qml:41:5: Cannot assign to non-existent property "focus"` —
+**rien a voir avec ce chantier**, qui ne touche que `reglages.py`. `git
+status` a montre que `Constellation.qml` portait une modification NON
+COMMITEE qui annulait exactement le correctif `fa9de69` de la meme
+journee (« attacher focus et Keys.onPressed a l'Item ciel plutot
+qu'ApplicationWindow ») — un revert stray, seul fichier inattendu modifie,
+sans rien d'accompagnant qui suggere un travail en cours. `fa9de69` est
+deja teste, pousse, deploye et tourne en production sur cette machine
+depuis le debut de cette session : la construction verifiait donc, sans le
+savoir, un etat regresse qui n'a jamais existe dans l'historique du depot.
+
+**`git restore` sur ce seul fichier** a suffi — le diff exact est reste
+visible dans la sortie de la commande avant restauration, donc rien n'a
+disparu sans etre vu. La construction suivante est passee, verte, zero
+`ECHEC`.
+
+### Ce que cette passe ne prouve pas
+
+- **Aucun clic reel sur « Pont dev » dans la vraie barre laterale.** Tous
+  les essais passent par un import Python direct, meme methode que « Mode
+  S » et le reglage webcam plus tot dans la journee.
+- **Le geste n'a jamais ete exerce avec un vrai `.exe` Windows ni un vrai
+  `.apk` valide** — seuls des chemins invalides et une vraie commande
+  Linux ont ete testes.
+- **Rien de ce chantier n'est encore dans l'image publiee** — construction
+  locale verte, pas encore poussee au moment d'ecrire ces lignes.
+- **Les chantiers 1 a 4 (Sora, Constellation vivante, presse-papiers/DnD,
+  Quick Resume) n'ont pas commence.**
+
+---
+
 ## 2026-09-01, apres-midi — « Mode S » : trois profils bascules d'un seul reglage, eprouves en direct
 
 Demande de l'utilisateur : « j'aimerais que S puisse avoir 3 modes facilement
