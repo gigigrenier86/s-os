@@ -466,11 +466,19 @@ def lancer(entree):
     if isinstance(entree, str):
         if entree.startswith("recherche:"):
             return rechercher_web(entree[len("recherche:"):])
+        if entree.startswith("cmd_root:"):
+            return executer_commande(entree[len("cmd_root:"):], en_root=True, dans_terminal=True)
+        if entree.startswith("cmd:"):
+            return executer_commande(entree[len("cmd:"):], en_root=False, dans_terminal=True)
         if entree.startswith("http://") or entree.startswith("https://"):
             return ouvrir_url(entree)
     ident = entree.get("id", "") if isinstance(entree, dict) else ""
     if ident.startswith("recherche:"):
         return rechercher_web(ident[len("recherche:"):])
+    if ident.startswith("cmd_root:"):
+        return executer_commande(ident[len("cmd_root:"):], en_root=True, dans_terminal=True)
+    if ident.startswith("cmd:"):
+        return executer_commande(ident[len("cmd:"):], en_root=False, dans_terminal=True)
     if entree.get("action"):
         cmd = shlex.split(entree["action"])
         try:
@@ -1069,6 +1077,55 @@ def rechercher_web(requete):
     import urllib.parse
     url = "https://www.google.com/search?q=%s" % urllib.parse.quote_plus(requete.strip())
     return ouvrir_url(url)
+
+
+def executer_commande(cmd_brute, en_root=False, dans_terminal=True):
+    """Exécute une commande shell en utilisateur ou en root dans une console ou en arrière-plan."""
+    cmd = (cmd_brute or "").strip()
+    if not cmd:
+        return False, "commande vide"
+
+    if cmd.startswith("#"):
+        en_root = True
+        cmd = cmd[1:].strip()
+    elif cmd.startswith("$") or cmd.startswith(">"):
+        cmd = cmd[1:].strip()
+
+    if cmd.startswith("sudo "):
+        en_root = True
+        cmd = cmd[len("sudo "):].strip()
+    elif cmd.startswith("pkexec "):
+        en_root = True
+        cmd = cmd[len("pkexec "):].strip()
+
+    if not cmd:
+        return False, "commande vide"
+
+    terminal = chemin_executable("konsole") or chemin_executable("kgx") or chemin_executable("xterm")
+
+    if dans_terminal and terminal:
+        # Script interactif qui exécute la commande et laisse la console ouverte pour lire le résultat
+        if en_root:
+            script = "pkexec bash -c %s; echo ''; read -p 'Appuyez sur Entree pour fermer...'" % shlex.quote(cmd)
+        else:
+            script = "%s; echo ''; read -p 'Appuyez sur Entree pour fermer...'" % cmd
+
+        if "konsole" in terminal:
+            argv = [terminal, "-e", "bash", "-c", script]
+        elif "kgx" in terminal:
+            argv = [terminal, "-e", "bash", "-c", script]
+        else:
+            argv = [terminal, "-e", "bash -c " + shlex.quote(script)]
+
+        ok, err = _lancer_detache(argv)
+        return (True, "Commande « %s » lancée en console%s" % (cmd, " (root)" if en_root else "")) if ok else (False, err)
+    else:
+        if en_root:
+            argv = ["pkexec", "bash", "-c", cmd]
+        else:
+            argv = ["bash", "-c", cmd]
+        ok, err = _lancer_detache(argv)
+        return (True, "Commande « %s » exécutée%s" % (cmd, " (root)" if en_root else "")) if ok else (False, err)
 
 
 def applications_pour_type(chemin):

@@ -124,6 +124,16 @@ class Pont(QObject):
             ok, dit = noyau.ouvrir_fichier(ident[len("fichier:"):])
             return dit
 
+        if ident.startswith("cmd_root:"):
+            cmd = ident[len("cmd_root:"):]
+            ok, dit = noyau.executer_commande(cmd, en_root=True, dans_terminal=True)
+            return dit
+
+        if ident.startswith("cmd:"):
+            cmd = ident[len("cmd:"):]
+            ok, dit = noyau.executer_commande(cmd, en_root=False, dans_terminal=True)
+            return dit
+
         if ident.startswith("recherche:"):
             terme = ident[len("recherche:"):].strip()
             ok, dit = noyau.rechercher_web(terme)
@@ -146,8 +156,11 @@ class Pont(QObject):
 
         apps = noyau.inventaire()
         if ident not in apps:
-            # Repli universel : si l'identifiant n'est pas une application locale,
-            # lancer une recherche Google sur le terme saisi.
+            # Si commence par # ou sudo ou ressemble à une commande console
+            if ident.startswith("#") or ident.startswith("$") or ident.startswith(">") or ident.startswith("sudo "):
+                ok, dit = noyau.executer_commande(ident)
+                return dit
+            # Repli universel : recherche Google
             ok, dit = noyau.rechercher_web(ident)
             return ("Recherche « %s » sur Google" % ident) if ok else dit
 
@@ -163,6 +176,11 @@ class Pont(QObject):
     def rechercherWeb(self, requete):
         ok, dit = noyau.rechercher_web(requete)
         return ("Recherche « %s » sur Google" % requete.strip()) if ok else dit
+
+    @Slot(str, bool, bool, result=str)
+    def executerCommande(self, cmd, en_root=False, dans_terminal=True):
+        ok, dit = noyau.executer_commande(cmd, en_root=en_root, dans_terminal=dans_terminal)
+        return dit
 
     @Slot(str, bool)
     def epingler(self, ident, oui):

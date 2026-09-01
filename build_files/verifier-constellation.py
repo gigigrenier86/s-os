@@ -248,6 +248,10 @@ class PontLeurre(QObject):
     def rechercherWeb(self, requete):
         return requete
 
+    @Slot(str, bool, bool, result=str)
+    def executerCommande(self, cmd, en_root=False, dans_terminal=True):
+        return cmd
+
 
 def concordance_des_slots():
     """Le leurre declare-t-il tout ce que le vrai pont declare ?

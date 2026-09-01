@@ -635,10 +635,20 @@ ApplicationWindow {
                         border.width: 1
                         border.color: recherche.activeFocus ? Theme.bordVif : Theme.bord
                     }
-                    // Entree lance la premiere reponse ou bascule sur Google si aucun logiciel ne correspond
+                    // Entree lance la premiere reponse ou bascule sur commande/Google
                     onAccepted: {
                         var q = recherche.text.trim();
                         if (q === "") return;
+                        if (q.startsWith("#") || q.startsWith("sudo ") || q.startsWith("pkexec ")) {
+                            bureau.dire(pont.lancer("cmd_root:" + q));
+                            menuDemarrer.close();
+                            return;
+                        }
+                        if (q.startsWith("$") || q.startsWith(">")) {
+                            bureau.dire(pont.lancer("cmd:" + q));
+                            menuDemarrer.close();
+                            return;
+                        }
                         var l = menuDemarrer.filtrees();
                         if (l.length > 0) {
                             bureau.dire(pont.lancer(l[0].id));
@@ -997,12 +1007,44 @@ ApplicationWindow {
             }
         }
 
-        // La recherche universelle classe par pertinence et usage : correspondance exacte,
-        // debut de nom, corps du nom, description/commentaire, monde, catalogue unifie,
-        // et en repli universel la recherche Web Google.
+        // La recherche universelle classe par pertinence et usage : commandes root/console,
+        // correspondance exacte, debut de nom, corps du nom, description/commentaire,
+        // monde, catalogue unifie, et en repli les commandes directes et la recherche Web Google.
         function filtrees() {
             var q = recherche.text.toLowerCase().trim();
             if (q === "") return bureau.donnees.etoiles;
+
+            // Détection explicite de commande root (#, sudo, pkexec)
+            if (q.startsWith("#") || q.startsWith("sudo ") || q.startsWith("pkexec ")) {
+                var cmdR = recherche.text.trim().replace(/^[#]|^(sudo\s+)|^(pkexec\s+)/, "").trim();
+                return [{
+                    id: "cmd_root:" + cmdR,
+                    nom: "Exécuter en root : " + cmdR,
+                    src: "linux",
+                    ico: "i-terminal",
+                    img: "",
+                    txt: "Lancer la commande avec les privilèges administrateur (pkexec)",
+                    action: "",
+                    compte: 99999,
+                    catalogue: 0
+                }];
+            }
+
+            // Détection explicite de commande console ($, >)
+            if (q.startsWith("$") || q.startsWith(">")) {
+                var cmdU = recherche.text.trim().substring(1).trim();
+                return [{
+                    id: "cmd:" + cmdU,
+                    nom: "Exécuter : " + cmdU,
+                    src: "linux",
+                    ico: "i-terminal",
+                    img: "",
+                    txt: "Lancer la commande dans la console",
+                    action: "",
+                    compte: 99999,
+                    catalogue: 0
+                }];
+            }
 
             var parUsage = function (a, b) {
                 return (b.compte || 0) - (a.compte || 0);
@@ -1059,8 +1101,30 @@ ApplicationWindow {
 
             var resultat = exacts.concat(debutNom).concat(contientNom).concat(contientDesc).concat(contientMonde).concat(catalogueRecommandes);
 
-            // Option de recherche Google si une requête est saisie
+            // Options de commande console, commande root et recherche Web
             if (q !== "") {
+                resultat.push({
+                    id: "cmd:" + recherche.text.trim(),
+                    nom: "Exécuter : " + recherche.text.trim(),
+                    src: "linux",
+                    ico: "i-terminal",
+                    img: "",
+                    txt: "Lancer dans la console",
+                    action: "",
+                    compte: 0,
+                    catalogue: 0
+                });
+                resultat.push({
+                    id: "cmd_root:" + recherche.text.trim(),
+                    nom: "Exécuter en root : " + recherche.text.trim(),
+                    src: "linux",
+                    ico: "i-terminal",
+                    img: "",
+                    txt: "Lancer avec les droits administrateur (pkexec)",
+                    action: "",
+                    compte: 0,
+                    catalogue: 0
+                });
                 resultat.push({
                     id: "recherche:" + q,
                     nom: "Rechercher sur Google",
