@@ -244,6 +244,10 @@ class PontLeurre(QObject):
         # appellerait dans le vide — au clic, chez l'utilisateur.
         pass
 
+    @Slot(str, result=str)
+    def rechercherWeb(self, requete):
+        return requete
+
 
 def concordance_des_slots():
     """Le leurre declare-t-il tout ce que le vrai pont declare ?

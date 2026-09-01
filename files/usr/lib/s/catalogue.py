@@ -82,6 +82,27 @@ CATALOGUE_UNIFIE = {
         "action": "flatpak install -y flathub org.gimp.GIMP",
         "description": "Éditeur d'images professionnel",
         "ico": "i-image"
+    },
+    "youtube": {
+        "nom": "YouTube",
+        "moteur": "linux",
+        "action": "gio open https://www.youtube.com",
+        "description": "Vidéos, musique et diffusions en direct (Web)",
+        "ico": "i-video"
+    },
+    "tiktok": {
+        "nom": "TikTok",
+        "moteur": "android",
+        "action": "/usr/bin/s-magasin-android --installer com.zhiliaoapp.musically",
+        "description": "Vidéos courtes et créateurs (Android)",
+        "ico": "i-video"
+    },
+    "telegram": {
+        "nom": "Telegram",
+        "moteur": "linux",
+        "action": "flatpak install -y flathub org.telegram.desktop",
+        "description": "Messagerie instantanée rapide et sécurisée",
+        "ico": "i-bulle"
     }
 }
 

@@ -117,13 +117,40 @@ class Pont(QObject):
         # distinction remontait jusqu'a QML, chaque endroit qui ouvre quelque
         # chose devrait la refaire — le ciel, le menu, la barre, le clic droit.
         # Un seul endroit sait, et c'est celui-ci.
+        if not ident:
+            return "rien a lancer"
+
         if ident.startswith("fichier:"):
             ok, dit = noyau.ouvrir_fichier(ident[len("fichier:"):])
             return dit
 
+        if ident.startswith("recherche:"):
+            terme = ident[len("recherche:"):].strip()
+            ok, dit = noyau.rechercher_web(terme)
+            return ("Recherche « %s » sur Google" % terme) if ok else dit
+
+        if ident.startswith("url:") or ident.startswith("http://") or ident.startswith("https://"):
+            url = ident[len("url:"):] if ident.startswith("url:") else ident
+            ok, dit = noyau.ouvrir_url(url)
+            return dit
+
+        if ident.startswith("catalogue:"):
+            cle = ident[len("catalogue:"):]
+            try:
+                import catalogue
+                if cle in catalogue.CATALOGUE_UNIFIE:
+                    ok, dit = noyau.lancer(catalogue.CATALOGUE_UNIFIE[cle])
+                    return catalogue.CATALOGUE_UNIFIE[cle]["nom"] if ok else dit
+            except Exception as err:
+                return str(err)
+
         apps = noyau.inventaire()
         if ident not in apps:
-            return "inconnue : " + ident
+            # Repli universel : si l'identifiant n'est pas une application locale,
+            # lancer une recherche Google sur le terme saisi.
+            ok, dit = noyau.rechercher_web(ident)
+            return ("Recherche « %s » sur Google" % ident) if ok else dit
+
         ok, dit = noyau.lancer(apps[ident])
         if ok:
             usage = noyau.charger_usage()
@@ -131,6 +158,11 @@ class Pont(QObject):
             noyau.sauver_usage(usage)
             return apps[ident]["nom"]
         return dit
+
+    @Slot(str, result=str)
+    def rechercherWeb(self, requete):
+        ok, dit = noyau.rechercher_web(requete)
+        return ("Recherche « %s » sur Google" % requete.strip()) if ok else dit
 
     @Slot(str, bool)
     def epingler(self, ident, oui):

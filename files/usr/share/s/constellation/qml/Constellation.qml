@@ -38,6 +38,30 @@ ApplicationWindow {
     visibility: Window.FullScreen
     color: Theme.espace
     title: "Constellation"
+    focus: true
+
+    // Capture universelle du clavier sur le bureau :
+    // Quand l'utilisateur tape sur le clavier n'importe où sur le bureau,
+    // sans avoir préalablement cliqué sur un champ ou un menu, on ouvre
+    // directement le menu démarrer et on injecte le texte tapé dans la recherche.
+    Keys.onPressed: function (event) {
+        if (event.key === Qt.Key_Escape) {
+            if (menuDemarrer.visible) menuDemarrer.close();
+            event.accepted = true;
+            return;
+        }
+        if (event.text.length > 0 && event.text.charCodeAt(0) >= 32) {
+            if (!menuDemarrer.visible) {
+                menuDemarrer.open();
+                recherche.text = event.text;
+            } else if (!recherche.activeFocus) {
+                recherche.text = recherche.text + event.text;
+            }
+            recherche.forceActiveFocus();
+            recherche.cursorPosition = recherche.text.length;
+            event.accepted = true;
+        }
+    }
 
     // --- L'etat, tel que le noyau le rend ---------------------------------
     property var donnees: ({ etoiles: [], usage: ({}), placees: ({}), epingles: [], fichiers: [] })
@@ -196,6 +220,16 @@ ApplicationWindow {
         // IL EST POSE SUR LE CIEL ET NON SUR LE FOND parce que le ciel couvre
         // toute la scene. Les etoiles gardent la main : leur propre gestionnaire
         // de bouton droit consomme l'evenement avant qu'il ne remonte ici.
+        TapHandler {
+            acceptedButtons: Qt.LeftButton
+            onTapped: function (evenement) {
+                var cible = ciel.childAt(evenement.position.x, evenement.position.y);
+                if (cible && cible.app !== undefined) return;
+                bureau.forceActiveFocus();
+                if (menuDemarrer.visible) menuDemarrer.close();
+            }
+        }
+
         TapHandler {
             acceptedButtons: Qt.RightButton
             onTapped: function (evenement) {
@@ -573,7 +607,8 @@ ApplicationWindow {
         }
 
         clip: true
-        onOpened: { recherche.text = ""; recherche.forceActiveFocus(); }
+        onOpened: { recherche.forceActiveFocus(); }
+        onClosed: { recherche.text = ""; }
 
         property string vue: "apps"
 
@@ -589,7 +624,7 @@ ApplicationWindow {
                     anchors.fill: parent
                     anchors.margins: 14
                     anchors.bottomMargin: 12
-                    placeholderText: "Chercher une application, un dossier, un reglage"
+                    placeholderText: "Chercher une application ou lancer une recherche Google"
                     placeholderTextColor: Theme.texte3
                     color: Theme.texte
                     font.family: Theme.police
@@ -600,13 +635,17 @@ ApplicationWindow {
                         border.width: 1
                         border.color: recherche.activeFocus ? Theme.bordVif : Theme.bord
                     }
-                    // Entree lance la premiere reponse : chercher puis viser a
-                    // la souris ce qu'on vient de nommer est un geste de trop.
+                    // Entree lance la premiere reponse ou bascule sur Google si aucun logiciel ne correspond
                     onAccepted: {
+                        var q = recherche.text.trim();
+                        if (q === "") return;
                         var l = menuDemarrer.filtrees();
                         if (l.length > 0) {
                             bureau.dire(pont.lancer(l[0].id));
                             bureau.relire();
+                            menuDemarrer.close();
+                        } else {
+                            bureau.dire(pont.rechercherWeb(q));
                             menuDemarrer.close();
                         }
                     }
@@ -958,11 +997,17 @@ ApplicationWindow {
             }
         }
 
-        // La recherche universelle classe par pertinence : correspondance exacte,
-        // debut de nom, corps du nom, description/commentaire, monde, puis catalogue unifie.
+        // La recherche universelle classe par pertinence et usage : correspondance exacte,
+        // debut de nom, corps du nom, description/commentaire, monde, catalogue unifie,
+        // et en repli universel la recherche Web Google.
         function filtrees() {
             var q = recherche.text.toLowerCase().trim();
             if (q === "") return bureau.donnees.etoiles;
+
+            var parUsage = function (a, b) {
+                return (b.compte || 0) - (a.compte || 0);
+            };
+
             var exacts = [];
             var debutNom = [];
             var contientNom = [];
@@ -988,6 +1033,12 @@ ApplicationWindow {
                 }
             }
 
+            exacts.sort(parUsage);
+            debutNom.sort(parUsage);
+            contientNom.sort(parUsage);
+            contientDesc.sort(parUsage);
+            contientMonde.sort(parUsage);
+
             // Suggestions du catalogue unifie pour applications non installees
             var catalogueRecommandes = [];
             if (bureau.donnees.catalogue && bureau.donnees.catalogue.length > 0) {
@@ -1006,7 +1057,24 @@ ApplicationWindow {
                 }
             }
 
-            return exacts.concat(debutNom).concat(contientNom).concat(contientDesc).concat(contientMonde).concat(catalogueRecommandes);
+            var resultat = exacts.concat(debutNom).concat(contientNom).concat(contientDesc).concat(contientMonde).concat(catalogueRecommandes);
+
+            // Option de recherche Google si une requête est saisie
+            if (q !== "") {
+                resultat.push({
+                    id: "recherche:" + q,
+                    nom: "Rechercher sur Google",
+                    src: "linux",
+                    ico: "i-recherche",
+                    img: "",
+                    txt: "Lancer la recherche « " + recherche.text.trim() + " » dans le navigateur",
+                    action: "",
+                    compte: 0,
+                    catalogue: 0
+                });
+            }
+
+            return resultat;
         }
     }
 
@@ -1571,7 +1639,7 @@ ApplicationWindow {
         onActivated: menuDemarrer.visible ? menuDemarrer.close() : menuDemarrer.open()
     }
     Shortcut {
-        sequence: "N"
+        sequence: "Ctrl+N"
         onActivated: {
             bureau.nomsToujours = !bureau.nomsToujours;
             pont.reglerFond("noms", bureau.nomsToujours);

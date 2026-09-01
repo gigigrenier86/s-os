@@ -454,7 +454,7 @@ def sauver_placees(placees):
 # --------------------------------------------------------------------------
 
 def lancer(entree):
-    """Lancer par le .desktop lui-meme ou par l'action du catalogue unifie.
+    """Lancer par le .desktop lui-meme ou par l'action du catalogue unifie / recherche web.
 
     « gio launch » applique les regles du fichier — repertoire de travail,
     Terminal=true, variables — que reconstruire a la main ferait perdre. Le
@@ -463,6 +463,14 @@ def lancer(entree):
     """
     if not entree:
         return False, "aucune etoile fournie"
+    if isinstance(entree, str):
+        if entree.startswith("recherche:"):
+            return rechercher_web(entree[len("recherche:"):])
+        if entree.startswith("http://") or entree.startswith("https://"):
+            return ouvrir_url(entree)
+    ident = entree.get("id", "") if isinstance(entree, dict) else ""
+    if ident.startswith("recherche:"):
+        return rechercher_web(ident[len("recherche:"):])
     if entree.get("action"):
         cmd = shlex.split(entree["action"])
         try:
@@ -1032,6 +1040,35 @@ def ouvrir_fichier(chemin):
     except OSError as err:
         return False, "ouverture impossible : %s" % err
     return True, os.path.basename(chemin)
+
+
+def ouvrir_url(url):
+    """Ouvre une adresse Web dans le navigateur par défaut de la session."""
+    if not url:
+        return False, "URL vide"
+    for outil_nom, args in (
+        ("kioclient", ["exec", url]),
+        ("gio", ["open", url]),
+        ("xdg-open", [url]),
+    ):
+        outil = chemin_executable(outil_nom)
+        if outil:
+            try:
+                subprocess.Popen([outil] + args, start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return True, url
+            except OSError:
+                continue
+    return False, "aucun navigateur disponible"
+
+
+def rechercher_web(requete):
+    """Effectue une recherche Google dans le navigateur par défaut."""
+    if not requete:
+        return False, "requête vide"
+    import urllib.parse
+    url = "https://www.google.com/search?q=%s" % urllib.parse.quote_plus(requete.strip())
+    return ouvrir_url(url)
 
 
 def applications_pour_type(chemin):
