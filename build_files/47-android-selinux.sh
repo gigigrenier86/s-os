@@ -139,6 +139,7 @@ echo "Android : demarrage automatique et icones par application actives pour cha
 # Android existant dans system.img a chaque notify(). Le service hote
 # (android-notifications.py) reçoit les champs (app, titre, corps, icone
 # base64) et les retransmet via notify-send.
+chmod +x /usr/lib/s/android-notifications.py 2>/dev/null || true
 test -x /usr/lib/s/android-notifications.py \
     || { echo "ECHEC : android-notifications.py absent ou non executable." >&2; exit 1; }
 test -f /usr/lib/systemd/user/s-android-notifications.service \
