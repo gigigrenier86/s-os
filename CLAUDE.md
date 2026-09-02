@@ -8,6 +8,189 @@ Interface en français.
 
 ---
 
+## 2026-09-01, nuit — Sora existe, route juste, et coûte cher au premier mot
+
+Chantier 1 des cinq intégrations demandées (voir plus bas, le pont de
+développement). Rôle Wizard invoqué en premier pour choisir le modèle, rôle
+Alchimiste ensuite pour construire. **Sora est le nom retenu par
+l'utilisateur** pour l'assistant IA local de S, à utiliser partout où ce
+chantier se nomme lui-même.
+
+### Le choix du modèle, et une licence qui mentait
+
+Recherche du Wizard, deux passes. La première proposait Qwen2.5-3B-Instruct
+en « Apache 2.0 » — **faux**, vérifié directement sur l'API Hugging Face
+(`https://huggingface.co/api/models/Qwen/Qwen2.5-3B-Instruct` →
+`"license_name": "qwen-research"`, §2.a : *« FOR NON-COMMERCIAL PURPOSES
+ONLY »*). Une seconde vérification, demandée explicitement par
+l'utilisateur (« vérifier si il y a mieux »), a aussi écarté Gemma 4 E4B :
+malgré son nom, le modèle est **dense** (pas de MoE, ~8B effectifs via la
+technique PLE), ~6-7 Gio réels en RAM, et son support GGUF porte un défaut
+d'architecture ouvert (signal résiduel PLE non implémenté).
+
+**Retenu : `Qwen3-4B-Instruct-2507`, GGUF Q4_K_M, republié par
+`unsloth/Qwen3-4B-Instruct-2507-GGUF`.** Licence Apache 2.0 confirmée par
+l'API HF elle-même sur le dépôt Qwen d'origine. Fichier vérifié par son
+empreinte SHA256 exacte
+(`3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597`,
+2 497 281 120 octets) avant tout usage — **et re-vérifiée sur cette
+machine, au téléchargement réel dans le scratchpad de session : identique
+au caractère près.**
+
+### Le runtime, et un coût de poids accepté en connaissance de cause
+
+**`llama-cpp`, le paquet Fedora officiel** (licence MIT), pas une
+compilation maison — *on ne réimplémente pas ce que l'amont maintient*.
+Il force ~2,37 Gio de dépendances, dont ~1 Gio de `rocblas`/ROCm **mort sur
+cette machine Intel** — `ollama` porte le même défaut, vérifié en direct,
+ce n'est pas une échappatoire. Décision explicite de l'utilisateur : garder
+le paquet officiel tel quel plutôt que de compiler une variante CPU-only.
+
+**Cette décision a eu un coût de performance non prévu au moment où elle a
+été prise — voir plus bas.**
+
+### L'architecture, sur les patrons déjà éprouvés du dépôt
+
+- **`s-sora.service`** — serveur `llama-server` résident, exactement le
+  patron de `s-windows.service`/`s-egaliseur.service` : `PartOf=`/`After=`/
+  `WantedBy=s-session.target`, lié à `127.0.0.1:8613` seul, jamais exposé
+  au réseau. Recharger 2,3 Go de poids à chaque question serait absurde,
+  même raison que le serveur wine résident.
+- **`sora.py`** — construit le prompt système en dérivant EN DIRECT la
+  liste des réglages (`reglages.rapides()`) et des applications
+  (`noyau.inventaire()`, bornée à 200 pour ne pas gonfler le prompt sans
+  fin) — jamais une liste recopiée à la main qui divergerait en silence.
+  Interroge `llama-server` avec `response_format: json_schema` **strict** :
+  la réponse ne peut pas être autre chose qu'un objet
+  `{action, cle, valeur, ident, phrase}` valide — pas de parsing fragile
+  d'une réponse en langage libre. Ne lève jamais : une panne du serveur
+  rend une réponse « repondre » qui le dit.
+- **`Pont.demander(texte)`** dans `s-constellation` — patron
+  `threading.Thread(daemon=True)` + `Signal(str) soraReponse`, jamais
+  synchrone : une inférence de plusieurs secondes gèlerait toute la
+  coquille, même raison déjà posée pour `rafraichirReglages`/
+  `reglagesPrets`.
+- **Le `TextField` du menu Démarrer** — son dernier repli, qui envoyait
+  jusqu'ici droit sur une recherche web, appelle maintenant `pont.demander`.
+  Sora garde la main de retomber elle-même sur `lancer("recherche:"+q)` si
+  elle ne sait pas répondre — rien à dupliquer.
+- **Le logo** — l'image que l'utilisateur voulait coller n'a jamais pu être
+  récupérée (même défaut déjà rencontré pour le logo de S-OS). Un « beau S »
+  a été composé à la place : glyphe cyan à double halo sur badge circulaire
+  indigo/violet, même patron de génération que `galerie/logo-s-os/`.
+
+**Contrat QML/Python vérifié** : `verifier-constellation.py` déclare
+désormais 33 slots au pont (tous couverts par le leurre), 9 appels sur
+`Fenetres`, menu à 10 articles — scène chargée, zéro avertissement.
+
+### Le vrai coût, mesuré — pas supposé
+
+**`llama-bench`, sur cette machine (i5-8400T @ 1,7 GHz, 6 cœurs, AVX2+FMA
+confirmés, ROCm absent), machine parfaitement idle (charge 0,07) :**
+
+```
+pp128 :  4,54 ± 0,01 t/s        (ngl=0)
+tg32  :  3,67 ± 0,01 t/s        (ngl=0)
+pp32  :  4,55 ± 0,12 t/s        (ngl=99, offload ROCm tente puis echoue)
+tg16  :  3,67 ± 0,01 t/s        (ngl=99)
+```
+
+**`ngl=0` ne change rien** — l'hypothèse « le serveur tente d'offloader
+vers un ROCm mort à chaque appel, d'où la lenteur » est **réfutée**, forcer
+`-ngl 0` donne des chiffres identiques à l'intérieur de la marge d'erreur.
+Ce n'est donc pas le mauvais chemin de calcul qui est choisi ; le CPU fait
+vraiment ce travail à cette vitesse, sur ce binaire.
+
+**Un `pp` presque égal à un `tg` est anormal** — sur un CPU, même faible,
+le traitement de prompt (matmul par lots, très parallélisable) devrait
+être 5 à 10× plus rapide que la génération token par token. Le journal de
+chargement porte l'explication la plus probable, jamais poussée plus loin
+faute de temps cette nuit :
+
+```
+load_tensors: tensor 'token_embd.weight' (q6_K) (and 398 others)
+    cannot be used with preferred buffer type CPU_REPACK, using CPU instead
+```
+
+**Le chemin CPU optimisé (repack SIMD, une accélération native de
+llama.cpp pour AVX2/AVX512) n'est jamais emprunté** sur ce binaire —
+hypothèse retenue, jamais confirmée : le binaire compilé avec le backend
+ROCm/HIP n'active pas ce chemin, ou une collision d'enregistrement de
+backends l'empêche de se déclarer prioritaire. **La mesure qui
+trancherait** : compiler `llama-cpp` soi-même avec `-DGGML_HIP=OFF` et
+comparer — non fait, hors de la décision déjà prise par l'utilisateur
+d'accepter le paquet officiel tel quel.
+
+### Le vrai serveur, avec le vrai prompt système, deux appels consécutifs
+
+Pas seulement `llama-bench` — **`llama-server` réel, dans son vrai rôle,
+avec le vrai prompt système de 4617 caractères / 1435 jetons produit par
+`sora._prompt_systeme()` sur CETTE machine** (import direct, pas un
+prompt de substitution) :
+
+| Appel | Phrase | Durée | Verdict |
+|---|---|---|---|
+| 1er (froid) | « mets le mode jeu » | **411,6 s** | `{"action":"regler","cle":"mode","valeur":{"mode":"jeu"}}` — **juste** |
+| 2e (même prompt système) | « ouvre Vivaldi » | **15,6 s** | `{"action":"lancer","ident":"vivaldi-stable"}` — **juste** |
+
+**Le routage fonctionne, dans les deux cas, exactement comme prévu.** Ce
+qui ne fonctionne pas d'emblée, c'est le temps : sept minutes pour la
+première phrase d'une session sont inacceptables, et `llama-server` le
+sait déjà — il garde en cache le préfixe du prompt système d'un appel à
+l'autre tant que le serveur résident ne redémarre pas, d'où l'écart.
+
+### L'amorce, sur le patron déjà éprouvé de `s-windows.service`
+
+`sora.amorcer()` (nouveau) attend que `llama-server` réponde
+(`ExecStartPost` ne garantit que le lancement du processus, jamais qu'il
+écoute déjà — le modèle met lui-même ~28 s à charger), puis envoie une
+question jetable (« bonjour ») pour que le préfixe soit déjà en cache au
+premier VRAI appel de l'utilisateur. `s-sora.service` porte désormais
+`ExecStartPost=-/usr/bin/python3 /usr/lib/s/sora.py --amorcer` — le tiret
+en tête, une amorce ratée ne doit jamais emporter le serveur résident,
+même règle que celle déjà posée pour `s-windows.service`. Comme
+`s-sora.service` n'est jamais dans le chemin critique de
+`s-session.target` (relation `PartOf=`, pas `Requires=`), même une amorce
+de sept minutes ne retarde ni l'ouverture de session ni aucune autre
+application.
+
+**La mécanique de l'amorce est vérifiée par relecture et par un appel
+direct à `interroger()` réussi** ; son minutage exact dans un vrai
+`ExecStartPost` n'a pas été rejoué sur cette machine — le conteneur
+jetable utilisé pour ce test ne reproduit pas fidèlement l'environnement
+de `reglages.py`/`noyau.py`, et un essai dedans a rendu un prompt système
+différent de celui mesuré ci-dessus (donc un temps qui ne se compare pas
+au tableau).
+
+### Ce que cette passe ne prouve pas — et la décision qui reste à prendre
+
+- **Quinze secondes par commande, en régime établi, avec un premier appel
+  à sept minutes masqué par l'amorce.** C'est loin d'être instantané. Sora
+  est pensée comme un routeur de commandes « minimum conversationnelle »,
+  pas un clavardage réactif — mais **je ne tranche pas moi-même si ce
+  compromis est acceptable** : c'est une vraie question de jugement,
+  posée honnêtement plutôt que décidée à la place de l'utilisateur.
+- **Aucun clic réel sur le menu Démarrer de Constellation.** Tous les
+  essais ci-dessus passent par un import Python direct et par
+  `llama-server` lancé à la main dans un conteneur jetable — jamais par
+  `s-constellation` réel, jamais par `s-sora.service` sous un vrai
+  `systemd --user`.
+- **`s-sora.service` n'a jamais tourné sous systemd, ni sur cette machine
+  ni ailleurs** — seul le binaire `llama-server` a tourné, lancé à la main
+  avec les mêmes arguments.
+- **Aucune construction complète (`podman build` sur le `Containerfile`
+  entier) n'a été rejouée** pour ce chantier — seuls les scripts et leur
+  syntaxe ont été vérifiés isolément. `50-sora.sh` n'a jamais téléchargé le
+  modèle depuis Hugging Face lui-même dans une vraie construction ; seul
+  le fichier déjà en cache dans le scratchpad de session a servi aux
+  essais.
+- **Rien de ce chantier n'est dans l'image publiée, rien n'est commité.**
+  Neuf fichiers modifiés ou nouveaux, tous dans l'arbre de travail.
+- **L'hypothèse CPU_REPACK n'est pas confirmée**, seulement nommée avec la
+  mesure qui la trancherait.
+
+---
+
 ## 2026-09-01, soir — le pont de developpement (Chantier 0 des cinq integrations demandees), et une regression stray trouvee au passage
 
 Demande de l'utilisateur : cinq chantiers d'integration plus poussee des

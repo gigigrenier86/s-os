@@ -392,6 +392,32 @@ class Pont(QObject):
         self.rafraichirReglages()
         return dit
 
+    # ---- Sora — l'assistant IA local --------------------------------------
+    #
+    # MEME RAISON QUE reglagesPrets/rafraichirReglages, EN PIRE : composer
+    # rapides() coute 914 ms deja mesures, une inference LLM en coute
+    # plusieurs SECONDES. Un Slot synchrone gelerait la coquille entiere le
+    # temps de la reponse — voir sora.py pour le detail du serveur residant
+    # (s-sora.service) qui rend ce delai supportable au lieu de charger
+    # 2,3 Go de poids a chaque question.
+
+    soraReponse = Signal(str)
+
+    @Slot(str)
+    def demander(self, texte):
+        def travail():
+            try:
+                import sora
+                phrase = sora.demander(texte, pont=self)
+            except Exception as err:  # noqa: BLE001
+                phrase = "Sora ne repond pas (%s)." % err
+            self.soraReponse.emit(phrase)
+            # Un « regler » ou un « lancer » peut avoir change l'etat que le
+            # panneau affiche (Mode S, Android, un volume...) — meme reflexe
+            # que reglerRapide, qui relit derriere lui pour la meme raison.
+            self.rafraichirReglages()
+        threading.Thread(target=travail, daemon=True).start()
+
     @Slot(QWindow, bool)
     def bornerLaterale(self, fenetre, deploye):
         """Reduit la zone sensible de la barre laterale, ou la rend entiere.

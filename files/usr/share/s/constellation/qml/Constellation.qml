@@ -573,6 +573,12 @@ ApplicationWindow {
         function onReglagesPrets(json) {
             laterale.reglages = JSON.parse(json);
         }
+        // SORA REPOND DE FACON ASYNCHRONE — une inference dure plusieurs
+        // secondes, jamais un Slot synchrone (voir demander() cote Python).
+        // « dire » remplace le message d'attente pose au moment de l'appel.
+        function onSoraReponse(phrase) {
+            bureau.dire(phrase);
+        }
     }
 
     Connections {
@@ -655,7 +661,14 @@ ApplicationWindow {
                             bureau.relire();
                             menuDemarrer.close();
                         } else {
-                            bureau.dire(pont.rechercherWeb(q));
+                            // SORA PREND LA PLACE DU REPLI GOOGLE DIRECT —
+                            // rien de connu ne matche, alors on demande a
+                            // Sora plutot que de partir droit en recherche
+                            // web. Elle peut elle-meme declencher cette
+                            // meme recherche (outil "lancer",
+                            // "recherche:"+q) si elle ne sait pas repondre.
+                            bureau.dire("Sora reflechit…");
+                            pont.demander(q);
                             menuDemarrer.close();
                         }
                     }

@@ -1,0 +1,40 @@
+[Unit]
+Description=S - Sora, l'assistant IA local (llama-server residant)
+Documentation=https://github.com/ggml-org/llama.cpp
+
+# MEME PATRON QUE s-windows.service ET s-egaliseur.service, POUR LA MEME
+# RAISON. Le modele pese 2,3 Go : le charger a chaque question ferait
+# attendre plusieurs secondes avant meme que Sora commence a repondre.
+# Un serveur residant, leve avec la session, sert chaque question en
+# quelques centaines de millisecondes une fois le modele en memoire.
+PartOf=s-session.target
+After=s-session.target
+
+[Service]
+Type=simple
+
+# LIE A 127.0.0.1 SEUL : ce serveur ne doit jamais repondre a autre chose
+# que Sora, sur cette machine. « --jinja » applique le gabarit de discussion
+# du modele lui-meme (necessaire pour que /v1/chat/completions structure
+# correctement system/user), « -c 8192 » laisse de la place au prompt
+# systeme (liste des reglages et des applications connues, generee en
+# direct par sora.py) sans jamais toucher la limite du modele.
+ExecStart=/usr/bin/llama-server \
+    --model /usr/share/s/sora/Qwen3-4B-Instruct-2507-Q4_K_M.gguf \
+    --host 127.0.0.1 --port 8613 -c 8192 --jinja -ngl 0 -t 6
+
+# L'AMORCE. Mesure sur cette machine (voir sora.py::amorcer()) : le premier
+# appel qui traite le prompt systeme entier coute 411,6 s, le second
+# seulement 15,6 s — llama-server garde le prefixe deja traite en cache
+# tant que le serveur ne redemarre pas. Sans cette ligne, c'est la
+# PREMIERE PHRASE de l'utilisateur qui paierait sept minutes. Avec elle,
+# c'est systemd qui les paie, en silence, pendant que la session s'ouvre —
+# le tiret en tete : une amorce ratee ne doit jamais emporter le serveur
+# residant, meme regle que l'amorce de s-windows.service.
+ExecStartPost=-/usr/bin/python3 /usr/lib/s/sora.py --amorcer
+
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=s-session.target

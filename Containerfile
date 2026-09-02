@@ -163,6 +163,15 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/49-jeu.sh
 
+# Sora — l'assistant IA local, Chantier 1 des cinq integrations demandees.
+# llama-cpp (paquet Fedora officiel) + le modele Qwen3-4B-Instruct-2507
+# pre-cuit et verifie (empreinte exacte dans le script). Voir
+# build_files/50-sora.sh pour la provenance complete.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/50-sora.sh
+
 # L'ecran de connexion aux couleurs de S, et la session preselectionnee.
 # APRES les COPY, puisqu'il verifie le fond d'ecran et la session qu'ils posent.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
