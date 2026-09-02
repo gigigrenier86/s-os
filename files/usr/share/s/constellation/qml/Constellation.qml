@@ -625,11 +625,57 @@ ApplicationWindow {
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 60
-                TextField {
-                    id: recherche
-                    anchors.fill: parent
+
+                // L'ICONE DE SORA. Demande de l'utilisateur, apres avoir vu qu'un
+                // texte libre tombe dans la barre de recherche GENERIQUE, sans
+                // jamais savoir si on parle a Sora ou si on cherche une
+                // application — un clic ici est SANS AMBIGUITE : quel que soit
+                // ce que filtrees() aurait trouve, on demande a Sora, point.
+                Rectangle {
+                    id: boutonSora
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
                     anchors.margins: 14
                     anchors.bottomMargin: 12
+                    width: height
+                    radius: height / 2
+                    color: survolSora.hovered ? Theme.verre2 : "transparent"
+                    border.width: 1
+                    border.color: Theme.bord
+
+                    Image {
+                        anchors.centerIn: parent
+                        width: parent.width - 12
+                        height: width
+                        source: "file:///usr/share/icons/hicolor/256x256/apps/s-sora.png"
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                    }
+                    HoverHandler { id: survolSora; cursorShape: Qt.PointingHandCursor }
+                    ToolTip.visible: survolSora.hovered
+                    ToolTip.text: "Demander a Sora"
+                    ToolTip.delay: 400
+                    TapHandler {
+                        onTapped: {
+                            var q = recherche.text.trim();
+                            bureau.dire(q === "" ? "Je t'ecoute…" : "Sora reflechit…");
+                            pont.demander(q === "" ? "bonjour" : q);
+                            menuDemarrer.close();
+                        }
+                    }
+                }
+
+                TextField {
+                    id: recherche
+                    anchors.left: boutonSora.right
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.topMargin: 14
+                    anchors.bottomMargin: 12
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 14
                     placeholderText: "Chercher une application ou lancer une recherche Google"
                     placeholderTextColor: Theme.texte3
                     color: Theme.texte
@@ -656,7 +702,21 @@ ApplicationWindow {
                             return;
                         }
                         var l = menuDemarrer.filtrees();
-                        if (l.length > 0) {
+                        // BOGUE PREEXISTANT, TROUVE LE 2026-09-01 EN TESTANT SORA POUR DE
+                        // VRAI : filtrees() ajoute TOUJOURS trois entrees de secours
+                        // (cmd:, cmd_root:, recherche:) des que le texte n'est pas vide —
+                        // meme quand AUCUNE vraie application ne correspond. « l.length > 0 »
+                        // etait donc TOUJOURS vrai, et l[0] tombait alors sur
+                        // « cmd:<le texte tape tel quel> » : n'importe quelle phrase libre
+                        // partait dans un terminal comme commande shell — « ouvre vivladi »
+                        // executait litteralement « ouvre vivladi ». Ce repli existait
+                        // avant Sora (il faisait deja partir une recherche web au lieu
+                        // d'executer une commande) et n'a jamais ete atteint une seule
+                        // fois. On ne peut prendre l[0] a l'aveugle que s'il s'agit d'une
+                        // VRAIE correspondance — jamais d'une suggestion de secours.
+                        if (l.length > 0 && l[0].id.indexOf("cmd:") !== 0
+                                && l[0].id.indexOf("cmd_root:") !== 0
+                                && l[0].id.indexOf("recherche:") !== 0) {
                             bureau.dire(pont.lancer(l[0].id));
                             bureau.relire();
                             menuDemarrer.close();
