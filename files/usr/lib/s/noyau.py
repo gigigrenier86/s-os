@@ -37,6 +37,7 @@ FICHIER_USAGE = os.path.join(ETAT, "usage.json")
 FICHIER_PLACEES = os.path.join(ETAT, "placees.json")
 FICHIER_EPINGLES = os.path.join(ETAT, "epingles.json")
 FICHIER_REGLAGES = os.path.join(ETAT, "reglages.json")
+FICHIER_BADGES = os.path.join(ETAT, "badges.json")
 
 # LE DOSSIER DU BUREAU NE SE DEVINE PAS, IL SE DEMANDE. « ~/Bureau » est vrai
 # sur cette machine parce qu'elle est en francais ; elle rendrait « ~/Desktop »
@@ -419,6 +420,85 @@ def sauver_usage(usage):
         os.replace(temporaire, FICHIER_USAGE)   # jamais de fichier a moitie ecrit
     except OSError as err:
         print("s-noyau : usage non sauve : %s" % err, file=sys.stderr)
+
+
+# --------------------------------------------------------------------------
+# Les badges : ce qu'une notification laisse sur l'etoile qui l'a emise
+# --------------------------------------------------------------------------
+# Meme patron EXACT que l'usage juste au-dessus — c'est le meme genre de
+# compteur, seule la source differe (une notification recue, pas un
+# lancement). Copie conforme, ecriture atomique comprise.
+
+def charger_badges():
+    try:
+        with open(FICHIER_BADGES, "r", encoding="utf-8") as f:
+            b = json.load(f)
+        return {k: int(v) for k, v in b.items() if isinstance(v, (int, float))}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def sauver_badges(badges):
+    try:
+        os.makedirs(ETAT, exist_ok=True)
+        temporaire = FICHIER_BADGES + ".tmp"
+        with open(temporaire, "w", encoding="utf-8") as f:
+            json.dump(badges, f)
+        os.replace(temporaire, FICHIER_BADGES)   # jamais de fichier a moitie ecrit
+    except OSError as err:
+        print("s-noyau : badges non sauves : %s" % err, file=sys.stderr)
+
+
+# --------------------------------------------------------------------------
+# Le pouls du systeme : charge et reseau, pour l'ambiance de Constellation
+# --------------------------------------------------------------------------
+# Tout se lit dans /proc, cout sub-milliseconde -- contrairement a
+# reglages.rapides() (914 ms deja mesures), donc jamais besoin d'un fil ici :
+# le Slot Python qui appelle ceci peut rester synchrone.
+
+_reseau_precedent = None   # (octets, instant) -- persiste tant que le processus vit
+
+
+def _octets_reseau():
+    total = 0
+    with open("/proc/net/dev", "r", encoding="utf-8") as f:
+        for ligne in f.readlines()[2:]:   # les deux premieres lignes sont l'en-tete
+            nom, reste = ligne.split(":", 1)
+            if nom.strip() == "lo":
+                continue
+            champs = reste.split()
+            # colonne 0 = octets recus, colonne 8 = octets envoyes (format
+            # standard de /proc/net/dev, verifie sur cette machine)
+            total += int(champs[0]) + int(champs[8])
+    return total
+
+
+def pouls_systeme():
+    charge = 0.0
+    try:
+        with open("/proc/loadavg", "r", encoding="utf-8") as f:
+            un_min = float(f.read().split()[0])
+        charge = max(0.0, min(1.0, un_min / max(1, os.cpu_count() or 1)))
+    except (OSError, ValueError, IndexError):
+        pass   # absent plutot que faux : 0.0 reste neutre, jamais affiche comme "occupe"
+
+    reseau = 0.0
+    global _reseau_precedent
+    try:
+        octets = _octets_reseau()
+        maintenant = time.monotonic()
+        if _reseau_precedent is not None:
+            dt = maintenant - _reseau_precedent[1]
+            if dt > 0:
+                debit = (octets - _reseau_precedent[0]) / dt
+                # plafond souple a 2 Mo/s -- au-dela, "reseau tres charge"
+                # sature a 1.0 plutot que de deborder visuellement
+                reseau = max(0.0, min(1.0, debit / (2 * 1024 * 1024)))
+        _reseau_precedent = (octets, maintenant)
+    except (OSError, ValueError, IndexError):
+        pass
+
+    return {"charge": charge, "reseau": reseau}
 
 
 # --------------------------------------------------------------------------
@@ -1250,6 +1330,7 @@ def composer_etoiles():
     """
     apps = inventaire()
     usage = charger_usage()
+    badges = charger_badges()
     placees = charger_placees()
     choisies = charger_epingles()
     fichiers = fichiers_bureau()
@@ -1313,6 +1394,7 @@ def composer_etoiles():
             "img": ("file://" + fichier_icone) if fichier_icone else "",
             "txt": a["txt"],
             "compte": usage.get(a["id"], 0),
+            "badge": badges.get(a["id"], 0),
         })
 
     # Catalogue unifie : applications recommandees par moteur optimal

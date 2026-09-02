@@ -273,7 +273,11 @@ Window {
                     }
 
                     TapHandler {
-                        onTapped: { bureau.dire(pont.lancer(parent.app.id)); bureau.relire(); }
+                        onTapped: {
+                            bureau.dire(pont.lancer(parent.app.id));
+                            pont.effacerBadge(parent.app.id);
+                            bureau.relire();
+                        }
                     }
 
                     // ── LE CLIC DROIT, QUI N'EXISTAIT PAS NON PLUS ICI ─────
@@ -656,6 +660,7 @@ Window {
                 text: "Ouvrir"
                 onTriggered: {
                     bureau.dire(pont.lancer(menuEpinglee.cible.id));
+                    pont.effacerBadge(menuEpinglee.cible.id);
                     bureau.relire();
                 }
             }

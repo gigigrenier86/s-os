@@ -77,6 +77,14 @@ def _afficher(app, titre, corps, icone_b64):
         "--app-name", nom_app,
         "--urgency", "normal",
         "--category", "im.received",
+        # CONSTELLATION VIVANTE — l'identifiant EXACT, pas le nom flou
+        # fabrique juste au-dessus. « app » est deja le paquet Android brut
+        # (ex: « org.fdroid.fdroid ») ; on le passe en aval par un hint,
+        # exactement comme S le fait deja pour x-canonical-private-synchronous
+        # (voir notifications.py). « waydroid.<paquet> » est la forme exacte
+        # que porte deja l'id de l'etoile correspondante — mesuree et posee
+        # par android-applications.py (StartupWMClass=waydroid.<paquet>).
+        "--hint", "string:x-s-app-id:waydroid.%s" % app,
     ]
 
     icone_tmp = None

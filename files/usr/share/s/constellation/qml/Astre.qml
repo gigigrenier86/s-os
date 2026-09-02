@@ -15,6 +15,13 @@ Item {
     property real diametre: Theme.sphere
     property bool choisi: false
     property bool montrerNom: false
+    // CONSTELLATION VIVANTE — l'etat d'activite, pousse par Constellation.qml
+    // depuis le rapporteur de kwin (fenetres.js). Un halo plus discret que
+    // celui du survol/de la selection : une etoile qu'on regarde doit
+    // toujours se detacher plus qu'une etoile simplement en cours
+    // d'execution, sinon le survol perd son sens.
+    property bool actif: false
+    property bool reduite: false
 
     signal ouvrir()
     signal menuDemande(real ex, real ey)
@@ -34,105 +41,185 @@ Item {
 
     HoverHandler { id: survol; cursorShape: Qt.PointingHandCursor }
 
-    // --- Le halo ----------------------------------------------------------
-    // Pose SOUS le corps, agrandi : un rond flou de la couleur du monde. La
-    // page le faisait avec box-shadow, qui n'existe pas ici.
-    Rectangle {
-        anchors.centerIn: parent
-        width: astre.diametre * 1.5
-        height: width
-        radius: width / 2
-        color: "transparent"
-        border.color: astre.teinte
-        border.width: astre.diametre * 0.16
-        opacity: (survol.hovered || astre.choisi) ? 0.28 : 0.0
-        visible: opacity > 0
-        antialiasing: true
-        Behavior on opacity { NumberAnimation { duration: 180 } }
+    // CONSTELLATION VIVANTE — la derive organique. UN OFFSET VISUEL ADDITIF,
+    // JAMAIS UNE ECRITURE DE x/y : c'est astre.x/astre.y que le DragHandler
+    // ecrit, que les traits de liaison lisent, que replacer() reconstruit
+    // apres un glissement. Toucher a ces deux proprietes ici casserait tout
+    // ca. Le contenu visuel est donc regroupe dans un Item separe, deplace
+    // par un transform — l'Item racine (astre) reste la cible stable du
+    // DragHandler et du hit-test des TapHandler, immobile.
+    property real deriveX: 0
+    property real deriveY: 0
+
+    // LE DEPHASAGE DOIT ETRE DETERMINISTE, JAMAIS Math.random(). Le Repeater
+    // du ciel (Constellation.qml, « model: { ... return sortie; } ») recree
+    // TOUS ses delegues a chaque relire() (Timer 15 s, epinglage,
+    // suppression...) — un dephasage tire au hasard se retirerait au sort a
+    // chaque fois, et donnerait des sauts visibles. Derive de app.id, il
+    // redonne le meme dephasage apres recreation.
+    readonly property int dephasage: {
+        var s = app.id || "";
+        var somme = 0;
+        for (var i = 0; i < s.length; i++) somme += s.charCodeAt(i);
+        return somme % 5;
     }
 
-    // --- Le corps de la sphere -------------------------------------------
-    Image {
-        id: corps
+    Item {
+        id: contenuVisuel
         anchors.fill: parent
-        source: "../glyphes/sphere.svg"
-        sourceSize.width: Math.max(4, Math.round(astre.diametre * 2))
-        sourceSize.height: Math.max(4, Math.round(astre.diametre * 2))
-        smooth: true
-    }
+        transform: Translate { x: astre.deriveX; y: astre.deriveY }
 
-    // --- L'anneau ---------------------------------------------------------
-    Anneau {
-        anchors.fill: parent
-        couleur: astre.teinte
-        pointille: !astre.exerce
-        epaisseur: astre.choisi ? 2.5 : 2
-    }
-
-    // --- Ce qu'elle porte : l'icone VRAIE, sinon le glyphe ----------------
-    // L'icone du programme dit LEQUEL ; le glyphe ne dit que le genre. On
-    // prefere donc toujours la premiere, et on ne retombe sur le second que
-    // si la machine n'a aucun fichier d'icone pour cette application.
-    Image {
-        id: vraieIcone
-        anchors.centerIn: parent
-        width: astre.diametre * 0.54
-        height: width
-        source: app.img || ""
-        sourceSize.width: Math.max(8, Math.round(astre.diametre * 1.08))
-        sourceSize.height: Math.max(8, Math.round(astre.diametre * 1.08))
-        fillMode: Image.PreserveAspectFit
-        smooth: true
-        visible: source !== "" && status === Image.Ready
-    }
-
-    Glyphe {
-        anchors.centerIn: parent
-        width: astre.diametre * 0.47
-        height: width
-        nom: app.ico || "i-boite"
-        couleur: astre.teinte
-        visible: !vraieIcone.visible
-    }
-
-    // --- Le compteur de lancements ---------------------------------------
-    Rectangle {
-        visible: (app.compte || 0) > 0
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.rightMargin: -5
-        anchors.topMargin: -5
-        height: 16
-        width: Math.max(16, compteur.implicitWidth + 8)
-        radius: height / 2
-        color: Theme.verre
-        border.color: Theme.bordVif
-        border.width: 1
-        Text {
-            id: compteur
+        // --- Le halo --------------------------------------------------
+        // Pose SOUS le corps, agrandi : un rond flou de la couleur du monde. La
+        // page le faisait avec box-shadow, qui n'existe pas ici.
+        Rectangle {
             anchors.centerIn: parent
-            text: (app.compte || 0) > 99 ? "99+" : String(app.compte || 0)
-            color: Theme.texte
-            font.family: Theme.policeMono
-            font.pixelSize: 10
+            width: astre.diametre * 1.5
+            height: width
+            radius: width / 2
+            color: "transparent"
+            border.color: astre.teinte
+            border.width: astre.diametre * 0.16
+            // HIERARCHIE D'INTENSITE VOULUE : survol/choisi (0.28) > actif
+            // (0.16) > repos (0). Une etoile en cours d'execution se voit,
+            // mais jamais plus qu'une etoile qu'on regarde vraiment.
+            opacity: (survol.hovered || astre.choisi) ? 0.28
+                     : (astre.actif ? 0.16 : 0.0)
+            visible: opacity > 0
+            antialiasing: true
+            Behavior on opacity { NumberAnimation { duration: 180 } }
+        }
+
+        // --- Le corps de la sphere -------------------------------------------
+        Image {
+            id: corps
+            anchors.fill: parent
+            source: "../glyphes/sphere.svg"
+            sourceSize.width: Math.max(4, Math.round(astre.diametre * 2))
+            sourceSize.height: Math.max(4, Math.round(astre.diametre * 2))
+            smooth: true
+        }
+
+        // --- L'anneau ---------------------------------------------------------
+        Anneau {
+            anchors.fill: parent
+            couleur: astre.teinte
+            pointille: !astre.exerce
+            // « present mais en veille » : un peu plus fin qu'au repos normal,
+            // sans toucher a Anneau.qml lui-meme -- juste une epaisseur de plus.
+            epaisseur: astre.choisi ? 2.5 : (astre.reduite ? 1.5 : 2)
+        }
+
+        // --- Ce qu'elle porte : l'icone VRAIE, sinon le glyphe ----------------
+        // L'icone du programme dit LEQUEL ; le glyphe ne dit que le genre. On
+        // prefere donc toujours la premiere, et on ne retombe sur le second que
+        // si la machine n'a aucun fichier d'icone pour cette application.
+        Image {
+            id: vraieIcone
+            anchors.centerIn: parent
+            width: astre.diametre * 0.54
+            height: width
+            source: app.img || ""
+            sourceSize.width: Math.max(8, Math.round(astre.diametre * 1.08))
+            sourceSize.height: Math.max(8, Math.round(astre.diametre * 1.08))
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            visible: source !== "" && status === Image.Ready
+        }
+
+        Glyphe {
+            anchors.centerIn: parent
+            width: astre.diametre * 0.47
+            height: width
+            nom: app.ico || "i-boite"
+            couleur: astre.teinte
+            visible: !vraieIcone.visible
+        }
+
+        // --- Le compteur de lancements ---------------------------------------
+        Rectangle {
+            visible: (app.compte || 0) > 0
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.rightMargin: -5
+            anchors.topMargin: -5
+            height: 16
+            width: Math.max(16, compteur.implicitWidth + 8)
+            radius: height / 2
+            color: Theme.verre
+            border.color: Theme.bordVif
+            border.width: 1
+            Text {
+                id: compteur
+                anchors.centerIn: parent
+                text: (app.compte || 0) > 99 ? "99+" : String(app.compte || 0)
+                color: Theme.texte
+                font.family: Theme.policeMono
+                font.pixelSize: 10
+            }
+        }
+
+        // --- Le badge de notification ------------------------------------------
+        // Coin OPPOSE du compteur d'usage, pour ne jamais les superposer.
+        // Theme.fichier -- le jaune deja etabli pour « ceci n'appartient a aucun
+        // monde » -- sert ici a dire « ceci demande attention », plutot que
+        // d'inventer une sixieme couleur.
+        Rectangle {
+            visible: (app.badge || 0) > 0
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.leftMargin: -4
+            anchors.topMargin: -4
+            width: 10
+            height: 10
+            radius: 5
+            color: Theme.fichier
+            border.color: Theme.espace
+            border.width: 1.5
+        }
+
+        // --- L'etiquette ------------------------------------------------------
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.bottom
+            anchors.topMargin: 8
+            text: app.nom || ""
+            color: Theme.texte2
+            font.family: Theme.police
+            font.pixelSize: 11
+            opacity: (survol.hovered || astre.choisi || astre.montrerNom) ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 160 } }
+            // Le nom se lit sur un ciel sombre : une ombre portee evite qu'il
+            // disparaisse sur une nebuleuse claire.
+            style: Text.Outline
+            styleColor: Qt.rgba(0, 0, 0, 0.9)
         }
     }
 
-    // --- L'etiquette ------------------------------------------------------
-    Text {
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: parent.bottom
-        anchors.topMargin: 8
-        text: app.nom || ""
-        color: Theme.texte2
-        font.family: Theme.police
-        font.pixelSize: 11
-        opacity: (survol.hovered || astre.choisi || astre.montrerNom) ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 160 } }
-        // Le nom se lit sur un ciel sombre : une ombre portee evite qu'il
-        // disparaisse sur une nebuleuse claire.
-        style: Text.Outline
-        styleColor: Qt.rgba(0, 0, 0, 0.9)
+    // CONSTELLATION VIVANTE — la derive elle-meme. Amplitude 2-3 px ("un peu",
+    // selon le mot de l'utilisateur), periode desynchronisee 6-12 s par le
+    // dephasage. Gate par Session.bureau.vivant : coupee net des qu'une
+    // fenetre est plein ecran (voir Constellation.qml) -- personne ne voit le
+    // ciel a ce moment-la, autant rendre au jeu le CPU/GPU que ces deux
+    // animations en boucle auraient coute.
+    // « reseau » (Constellation vivante, Signal 4) module la vitesse plutot
+    // que d'ajouter un element visuel de plus -- un ciel plus eveille quand
+    // des donnees circulent, sans cout supplementaire. 1.0 au repos.
+    readonly property real vitesseDerive: Session.bureau ? Session.bureau.deriveVitesse : 1.0
+
+    SequentialAnimation on deriveX {
+        running: Session.bureau ? Session.bureau.vivant : true
+        loops: Animation.Infinite
+        NumberAnimation { to: 2.4; duration: (6000 + astre.dephasage * 1400) / astre.vitesseDerive; easing.type: Easing.InOutSine }
+        NumberAnimation { to: -2.4; duration: (6000 + astre.dephasage * 1400) / astre.vitesseDerive; easing.type: Easing.InOutSine }
+    }
+    SequentialAnimation on deriveY {
+        running: Session.bureau ? Session.bureau.vivant : true
+        loops: Animation.Infinite
+        // Dephasage different en Y (decale de 2) pour que la derive ne
+        // dessine pas une simple diagonale repetitive.
+        NumberAnimation { to: -1.8; duration: (7200 + ((astre.dephasage + 2) % 5) * 1400) / astre.vitesseDerive; easing.type: Easing.InOutSine }
+        NumberAnimation { to: 1.8; duration: (7200 + ((astre.dephasage + 2) % 5) * 1400) / astre.vitesseDerive; easing.type: Easing.InOutSine }
     }
 
     // --- Les gestes -------------------------------------------------------

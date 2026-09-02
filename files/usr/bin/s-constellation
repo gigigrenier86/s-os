@@ -199,6 +199,33 @@ class Pont(QObject):
     def epingler(self, ident, oui):
         noyau.epingler(ident, oui)
 
+    # ---- Constellation vivante — badges et pouls systeme -------------------
+    #
+    # LE MEME PATRON QUE « usage » : un compteur par identifiant, une lecture
+    # et une ecriture atomiques, jamais de fil (le fichier est petit, l'ecriture
+    # instantanee). Voir noyau.py pour le detail des fonctions.
+
+    @Slot(str)
+    def incrementerBadge(self, ident):
+        badges = noyau.charger_badges()
+        badges[ident] = badges.get(ident, 0) + 1
+        noyau.sauver_badges(badges)
+
+    @Slot(str)
+    def effacerBadge(self, ident):
+        badges = noyau.charger_badges()
+        if badges.pop(ident, None) is not None:
+            noyau.sauver_badges(badges)
+
+    # SYNCHRONE, DELIBEREMENT : pouls_systeme() ne lit que /proc, cout
+    # sub-milliseconde, mesure sur cette machine. Contrairement a
+    # reglages.rapides() (914 ms deja mesures), aucun fil n'est necessaire
+    # ici — un Slot qui bloquerait la coquille le temps d'un vrai calcul
+    # devrait en avoir un, celui-ci non.
+    @Slot(result="QVariant")
+    def pouls(self):
+        return noyau.pouls_systeme()
+
     @Slot(str, result=str)
     def lancerEnRoot(self, ident):
         # PAS DE SENS POUR UN FICHIER : un fichier n'a pas de commande a

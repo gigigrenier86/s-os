@@ -34,6 +34,19 @@ ApplicationWindow {
                                 ? fenetres.mode() : "geler"
     property int fenetresInactives: 0
 
+    // ── CONSTELLATION VIVANTE — L'INTERRUPTEUR COMMUN ─────────────────────
+    // Meme source, meme condition, que celles deja ecrites deux fois plus bas
+    // pour la barre et la barre laterale (« elle s'efface pendant un jeu »).
+    // Tout mouvement CONTINU du chantier vivant (derive des etoiles,
+    // respiration du fond, reaction au son) se gate sur ce seul booleen :
+    // quand un jeu tourne plein ecran, personne ne voit le ciel — geler ces
+    // animations rend au jeu le CPU/GPU qu'elles auraient coute, sans rien
+    // perdre visuellement. Un seul endroit a lire pour savoir si « vivant »
+    // doit bouger, plutot que de repeter la condition a chaque signal.
+    readonly property bool vivant: !barreTaches.ouvertures.some(function (f) {
+        return f.plein === true && f.reduite !== true;
+    })
+
     visible: true
     visibility: Window.FullScreen
     color: Theme.espace
@@ -46,6 +59,34 @@ ApplicationWindow {
     // Relevee une fois : la liste des dossiers personnels ne bouge pas
     // pendant une session, et une liaison la redemanderait sans cesse.
     property var listeDossiers: []
+
+    // ── CONSTELLATION VIVANTE — le pouls du systeme ───────────────────────
+    // « heureFraction » n'est PAS une liaison automatique : new Date() n'a
+    // aucune dependance reactive en QML, une propriete calculee avec ne se
+    // reevaluerait qu'une seule fois, a la creation. On la pose donc a la
+    // main, au meme rythme que pont.pouls() -- un seul Timer pour les deux.
+    property var pouls: ({ charge: 0, reseau: 0 })
+    property real heureFraction: 0
+    // « reseau » ne cree aucun element visuel propre : il module la vitesse
+    // de la derive des etoiles (voir Astre.qml) plutot que d'ajouter un
+    // signal a l'ecran -- moins d'elements, moins de cout, et une lecture
+    // coherente : « le ciel est plus eveille quand ca circule ».
+    readonly property real deriveVitesse: 1.0 + Math.min(1.0, pouls.reseau) * 0.6
+
+    Timer {
+        // 4 s, DELIBEREMENT plus lent que le plafond deja accepte du projet
+        // (l'horloge de la barre, 1000 ms) : une ambiance n'a pas besoin de
+        // bouger a la seconde. « triggeredOnStart » garantit que pont.pouls()
+        // est exerce au moins une fois -- y compris pendant
+        // verifier-constellation.py, dont la fenetre de verification est
+        // courte et n'atteindrait jamais un intervalle de 4 s autrement.
+        interval: 4000; running: bureau.vivant; repeat: true; triggeredOnStart: true
+        onTriggered: {
+            bureau.pouls = pont.pouls();
+            var d = new Date();
+            bureau.heureFraction = (d.getHours() * 60 + d.getMinutes()) / 1440;
+        }
+    }
 
     readonly property int maxUsage: {
         var m = 0;
@@ -69,6 +110,57 @@ ApplicationWindow {
         for (var j = 0; j < f.length; j++)
             if (f[j].id === ident) return f[j];
         return null;
+    }
+
+    // CONSTELLATION VIVANTE — badge de notification. « appId » est
+    // l'identifiant EXACT quand la source le fournit (aujourd'hui : Android
+    // seul, via le hint x-s-app-id, deja dans la meme forme que l'id de
+    // l'etoile). « nomNotif » est le repli — le seul champ que Linux natif
+    // fournit (le « summary » du D-Bus Notify), jamais fiable a 100 % : on
+    // n'accepte une correspondance PAR NOM que si elle est unique. Une
+    // correspondance ambigue ne pose jamais de badge — absent plutot que
+    // faux, plutot que de deviner entre deux applications de meme nom.
+    function appParNotification(appId, nomNotif) {
+        if (appId) {
+            var parId = appParId(appId);
+            if (parId) return parId;
+        }
+        if (!nomNotif) return null;
+        var bas = nomNotif.toLowerCase();
+        var candidats = donnees.etoiles.filter(function (e) {
+            return (e.nom || "").toLowerCase() === bas;
+        });
+        return candidats.length === 1 ? candidats[0] : null;
+    }
+
+    // CONSTELLATION VIVANTE — l'etat d'activite, deja live cote kwin.
+    // « fenetres.js » pousse « classe », « active », « reduite » a chaque
+    // bascule (un vrai signal Qt, jamais une scrutation) — voir
+    // « barreTaches.ouvertures », rempli par « Connections { onChangees }
+    // plus bas. L'appariement fenetre -> etoile se fait par « classe », deja
+    // prouve pour Linux (le .desktop = resourceClass, Barre.qml l'utilise
+    // deja) et pour Android (android-applications.py pose
+    // « StartupWMClass=waydroid.<paquet> », mesure le 2026-08-29). Windows
+    // n'a rien de tel — toute fenetre y porte « steam_proton », seul le
+    // titre distingue un programme, et un rapprochement flou risquerait un
+    // faux positif avec deux jeux ouverts en meme temps. Absent plutot que
+    // faux : aucun halo d'activite pour Windows dans cette passe, cohérent
+    // avec une limitation deja acceptee ailleurs (l'icone de barre des
+    // taches manque deja pour Windows).
+    function fenetresPour(app) {
+        if (!app || !app.id) return [];
+        return barreTaches.ouvertures.filter(function (f) {
+            return f.classe === app.id;
+        });
+    }
+    function estActive(app) {
+        return fenetresPour(app).some(function (f) {
+            return f.active === true && f.reduite !== true;
+        });
+    }
+    function estReduite(app) {
+        var fs = fenetresPour(app);
+        return fs.length > 0 && fs.every(function (f) { return f.reduite === true; });
     }
 
     readonly property bool estFichier: false
@@ -144,6 +236,40 @@ ApplicationWindow {
         }
         onWidthChanged: requestPaint()
         onHeightChanged: requestPaint()
+    }
+
+    // ══ 1 bis. L'AMBIANCE VIVANTE ═════════════════════════════════════════
+    // Une couche SUPERPOSEE au Canvas « fond », jamais dedans -- il continue
+    // de ne peindre qu'une fois, l'invariant du depot reste vrai a la
+    // lettre. Degrades lineaires natifs de Rectangle uniquement (jamais
+    // QtQuick.Shapes ni Qt5Compat.GraphicalEffects, absents du reste de ce
+    // depot) -- une respiration, jamais une repeinture. Coupee net en plein
+    // ecran comme tout le reste du chantier vivant.
+    Item {
+        id: ambiance
+        anchors.fill: parent
+        visible: bureau.vivant
+
+        // Plus froide la nuit (bleu sourd), plus chaude au jour (ambre
+        // sourd) -- SANS JAMAIS remplacer le fond choisi par l'utilisateur,
+        // qui reste entierement dessous : un fond qui change de lui-meme
+        // serait lu comme un bug, pas comme une ambiance.
+        property color teinteHeure:
+            (heureFraction < 0.25 || heureFraction > 0.79) ? "#1a2a6c" : "#ff9d3d"
+        Behavior on teinteHeure { ColorAnimation { duration: 4000 } }
+
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0) }
+                GradientStop { position: 1.0; color: ambiance.teinteHeure }
+            }
+            // « charge » module l'intensite de la respiration -- jamais plus
+            // que l'alpha deja utilise par le fond « aube » (~0.05-0.17,
+            // voir Fonds.js) : une ambiance, jamais une repeinture.
+            opacity: 0.02 + Math.min(1.0, bureau.pouls.charge) * 0.06
+            Behavior on opacity { NumberAnimation { duration: 2600; easing.type: Easing.InOutSine } }
+        }
     }
 
     // ══ 2. LE CIEL : les etoiles posees sur le bureau ═════════════════════
@@ -379,6 +505,8 @@ ApplicationWindow {
                 required property var modelData
                 app: modelData.app
                 diametre: bureau.tailleDe(modelData.app)
+                actif: bureau.estActive(modelData.app)
+                reduite: bureau.estReduite(modelData.app)
                 // LE NOM D'UN FICHIER EST TOUJOURS VISIBLE. Une application se
                 // reconnait a son icone ; deux captures d'ecran du meme jour
                 // portent la meme, et sans leur nom rien ne les distingue.
@@ -412,6 +540,7 @@ ApplicationWindow {
 
                 onOuvrir: {
                     bureau.dire(pont.lancer(app.id));
+                    pont.effacerBadge(app.id);
                     bureau.relire();
                 }
                 onDeplacee: function (nx, ny) {
@@ -848,6 +977,7 @@ ApplicationWindow {
                         height: grilleApps.cellHeight - 6
                         onOuvrir: {
                             Session.bureau.dire(pont.lancer(app.id));
+                            pont.effacerBadge(app.id);
                             Session.bureau.relire();
                             Session.menu.close();
                         }
@@ -1762,8 +1892,16 @@ ApplicationWindow {
     // un bureau sans bulles reste un bureau.
     Connections {
         target: typeof notifications !== "undefined" ? notifications : null
-        function onMontrer(id, app, titre, corps, duree, urgence) {
+        function onMontrer(id, app, titre, corps, duree, urgence, appId) {
             bulle.poser(id, app, titre, corps, duree, urgence);
+            // CONSTELLATION VIVANTE — le badge. Une notification qui ne peut
+            // pas etre rattachee a une etoile (Windows, ou un nom Linux
+            // ambigu) ne pose rien : voir appParNotification().
+            var cible = bureau.appParNotification(appId, app);
+            if (cible) {
+                pont.incrementerBadge(cible.id);
+                bureau.relire();
+            }
         }
         function onRetirer(id) {
             bulle.retirer(id);

@@ -79,8 +79,9 @@ class Serveur(QObject):
     """
 
     # id, application, titre, corps, duree en millisecondes (0 = ne part pas
-    # tout seul), urgence 0/1/2
-    montrer = Signal(int, str, str, str, int, int)
+    # tout seul), urgence 0/1/2, identifiant d'etoile (CONSTELLATION VIVANTE
+    # -- vide si aucune source ne l'a fourni, jamais devine)
+    montrer = Signal(int, str, str, str, int, int, str)
     retirer = Signal(int)
 
     DUREE_PAR_DEFAUT = 5000
@@ -101,6 +102,14 @@ class Serveur(QObject):
         # veut dire « remplace la precedente, ne l'empile pas ». Sans lui, une
         # couture bavarde poserait six bulles a la file et l'utilisateur les
         # verrait defiler une par une pendant une demi-minute.
+        # CONSTELLATION VIVANTE -- l'identifiant d'etoile, quand la source le
+        # fournit (aujourd'hui : android-notifications.py seul, hint
+        # "x-s-app-id"). Meme mecanique que x-canonical-private-synchronous
+        # juste en dessous : un hint standard, jamais un canal invente.
+        app_id = ""
+        if hasattr(indices, "get"):
+            app_id = str(indices.get("x-s-app-id") or "")
+
         clef = None
         if hasattr(indices, "get"):
             clef = (indices.get("x-canonical-private-synchronous")
@@ -133,7 +142,7 @@ class Serveur(QObject):
 
         self._vivantes.add(ident)
         self.montrer.emit(ident, str(application or ""), str(titre or ""),
-                          str(corps or ""), duree, urgence)
+                          str(corps or ""), duree, urgence, app_id)
         return ident
 
     def fermer(self, ident, raison=ECARTEE):

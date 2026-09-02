@@ -42,11 +42,11 @@ print("  scene verifiee : " + QML)
 
 FAUSSES = [
     {"id": "a", "nom": "Une application", "src": "linux", "ico": "i-globe",
-     "ep": 1, "epingle": 1, "img": "", "txt": "essai", "compte": 3},
+     "ep": 1, "epingle": 1, "img": "", "txt": "essai", "compte": 3, "badge": 2},
     {"id": "b", "nom": "Une autre", "src": "windows", "ico": "i-manette",
-     "ep": 0, "epingle": 0, "img": "", "txt": "essai", "compte": 0},
+     "ep": 0, "epingle": 0, "img": "", "txt": "essai", "compte": 0, "badge": 0},
     {"id": "c", "nom": "Une troisieme", "src": "android", "ico": "i-tel",
-     "ep": 1, "epingle": 1, "img": "", "txt": "essai", "compte": 1},
+     "ep": 1, "epingle": 1, "img": "", "txt": "essai", "compte": 1, "badge": 0},
 ]
 
 # LES ETOILES JAUNES DOIVENT ETRE DANS LE LEURRE, SINON LE CONTROLE NE LES
@@ -126,6 +126,18 @@ class PontLeurre(QObject):
     @Slot(str, bool)
     def epingler(self, ident, oui):
         pass
+
+    @Slot(str)
+    def incrementerBadge(self, ident):
+        pass
+
+    @Slot(str)
+    def effacerBadge(self, ident):
+        pass
+
+    @Slot(result="QVariant")
+    def pouls(self):
+        return {"charge": 0.35, "reseau": 0.10}
 
     @Slot(str, result=str)
     def lancerEnRoot(self, ident):
