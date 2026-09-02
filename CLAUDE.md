@@ -8,6 +8,139 @@ Interface en français.
 
 ---
 
+## 2026-09-02, nuit — Sora, dix fois plus rapide : le paquet ROCm coupait son propre chemin CPU
+
+Suite directe de la nuit précédente. Trois défauts distincts trouvés en
+usage réel — pas en relisant le code — et le troisième a fait tomber la
+décision du soir même d'accepter le paquet officiel tel quel.
+
+### L'amorce se faisait tuer à 45 secondes par systemd, en boucle
+
+Premier vrai redémarrage sur l'image portant Sora : `s-sora.service` est
+mort cinq fois de suite (`StartLimitBurst`), cinq cœurs SIGABRT de
+`llama-server`, charge machine à 6,07 sur 6 cœurs. Le tiret en tête
+d'`ExecStartPost` (« une amorce ratée ne doit jamais emporter le serveur
+résident ») ne protège que du **code de sortie**, jamais de la **durée** —
+`DefaultTimeoutStartUSec` vaut 45 s dans systemd, compilé en dur, jamais
+surchargé sur cette machine, et borne toute la transaction de démarrage,
+`ExecStartPost` compris. `TimeoutStartSec=900` posé dans `s-sora.service`,
+réprouvé en direct par une surcharge locale : amorce terminée proprement
+en ~6 min 51 s, puis un appel réel à 16,4 s. `s-windows.service` partage
+la même faille latente, jamais déclenchée (son amorce reste sous 45 s en
+usage normal) — noté, non corrigé.
+
+### La barre de recherche exécutait n'importe quelle phrase comme commande shell
+
+Rapporté par l'utilisateur : une Konsole s'ouvrait à chaque question posée
+à Sora, avec `bash: ligne 1: ca: commande introuvable`. **Ce n'était pas
+un bogue de Sora — c'était un bogue préexistant qui rendait tout repli
+(Google, puis Sora) inatteignable depuis la création de ce menu.**
+`filtrees()` ajoute TOUJOURS trois entrées de secours (`cmd:`,
+`cmd_root:`, `recherche:`) dès qu'un texte non vide est tapé, même quand
+aucune vraie application ne correspond. `onAccepted` ne testait que
+`l.length > 0` — toujours vrai — puis prenait `l[0]` à l'aveugle :
+« ouvre vivladi » partait littéralement dans un terminal. Corrigé en
+excluant les identifiants `cmd:`/`cmd_root:`/`recherche:` de l'auto-lancement.
+Une icône Sora dédiée est ajoutée à côté de la barre, sur demande de
+l'utilisateur — un clic parle à Sora sans ambiguïté, quel que soit ce que
+`filtrees()` aurait trouvé.
+
+### La file d'attente qui s'aggrave toute seule
+
+`llama-server` n'a qu'un seul emplacement de traitement (aucun
+`--parallel`), et un appel qui expire côté client (`urllib`, 30 s) **ne
+s'annule pas côté serveur** — la tâche reste dans la file. Mesuré dans le
+journal : `task 2 → 3 → 6 → 83`, plusieurs questions posées pendant
+l'amorce empilées derrière elle, chacune expirant à son tour en attendant
+son tour. Corrigé par un `threading.Lock()` sur `Pont.demander()` : une
+deuxième question pendant que Sora répond déjà est refusée avec un
+message clair plutôt que d'être ajoutée à une file déjà en retard.
+
+### Le vrai chantier de la nuit : le paquet officiel désactivait son propre chemin rapide
+
+Question directe de l'utilisateur : « ya pas plus rapide ou c'est ma
+machine ? ». Réponse honnête donnée d'abord : en partie la machine
+(i5-8400T, 1,7 GHz, sans GPU utilisable), en partie une hypothèse jamais
+tranchée — le journal de chargement du paquet officiel dit, sans
+exception, pour les 398 tenseurs :
+
+```
+tensor 'token_embd.weight' (q6_K) (and 398 others)
+    cannot be used with preferred buffer type CPU_REPACK, using CPU instead
+```
+
+`CPU_REPACK` est le chemin optimisé de llama.cpp pour AVX2/AVX512 (repack
+SIMD des poids quantifiés). L'hypothèse, nommée la nuit précédente sans
+être tranchée : le binaire compilé avec le backend ROCm/HIP désactive ce
+chemin, même sur une machine sans aucun GPU AMD.
+
+**Tranchée en compilant `llama.cpp` soi-même**, au même tag exact que le
+paquet Fedora (`b6153`, vérifié par `rpm -q llama-cpp --qf
+'%{VERSION}-%{RELEASE}'` — comparaison loyale, même source, seul le
+backend change), sans HIP/CUDA/VULKAN (`-DGGML_NATIVE=ON` seul, laissé
+choisir le meilleur chemin CPU) :
+
+```
+                    paquet officiel (ROCm)   compile ici (CPU natif)   gain
+pp128 (prompt)      4,54 t/s                 44,61 t/s                 ~9,8x
+tg32  (generation)  3,67 t/s                 9,65 t/s                  ~2,6x
+```
+
+**Confirmé par le vrai serveur, avec le vrai prompt système (1435
+jetons), deux appels réels :**
+
+| Appel | Paquet officiel | Compilé ici |
+|---|---|---|
+| 1er (à froid) | 411,6 s | **41,1 s** |
+| 2e (en cache) | 15,6-16,4 s | **4,5 s** |
+
+Routage juste dans les deux cas, sur les deux builds. **Décision de
+l'utilisateur, prise en connaissance de ces chiffres : revenir sur la
+décision de la nuit précédente** (garder le paquet officiel tel quel) —
+la mesure l'a emportée sur le principe « on ne réimplémente pas ce que
+l'amont maintient », parce qu'ici l'amont lui-même (Fedora, pas
+llama.cpp) livrait un binaire qui se sabotait.
+
+**Deux échecs de construction avant que ça tienne, tous deux instructifs.**
+Cibler `--target llama-server` à la construction ne retire pas les règles
+d'installation des AUTRES cibles du `CMakeLists` de llama.cpp — `cmake
+--install` a échoué d'abord sur `test-tokenizer-0`, puis sur
+`llama-batched-bench`, deux outils jamais compilés parce que le build
+ciblé les avait sautés. Corrigé en construisant tout le projet (`cmake
+--build build`, sans `--target`) puis en retirant les binaires
+inutiles après coup (`find /usr/bin -name 'llama-*' ! -name
+'llama-server' -delete`) — plus fiable qu'un jeu de drapeaux CMake à
+traquer un par un.
+
+**Le paquet ~2,4 Gio de ROCm/HIP disparaît de l'image entièrement** —
+`cmake`/`git` (les seuls outils de construction manquants dans la base)
+sont retirés après coup. Empreinte finale de llama.cpp dans l'image :
+un seul binaire (`llama-server`, 4,7 Mio) et quatre bibliothèques
+partagées (`libggml-base`, `libggml-cpu`, `libggml`, `libllama`, ~4 Mio
+au total) — moins de 9 Mio, contre plus de 4 Gio avant (runtime + poids
+mort ROCm).
+
+### Ce que cette passe ne prouve pas
+
+- **Le nouveau `50-sora.sh` n'a jamais tourné dans le Containerfile réel**,
+  seulement seul dans un conteneur jetable contre l'image de base. La
+  construction complète, la CI, et un `bootc upgrade` réel restent à
+  faire au moment d'écrire ces lignes.
+- **Le correctif de la barre de recherche et le verrou de concurrence
+  n'ont jamais été cliqués pour de vrai** dans une session réelle —
+  vérifiés par `verifier-constellation.py` (scène chargée, zéro
+  avertissement) et par lecture du code, pas par un clic de souris.
+- **`s-windows.service` porte la même faille de timeout que Sora portait**,
+  jamais corrigée — son amorce reste sous 45 s en usage normal, donc
+  jamais déclenchée, mais `--preparer` a déjà mesuré plus de trois
+  minutes dans ce dépôt un autre soir.
+- **La compilation est épinglée au tag `b6153`**, jamais mise à jour
+  automatiquement — un choix délibéré (comparaison loyale avec le
+  paquet Fedora), mais ça veut dire qu'un futur correctif de llama.cpp
+  n'entrera dans S que si quelqu'un change ce tag à la main.
+
+---
+
 ## 2026-09-01, nuit — Sora existe, route juste, et coûte cher au premier mot
 
 Chantier 1 des cinq intégrations demandées (voir plus bas, le pont de

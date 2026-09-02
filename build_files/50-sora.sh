@@ -13,23 +13,84 @@
 # profit de Qwen3-4B-Instruct-2507, dont l'Apache 2.0 a ete revérifiee de
 # la meme facon, a la source, pas par ouï-dire.
 #
-# LE PAQUET FEDORA OFFICIEL FORCE DES DEPENDANCES ROCm (~1 Gio, mortes sur
-# toute machine sans GPU AMD — mesure sur cette machine, Intel UHD 630).
-# Decision explicite de l'utilisateur : garder le paquet officiel tel
-# quel plutot que compiler nous-memes une variante CPU-only — on ne
-# reimplemente pas ce que l'amont maintient, meme au prix d'un peu de
-# poids mort.
+# LE PAQUET FEDORA OFFICIEL FORCE DES DEPENDANCES ROCm (~2,4 Gio, mortes sur
+# toute machine sans GPU AMD — mesure sur cette machine, Intel UHD 630) —
+# ET C'ETAIT PIRE QUE DU POIDS MORT. Mesure le 2026-09-01 : le binaire
+# compile avec le backend ROCm/HIP DESACTIVE le chemin CPU optimise de
+# llama.cpp (CPU_REPACK, un repack SIMD pour AVX2/AVX512), meme sur une
+# machine sans aucun GPU AMD. Journal de chargement du paquet officiel :
+# « tensor 'token_embd.weight' ... cannot be used with preferred buffer
+# type CPU_REPACK, using CPU instead » — pour les 398 tenseurs, sans
+# exception.
+#
+# COMPILE ICI SANS ROCm/CUDA/VULKAN, mesure sur cette machine, meme
+# modele, memes 6 coeurs :
+#   pp128 : 4,54 t/s (paquet officiel) -> 44,61 t/s (compile ici)  ~9,8x
+#   tg32  : 3,67 t/s (paquet officiel) ->  9,65 t/s (compile ici)  ~2,6x
+# Decision de l'utilisateur, prise en connaissance de ce chiffre : compiler
+# nous-memes plutot que garder le paquet officiel. Revient sur la decision
+# du soir meme — la mesure l'a emporte.
 set -euxo pipefail
 
-dnf5 install -y --setopt=install_weak_deps=False llama-cpp
+# EPINGLE AU TAG EXACT DEJA MESURE, JAMAIS « la derniere version » : b6153
+# est le tag que le paquet Fedora llama-cpp-0:b6153-3.fc44 utilise deja
+# (rpm -q llama-cpp --qf '%{VERSION}-%{RELEASE}'), donc la comparaison
+# ci-dessus est loyale — meme source, seul le backend change.
+LLAMA_TAG=b6153
 
-# ---------------------------------------------------------- Verification --
-if rpm -ql llama-cpp 2>/dev/null | grep -E '^/(var|opt)/|^/usr/local/'; then
-    echo "ECHEC : llama-cpp a pose des fichiers hors de /usr et /etc." >&2
-    exit 1
-fi
+dnf5 install -y --setopt=install_weak_deps=False cmake git
+
+TRAVAIL_SRC=/tmp/llama-cpp-source
+git clone --depth 1 --branch "$LLAMA_TAG" \
+    https://github.com/ggml-org/llama.cpp "$TRAVAIL_SRC"
+cd "$TRAVAIL_SRC"
+
+# GGML_NATIVE=ON EST CE QUI ACTIVE CPU_REPACK ICI : sans backend GPU
+# enregistre (HIP/CUDA/VULKAN tous a OFF), ggml choisit son chemin CPU le
+# plus rapide pour les instructions du processeur qui compile — AVX2+FMA
+# sur cette machine, verifie dans /proc/cpuinfo par 39-materiel.sh.
+# LLAMA_CURL=OFF : sora.py telecharge deja le modele lui-meme via
+# urllib, llama-server n'a pas besoin de son propre client HTTP.
+# TOUT SE CONSTRUIT, PAS SEULEMENT « llama-server ». Trouve en le faisant,
+# deux fois : cibler un seul target avec « --build ... --target » ne retire
+# pas les regles d'installation des AUTRES targets du CMakeLists — « cmake
+# --install » a echoue d'abord sur « test-tokenizer-0 », puis sur
+# « llama-batched-bench », deux outils que le build cible n'avait jamais
+# compiles. Chaque outil sous tools/ porte sa propre regle d'installation,
+# independamment du target choisi a la construction — les desactiver un
+# par un serait un jeu sans fin. On construit donc tout ce que le
+# CMakeLists declare, seul « llama-server » nous interesse ensuite : les
+# autres binaires (llama-cli, quantize...) sont retires avec le reste de
+# l'arbre source, jamais copies vers l'image.
+cmake -B build -DCMAKE_BUILD_TYPE=Release \
+    -DGGML_HIP=OFF -DGGML_CUDA=OFF -DGGML_VULKAN=OFF \
+    -DGGML_NATIVE=ON -DLLAMA_CURL=OFF
+cmake --build build --config Release -j"$(nproc)"
+cmake --install build --prefix /usr
+
 [[ -x /usr/bin/llama-server ]] \
-    || { echo "ECHEC : /usr/bin/llama-server absent apres installation." >&2; exit 1; }
+    || { echo "ECHEC : /usr/bin/llama-server absent apres compilation." >&2; exit 1; }
+
+# Seul « llama-server » sert a Sora — construire tout le projet a evite le
+# jeu de « --target » de tout a l'heure, mais rien n'oblige a garder les
+# autres binaires (llama-cli, llama-quantize, llama-batched-bench...)
+# dans l'image. Meme regle que partout ailleurs dans ce depot : ce dont S
+# a besoin entre dans l'image, pas ce qu'un projet tiers construit par
+# defaut. « find », pas une liste a la main qui divergerait au prochain
+# tag de llama.cpp.
+find /usr/bin -maxdepth 1 -name 'llama-*' ! -name 'llama-server' -delete
+rm -rf /usr/lib64/cmake/ggml /usr/lib64/cmake/llama /usr/lib64/pkgconfig/llama.pc \
+       /usr/include/ggml*.h /usr/include/gguf.h
+
+# Ldconfig ne recharge pas tout seul le cache pour les .so tout juste
+# poses par « cmake --install » — sans lui, le tout premier lancement de
+# llama-server echouerait sur des bibliotheques introuvables.
+ldconfig
+
+cd /
+rm -rf "$TRAVAIL_SRC"
+dnf5 remove -y cmake git
+dnf5 clean packages
 
 # ---------------------------------------------------------------------------
 # Le modele — Qwen3-4B-Instruct-2507, GGUF Q4_K_M, republie par unsloth.
