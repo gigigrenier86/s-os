@@ -23,6 +23,22 @@ After=s-session.target
 [Service]
 Type=simple
 
+# LA MEME FAILLE LATENTE QUE s-sora.service PORTAIT, TROUVEE ET CORRIGEE LE
+# 2026-09-02 : « DefaultTimeoutStartUSec » vaut 45 s par defaut dans systemd
+# (compile en dur, jamais surcharge dans /usr/lib/systemd/user.conf sur cette
+# machine) et borne TOUTE la transaction de demarrage, ExecCondition et
+# ExecStartPost compris — pas seulement ExecStart. Le tiret en tete de
+# l'amorce (voir plus bas) ne protege que du code de sortie, jamais de la
+# duree.
+#
+# Jamais declenchee ici en usage normal : l'amorce attend au plus 10 s le
+# serveur (voir s-windows --amorcer) puis un seul « cmd /c exit », mesure a
+# 215-2565 ms. Mais un disque lent ou un premier client qui met plus de temps
+# a monter la session Windows suffirait a reproduire exactement ce qui a tue
+# Sora cinq fois de suite le meme soir — mieux vaut une marge large que de
+# suivre le chiffre mesure au plus juste.
+TimeoutStartSec=180
+
 # SI LE WINDOWS DE S N'EXISTE PAS ENCORE, IL N'Y A RIEN A SERVIR.
 #
 # Une unite qui echoue a chaque ouverture de session sur une machine ou aucun
