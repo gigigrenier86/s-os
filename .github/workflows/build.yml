@@ -131,12 +131,26 @@ jobs:
         # Bazzite est une image volumineuse et un runner GitHub est etroit.
         # Sans cette etape, la construction meurt sur « no space left on device »
         # apres plusieurs minutes de telechargement — echec tardif et opaque.
+        #
+        # BUG TROUVE LE 2026-09-02, EN DIAGNOSTIQUANT L'ECHEC DE SORA (~4,7 Go
+        # de plus dans l'image : llama-cpp+ROCm, et le modele GGUF). Cette
+        # etape appelait « docker image prune » — le CACHE DE DOCKER — alors
+        # que « Construire l'image » utilise PODMAN, un moteur et un stockage
+        # separes. Elle ne liberait donc RIEN pour la construction reelle,
+        # sans que personne ne le remarque tant que l'image restait petite.
+        # Reproduit en local (podman build seul, sur cette machine) : succes
+        # complet, donc le code est juste — seul l'espace du runner manquait.
         run: |
           echo "=== Avant ===" && df -h /
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
                       /usr/local/share/boost /usr/local/lib/node_modules \
-                      /opt/hostedtoolcache || true
+                      /opt/hostedtoolcache /usr/lib/jvm /usr/local/.ghcup \
+                      /usr/local/julia* /opt/az || true
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile || true
+          sudo apt-get clean || true
           sudo docker image prune --all --force || true
+          podman system prune --all --force || true
           echo "=== Apres ===" && df -h /
 
       - name: Construire l'image
