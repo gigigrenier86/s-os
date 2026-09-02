@@ -29,8 +29,19 @@ ExecStart=/usr/bin/llama-server \
 # tant que le serveur ne redemarre pas. Sans cette ligne, c'est la
 # PREMIERE PHRASE de l'utilisateur qui paierait sept minutes. Avec elle,
 # c'est systemd qui les paie, en silence, pendant que la session s'ouvre —
-# le tiret en tete : une amorce ratee ne doit jamais emporter le serveur
-# residant, meme regle que l'amorce de s-windows.service.
+# le tiret en tete : une amorce qui SORT en echec ne doit jamais emporter
+# le serveur residant, meme regle que l'amorce de s-windows.service.
+#
+# TROUVE EN LA REJOUANT POUR DE VRAI, LE 2026-09-02 : le tiret ne protege
+# QUE du code de sortie, jamais de la duree. « DefaultTimeoutStartUSec »
+# vaut 45 s par defaut dans systemd (compile en dur, jamais surcharge sur
+# cette machine — verifie dans /usr/lib/systemd/user.conf) et borne TOUTE
+# la transaction de demarrage, ExecStartPost compris. Sans le regler ici,
+# systemd a tue le serveur a 45 s, cinq fois de suite (StartLimitBurst),
+# cinq cœurs SIGABRT de llama-server, charge machine a 6,07 sur 6 cœurs —
+# vu en direct, pas suppose. TimeoutStartSec ci-dessous laisse plus du
+# double de la pire mesure.
+TimeoutStartSec=900
 ExecStartPost=-/usr/bin/python3 /usr/lib/s/sora.py --amorcer
 
 Restart=on-failure
