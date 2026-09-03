@@ -8,6 +8,112 @@ Interface en français.
 
 ---
 
+## 2026-09-03 — le plein écran n'était pas plein, et la fenêtre n'était jamais minimisée
+
+Capture d'écran de l'utilisateur : une vidéo en plein écran dans Vivaldi,
+letterboxing visible, contrôles du lecteur toujours affichés en bas. Deux
+symptômes rapportés, et la mesure en direct a réfuté la moitié de ce que les
+deux décrivaient au premier abord.
+
+### Symptôme 1 — le plein écran restait coincé sous la barre
+
+**Fichier : `files/usr/lib/s/fenetres.js`.** `borner(f)` clampe la hauteur
+d'une fenêtre à `basUtile()` (écran − 52px, la place de la barre, faute de
+`layer-shell`) — mécanisme délibéré et déjà documenté. Ce qui manquait :
+`reagir()`, une fois `essaisRestants` épuisé (donc pour toute fenêtre déjà
+ouverte depuis un moment — exactement le cas d'un navigateur), appelait
+`borner(f)` **sans condition** sur `frameGeometryChanged`, y compris quand la
+géométrie entrante ressemblait déjà à un vrai plein écran en train de se
+former. Un vrai passage en plein écran change `frameGeometry` **avant** que
+`f.fullScreen` ne bascule à vrai — la fenêtre se faisait clouer à 1028px de
+haut au moment même où elle grandissait vers 1080.
+
+**Corrigé en trois points** : une nouvelle fonction `remplirPleinEcran(f)`
+(force la géométrie à `workspace.clientArea(KWin.FullScreenArea, f)` dès que
+`f.fullScreen` devient vrai — même geste que le script `videowall` livré par
+kwin 6.7.4 lui-même, trouvé en cherchant si l'amont avait déjà résolu ce
+problème) ; la même garde anti-clampage-prématuré déjà posée sur
+`frameGeometryChanged` étendue à la branche `else` de `reagir()` (le cas
+« vieille fenêtre ») et à `maximizedChanged`.
+
+**Une découverte qui a fait tomber l'approche initiale.** Écrire
+`frameGeometry` *après* que `f.fullScreen` soit déjà vrai est un **no-op
+silencieux, sans exception** sur ce Vivaldi/Chromium-Wayland — vérifié étape
+par étape avec un script de sonde dédié. Le client garde la main sur sa
+propre taille une fois le plein écran négocié ; corriger après coup ne
+marche pas, il faut empêcher le mauvais clampage *avant* la négociation.
+`remplirPleinEcran()` reste posée en filet (elle est sans effet la plupart
+du temps maintenant que l'entrée n'est plus clampée trop tôt), mais ce sont
+les deux gardes préventives qui font le travail réel.
+
+### Symptôme 2 — « la fenêtre se minimise », et ce n'était jamais vrai
+
+L'utilisateur a d'abord décrit une vraie minimisation. Un témoin D-Bus (même
+technique que `grimoire/kwin-capturer-la-coquille.sh` : un script kwin
+jetable publie chaque `minimizedChanged`/`fullScreenChanged`/`activeChanged`
+vers un nom de bus que personne ne possède, capté par `dbus-monitor
+--session eavesdrop=true,interface='org.s.temoin'` — **`eavesdrop=true` est
+nécessaire ici**, sans lui rien ne passe, contrairement à ce que la recette
+existante laissait supposer) a mesuré, sur plusieurs dizaines de cycles :
+**`minimized` ne passe jamais à `true`.** Jamais.
+
+Ce qui se passe réellement, mesuré à la milliseconde près, deux fois de
+suite, identique : la fenêtre perd `active` en sortant du plein écran, puis
+kwin **réassoit sa pile de fenêtres « au-dessus »** tout seul — « S - barre
+laterale » puis, quelques millisecondes plus tard, « S - barre » sont
+brièvement activées, un comportement natif du compositeur (aucune des deux
+n'a de code QML qui réagit à sa propre activation, vérifié) déclenché par
+n'importe quel changement d'état plein écran à proximité. Comme aucune vraie
+fenêtre n'est relevée entre-temps, c'est **le bureau** — toujours tout en
+bas de la pile — qui reste visible. « J'atterris sur Constellation », mot
+pour mot, rapporté par l'utilisateur. Un vrai bug d'affichage (un écran
+blanc au lieu du bureau) existait aussi à ce moment-là, mais s'est révélé
+être une conséquence du symptôme 1 : une fois l'entrée en plein écran
+corrigée, il a disparu tout seul sans qu'on y touche.
+
+**Corrigé dans `fenetres.js`** : la fenêtre qui vient de quitter le plein
+écran est explicitement réactivée et remontée
+(`workspace.activeWindow`/`raiseWindow`). Insuffisant seul — kwin vole le
+focus en **deux temps** (barre latérale, puis barre), et la première reprise
+effacait le marqueur qui aurait dû protéger la seconde, laissant la barre
+gagner une fois sur deux. Corrigé en ne laissant le marqueur s'effacer que
+par expiration (fenêtre de 600 ms), jamais par une activation intermédiaire
+— même famille de garde que celle qui protège déjà la bulle de notification
+contre le vol de focus (2026-08-30), étendue à un second cas mesuré cette
+nuit.
+
+### Une erreur commise en cours de route, et qui a coûté du temps
+
+Le script témoin lui-même a été **déchargé par erreur** en nettoyant les
+scripts de diagnostic avant de recharger `fenetres.js` — plusieurs
+reproductions de l'utilisateur n'ont donc rien capturé, sans qu'on comprenne
+pourquoi jusqu'à ce que le silence du journal soit lui-même questionné
+plutôt que supposé transitoire.
+
+### Éprouvé, en direct, sur cette machine
+
+Rechargement à chaud du script résident (patron déjà établi :
+`fenetres.py::publier()`, `grimoire/kwin-capturer-la-coquille.sh`) à chaque
+itération, jamais de redémarrage de session. Le correctif final confirmé sur
+plusieurs cycles consécutifs, dans le journal du témoin : la barre vole le
+focus, Vivaldi le reprend dans la même milliseconde, à chaque fois — plus
+aucun atterrissage sur le bureau.
+
+### Ce que cette passe ne prouve pas
+
+- **Rien n'est dans l'image.** Le correctif tourne à chaud dans le kwin de
+  cette session depuis `/var/home/RyuRex/S/files/usr/lib/s/fenetres.js` ; il
+  faut une construction et un `bootc upgrade` pour qu'il survive au prochain
+  démarrage de la machine.
+- **Éprouvé sur un seul site** (Fluneo, lecteur vidéo web générique) et un
+  seul navigateur (Vivaldi). Un autre lecteur ou un F11 natif du navigateur
+  plutôt que le bouton du lecteur n'a pas été testé séparément.
+- **La technique `eavesdrop=true`** n'a pas été vérifiée sur une session
+  fraîchement démarrée — seulement sur celle-ci, après plusieurs heures
+  d'activité.
+
+---
+
 ## 2026-09-02, nuit — Sora, dix fois plus rapide : le paquet ROCm coupait son propre chemin CPU
 
 Suite directe de la nuit précédente. Trois défauts distincts trouvés en

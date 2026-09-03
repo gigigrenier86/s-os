@@ -93,6 +93,46 @@ function borner(f) {
     enTrainDeBorner = false;
 }
 
+// ═══ LE VRAI PLEIN ECRAN NE S'ARRETE PAS A basUtile() ═══════════════════════
+//
+// BOGUE RAPPORTE PAR L'UTILISATEUR, capture d'ecran a l'appui : une video en
+// plein ecran (xdg_toplevel::set_fullscreen, f.fullScreen === true) restait
+// cadree a basUtile() — letterboxing visible, controles du lecteur visibles
+// en bas. « borner() » s'exclut deja quand f.fullScreen est vrai (ligne 74),
+// mais rien ne DECLAMPE une fenetre deja clampee AVANT que fullScreen ne
+// bascule a vrai. Le coupable le plus probable est « reagir() » plus bas :
+// une fois « essaisRestants » epuise (toute fenetre qui vit depuis plus de
+// trois changements de geometrie — donc toute fenetre de navigateur deja
+// ouverte), son « else » appelle « borner(f) » sur CHAQUE
+// frameGeometryChanged, y compris celui qui amene la fenetre a 1080px juste
+// avant que kwin ne marque f.fullScreen a vrai — meme course que celle deja
+// documentee plus bas pour la NAISSANCE d'une fenetre, jamais couverte pour
+// une fenetre existante qui passe plein ecran en cours de vie.
+//
+// PLUTOT QUE DE DEVINER LEQUEL DES CHEMINS EST FAUTIF, ON RATTRAPE A LA
+// SORTIE DE LA COURSE : des que f.fullScreen devient vrai, on remet la
+// fenetre a la zone plein ecran COMPLETE, quel que soit ce qui a pu la
+// clamper juste avant. C'est le meme geste que fait le script « videowall »
+// livre par kwin lui-meme (/usr/share/kwin-wayland/scripts/videowall/
+// contents/code/main.js) pour le meme probleme.
+function remplirPleinEcran(f) {
+    if (enTrainDeBorner) return;
+    if (!f || !f.fullScreen) return;
+    if (String(f.resourceClass) === "s-constellation") return;
+    var z = null;
+    try {
+        z = workspace.clientArea(KWin.FullScreenArea, f);
+    } catch (e) {
+        return;
+    }
+    if (!z) return;
+    var g = f.frameGeometry;
+    if (g && g.x === z.x && g.y === z.y && g.width === z.width && g.height === z.height) return;
+    enTrainDeBorner = true;
+    f.frameGeometry = { x: z.x, y: z.y, width: z.width, height: z.height };
+    enTrainDeBorner = false;
+}
+
 // ═══ UNE FENETRE NEUVE S'OUVRE EN GRAND, PAS PETITE DANS UN COIN ═══════════
 //
 // Demande de l'utilisateur, 2026-08-29 : Vivaldi et VS Code, entre autres,
@@ -198,6 +238,26 @@ function suivreGeometrie(f) {
             }
             agrandir(f);
         } else {
+            // MEME PROTECTION QUE CI-DESSUS, MAIS POUR UNE FENETRE QUI VIT
+            // DEPUIS LONGTEMPS (essaisRestants deja epuise — le cas de tout
+            // navigateur deja ouvert). MESURE EN DIRECT, ETAPE PAR ETAPE, LE
+            // 2026-09-03 : corriger APRES coup (ecrire frameGeometry une fois
+            // f.fullScreen deja vrai) NE FAIT RIEN — l'ecriture est un
+            // NO-OP silencieux, sans exception, sur ce Vivaldi/Chromium-
+            // Wayland. Le client garde la main sur sa taille une fois le
+            // plein ecran negocie ; il faut donc empecher le clampage AVANT
+            // que la negociation ne se termine sur la mauvaise valeur,
+            // jamais le corriger apres. Meme heuristique que la branche
+            // « agrandir » : si la geometrie qui arrive est deja proche du
+            // VRAI plein ecran (z.width/z.height, pas basUtile), on ne
+            // clampe pas — « fullScreenChanged » tranchera une fois l'etat
+            // reellement connu.
+            var g2 = f.frameGeometry;
+            var z2 = null;
+            try { z2 = workspace.clientArea(KWin.FullScreenArea, f); } catch (e1) { }
+            if (z2 && g2 && g2.width >= z2.width - 4 && g2.height >= z2.height - 4) {
+                return;
+            }
             borner(f);
         }
     };
@@ -206,19 +266,72 @@ function suivreGeometrie(f) {
     } catch (e) {
     }
     try {
-        f.maximizedChanged.connect(function () { borner(f); });
+        f.maximizedChanged.connect(function () {
+            // Meme protection que dans « reagir() » : un client peut passer
+            // par « maximise » juste avant que « fullScreen » ne bascule a
+            // vrai, et cloue-la ici serait aussi irreversible qu'ailleurs
+            // (voir le commentaire au-dessus de « reagir() »).
+            var gm = f.frameGeometry;
+            var zm = null;
+            try { zm = workspace.clientArea(KWin.FullScreenArea, f); } catch (em) { }
+            if (zm && gm && gm.width >= zm.width - 4 && gm.height >= zm.height - 4) return;
+            borner(f);
+        });
     } catch (e2) {
     }
     try {
         f.fullScreenChanged.connect(function () {
-            if (!f.fullScreen) {
+            if (f.fullScreen) {
+                remplirPleinEcran(f);
+            } else {
+                // Clampage MESURE, pas anticipe : « borner() » ne fait rien
+                // si la geometrie tient deja sous la limite (ligne 79). Ne
+                // pas retirer cet appel sans avoir mesure, sur cette
+                // machine, que frameGeometryChanged rattrape bien la
+                // geometrie finale a chaque sortie — le retirer a l'aveugle
+                // reintroduirait le bogue original du 2026-08-25 (fenetre
+                // sous la barre) si ce chemin s'averait peu fiable ici.
                 borner(f);
+                // LA FENETRE NE SE REMET PAS AU PREMIER PLAN TOUTE SEULE.
+                //
+                // RAPPORTE PAR L'UTILISATEUR, MESURE EN DIRECT LE 2026-09-03 :
+                // en sortant du plein ecran, la fenetre perd « active »
+                // (confirme au temoin D-Bus, a chaque fois) et RIEN ne la
+                // reactive ni ne la remonte — les deux fenetres « au-dessus »
+                // de S (barre laterale, barre) sont brievement activees par
+                // kwin lui-meme en reasseyant sa pile (comportement natif,
+                // pas du code de S), et comme aucune vraie fenetre n'est
+                // relevee entre-temps, c'est LE BUREAU — toujours tout en
+                // bas de la pile — qui reste visible. « J'atterris sur
+                // Constellation », mot pour mot. Ce n'est jamais une
+                // minimisation ni un ecran blanc : rien dans
+                // « f.minimized » ne bouge, mesure a chaque cycle. Le
+                // symptome se resorbe tout seul apres quelques secondes
+                // (8 a 11 s mesures), probablement au premier evenement qui
+                // redonne le focus au navigateur par un autre chemin — trop
+                // lent pour etre acceptable.
+                //
+                // Le correctif est direct : la fenetre qui VIENT de quitter
+                // le plein ecran est, par construction, celle que
+                // l'utilisateur regardait — on la remet devant et on lui
+                // rend le focus nous-memes, plutot que d'attendre que kwin
+                // s'en charge.
+                try {
+                    workspace.activeWindow = f;
+                    workspace.raiseWindow(f);
+                } catch (eReprise) {
+                }
+                // Le marqueur que le gestionnaire « windowActivated » plus
+                // bas consulte, pour rattraper la reprise de pile natives de
+                // kwin qui suit — voir son commentaire pour le detail.
+                pleinEcranSortieRecente = { fenetre: f, quand: Date.now() };
             }
             envoyer();
         });
     } catch (e3) {
     }
     borner(f);
+    remplirPleinEcran(f);
 }
 
 function estPleinEcran(f) {
@@ -378,6 +491,34 @@ function estBulleNotification(f) {
     return estConstellation(f) && String(f.caption) === "S - notification";
 }
 
+// LES DEUX BARRES VOLENT AUSSI L'ACTIVATION, MAIS SEULEMENT DANS UNE FENETRE
+// DE TEMPS TRES COURTE APRES UNE SORTIE DE PLEIN ECRAN.
+//
+// RAPPORTE PAR L'UTILISATEUR, MESURE EN DIRECT LE 2026-09-03, avec le meme
+// temoin D-Bus que celui deja utilise pour la bulle : sortir du plein ecran
+// fait perdre « active » a la fenetre (mesure a chaque cycle), et kwin
+// lui-meme reassoit alors sa pile de fenetres « au-dessus » — « S - barre
+// laterale » puis « S - barre » sont brievement activees, en quelques
+// dizaines de millisecondes, AVANT que la fenetre reactivee dans
+// « fullScreenChanged » ci-dessus n'ait fini de reprendre sa place. Comme
+// aucune vraie fenetre n'est encore devant a cet instant, c'est LE BUREAU —
+// toujours tout en bas de la pile — qui reste visible : « j'atterris sur
+// Constellation », mot pour mot, rapporte par l'utilisateur.
+//
+// LA BARRE ET LA BARRE LATERALE ONT LE DROIT D'ETRE ACTIVEES EN TEMPS
+// NORMAL (menu Demarrer, clic reel sur la barre — voir le commentaire du
+// 2026-08-27 plus bas). On ne les bascule donc PAS comme la bulle, en tout
+// temps — seulement si leur activation tombe dans les quelques centaines de
+// millisecondes qui suivent une sortie de plein ecran, ou un vrai clic de
+// l'utilisateur n'a physiquement pas le temps d'arriver.
+var pleinEcranSortieRecente = null;
+
+function estBarreOuLaterale(f) {
+    if (!estConstellation(f)) return false;
+    var t = String(f.caption);
+    return t === "S - barre" || t === "S - barre laterale";
+}
+
 workspace.windowActivated.connect(function (f) {
     // AVANT CE SOIR, LE GARDE PORTAIT SUR « estConstellation », PAS SUR LA
     // BULLE SEULE. Consequence mesuree en direct : « activerBureau() »
@@ -408,6 +549,16 @@ workspace.windowActivated.connect(function (f) {
         }
         return;
     }
+    if (estBarreOuLaterale(f) && pleinEcranSortieRecente &&
+        (Date.now() - pleinEcranSortieRecente.quand) < 600) {
+        try {
+            workspace.activeWindow = pleinEcranSortieRecente.fenetre;
+            workspace.raiseWindow(pleinEcranSortieRecente.fenetre);
+        } catch (eRepriseBarre) {
+            // La fenetre a pu fermer entre-temps : rien a rattraper.
+        }
+        return;
+    }
     // « derniereFenetreReelle » NE DOIT JAMAIS POINTER SUR UNE FENETRE DE
     // CONSTELLATION — sinon un jour ou la bulle vole vraiment le focus, on la
     // rebasculerait vers le bureau ou la barre plutot que vers une vraie
@@ -415,6 +566,19 @@ workspace.windowActivated.connect(function (f) {
     // d'etre actives ; on laisse juste passer l'evenement sans les retenir.
     if (!estConstellation(f)) {
         derniereFenetreReelle = f;
+        // « pleinEcranSortieRecente » N'EST JAMAIS EFFACE ICI, DELIBEREMENT.
+        //
+        // BOGUE TROUVE EN REJOUANT LE SCRIPT EN DIRECT LE 2026-09-03 : kwin
+        // reasseoit sa pile en PLUSIEURS temps — « S - barre laterale »
+        // PUIS « S - barre », quelques millisecondes plus tard, pas en un
+        // seul evenement. Le premier rattrapage (juste en dessous) redonne
+        // le focus a la vraie fenetre, ce qui declenche CE MEME
+        // gestionnaire avec elle en argument — si ce branchement effacait
+        // le marqueur ici, le DEUXIEME vol de focus (la barre, apres la
+        // barre laterale) arrivait sur un marqueur deja vide et gagnait.
+        // Mesure : sans cette garde, une reprise sur deux echouait. Le
+        // marqueur s'efface tout seul par expiration (le controle de temps
+        // ci-dessus), jamais par une activation intermediaire.
     }
     envoyer();
 });
