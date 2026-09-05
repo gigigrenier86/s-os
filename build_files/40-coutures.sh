@@ -315,22 +315,6 @@ test -L /etc/systemd/user/s-session.target.wants/s-egaliseur.service \
     || { echo "ECHEC : s-egaliseur.service n'est pas tire par s-session.target." >&2; exit 1; }
 echo "  s-egaliseur.service : resident, tire par s-session.target"
 
-# --- SORA RESIDENTE — MEME PATRON QUE s-windows.service ---------------------
-# Charger 2,3 Go de poids a chaque question serait absurde ; le serveur
-# llama-server vit avec la session, voir sora.py et s-sora.service.
-python3 -m py_compile /usr/lib/s/sora.py
-rm -rf /usr/lib/s/__pycache__ 2>/dev/null || true
-test -s /usr/lib/systemd/user/s-sora.service \
-    || { echo "ECHEC : s-sora.service absent — Sora n'aurait rien a interroger." >&2; exit 1; }
-systemctl --global enable s-sora.service
-test -L /etc/systemd/user/s-session.target.wants/s-sora.service \
-    || { echo "ECHEC : s-sora.service n'est pas tire par s-session.target." >&2; exit 1; }
-test -s /usr/share/s/sora/Qwen3-4B-Instruct-2507-Q4_K_M.gguf \
-    || { echo "ECHEC : le modele de Sora est absent — 50-sora.sh a-t-il tourne ?" >&2; exit 1; }
-test -s /usr/share/icons/hicolor/256x256/apps/s-sora.png \
-    || { echo "ECHEC : l'icone de Sora est absente." >&2; exit 1; }
-echo "  s-sora.service : resident, tire par s-session.target"
-
 # --- LA LETTRE P: A DEMENAGE AVEC LA CREATION DU PREFIXE ---------------------
 # On ancre sur l'APPEL et non sur le mot : la version precedente cherchait
 # « s-partage » dans s-ouvrir-exe et aurait continue de passer sur une simple

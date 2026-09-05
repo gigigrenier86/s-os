@@ -8,6 +8,221 @@ Interface en français.
 
 ---
 
+## 2026-09-05 — Sora est retirée : elle coûtait de la mémoire résidente pour un usage qui ne la justifiait pas
+
+Décision de l'utilisateur, sans ambiguïté : *« on retire Sora, il prend trop
+de mémoire pour rien »*. Sora tenait un `llama-server` **résident** avec le
+modèle Qwen3-4B (Q4_K_M, ~2,3 Go de poids) chargé en mémoire en permanence
+dès l'ouverture de session — c'était le prix délibéré, accepté le
+2026-09-01, pour éviter de recharger le modèle à chaque question. Le prix
+s'est révélé ne pas valoir l'usage réel qu'on en faisait.
+
+### Ce qui a été retiré, en entier
+
+- `build_files/50-sora.sh` — la compilation de llama.cpp (sans ROCm/HIP) et
+  le téléchargement pré-cuit du modèle.
+- `files/usr/lib/s/sora.py` — le routeur intention → outil.
+- `files/usr/lib/systemd/user/s-sora.service` — le serveur résident.
+- `files/usr/share/icons/hicolor/256x256/apps/s-sora.png` et
+  `galerie/logo-sora/graver.py` — le logo composé pour elle.
+- L'étape de construction dans le `Containerfile`, et son bloc de
+  vérification dans `40-coutures.sh` (présence du service, du modèle, de
+  l'icône, activation par `s-session.target`).
+- Le signal `soraReponse` et le slot `demander` du leurre dans
+  `verifier-constellation.py`.
+- Dans `s-constellation` : le verrou `_sora_occupee` (une seule inférence à
+  la fois, la file qui s'aggrave toute seule si on clique deux fois pendant
+  l'amorce) et le Slot `demander` qui l'appelait en thread détaché.
+- Dans `Constellation.qml` : le bouton rond de l'icône Sora à gauche de la
+  barre de recherche du menu Démarrer, le gestionnaire `onSoraReponse`, et
+  l'appel `pont.demander(q)` sur `Enter` quand rien de connu ne correspond.
+
+### Ce qui reprend sa place
+
+Le TextField du menu Démarrer redevient plein largeur (l'ancre gauche
+repasse de `boutonSora.right` à `parent.left`), et son repli sur une phrase
+libre sans correspondance redevient **la recherche Google directe**
+(`pont.lancer("recherche:" + q)`) — le mécanisme qui existait déjà avant
+Sora et n'a jamais été retiré de `noyau.py`, seulement contourné. Rien à
+reconstruire ici : la couture était restée en place tout du long.
+
+**Deux commentaires touchant un défaut réel et toujours vrai** — le bogue de
+`filtrees()` qui ajoute toujours trois entrées de secours même sans vraie
+correspondance, et la faille de timeout partagée entre `s-sora.service` et
+`s-windows.service` — ont gardé leur explication technique, seule leur
+attribution à Sora comme circonstance de découverte a été retirée ou laissée
+telle quelle selon qu'elle décrit encore quelque chose de vivant. Le
+commentaire de `s-windows.service` qui cite Sora comme le premier endroit où
+cette faille a été mesurée reste tel quel : il explique la provenance d'un
+correctif qui vit ailleurs, pas une dépendance envers Sora.
+
+### Éprouvé, dans la mesure où ça pouvait l'être sans construire
+
+```
+python3 build_files/verifier-constellation.py <depot>/files/usr/share/s/constellation/qml
+  scene QML     : chargee, menu ouvert, aucun avertissement
+  slots         : 35 au pont, tous declares par le leurre
+```
+
+Scène QML rechargée à froid, zéro référence pendante à `pont.demander` ou
+`onSoraReponse` — si l'appel QML avait survécu quelque part sans son slot
+côté leurre, ce contrôle l'aurait fait échouer, exactement comme il est
+censé le faire. Syntaxe Python de `s-constellation` et
+`verifier-constellation.py` vérifiée par `ast.parse`. Balayage complet du
+dépôt (`git grep -i sora`) : plus aucune trace fonctionnelle, seulement deux
+commentaires historiques dans des fichiers sans rapport (`build.yml`,
+`s-windows.service`), laissés parce qu'ils expliquent un correctif qui leur
+est propre.
+
+### Ce que cette passe ne prouve pas
+
+- **Rien n'est encore construit ni déployé.** L'image tourne toujours avec
+  Sora dessus tant qu'un `bootc upgrade` n'a pas eu lieu.
+- **Aucun clic réel** n'a confirmé que le menu Démarrer se comporte
+  normalement sans le bouton — seul le chargement de la scène est vérifié,
+  pas le geste à l'écran.
+
+---
+
+## 2026-09-04, soir — le gouffre Android est fermé : une machine neuve peut de nouveau obtenir Android
+
+**PREUVE :** téléchargement réel, depuis cette machine, du code exact du dépôt
+(sourcé, pas retapé) — `system.img` (2 581 975 040 octets) et `vendor.img`
+(561 504 256 octets) récupérés depuis les flux OTA réels de Waydroid,
+vérifiés par sha256 contre l'empreinte publiée, dépliés par
+`zipfile.extractall`. Les deux tailles tombent **au caractère près** sur
+celles déjà posées sur cette machine depuis le 2026-08-25 (`ls -la
+/var/lib/waydroid/images/` inchangé, jamais touché par ce test) — la
+construction publiée n'a pas changé depuis, et le mécanisme retrouve
+exactement ce que `waydroid init -s GAPPS` avait posé en son temps.
+
+### Le trou, tel que ce carnet le décrivait depuis le 2026-08-29
+
+`s-android` portait, en commentaire, la description exacte du manque et le
+remède sans jamais l'écrire : *« il faudrait reproduire la logique OTA de
+l'ancien `initializer.py`… NON COMMENCE, chantier à part »*. Le retrait du
+paquet `waydroid` (au profit du contrôle natif LXC direct) avait emporté avec
+lui le seul mécanisme qui posait `system.img`/`vendor.img` sur une machine
+neuve — cette machine-ci tournait uniquement parce qu'elle gardait un résidu
+du 2026-08-25, jamais reproductible ailleurs.
+
+### La logique, lue à la vraie source, pas devinée
+
+`waydroid/waydroid`, `tools/actions/initializer.py` et
+`tools/helpers/images.py` (relus le 2026-09-04, mot pour mot, avant d'écrire
+une ligne) :
+
+- Deux flux JSON, un par image :
+  `https://ota.waydro.id/{system,vendor}/{lineage/waydroid_x86_64/GAPPS,waydroid_x86_64/MAINLINE}.json`
+  — chacun rend `{"response": [{"datetime", "url", "filename", "id"
+  (sha256 hex)}, …]}`.
+- On prend la construction au plus grand `datetime` (mesuré, pas supposé
+  trié : `max()` plutôt que `[0]`).
+- Téléchargement, vérification sha256 contre `id`, extraction du zip
+  directement dans `images_path` — aucun format `sdat2img`/brotli à gérer,
+  les zips OTA de Waydroid portent les `.img` bruts.
+
+**Figé à ce que S a toujours demandé, rien de plus générique.** L'amont
+détecte l'architecture et le type de vendor de l'appareil hôte
+(`get_vendor_type`) — sur une machine qui n'a jamais été un téléphone
+Android, cette détection rend **toujours** `MAINLINE`
+(`ro.vndk.version` y est vide). Refaire cette détection pour ne jamais
+produire qu'une seule valeur aurait été une généralité sans objet ;
+`x86_64`/`GAPPS`/`MAINLINE` est écrit en dur dans
+`S_ANDROID_OTA_SYSTEME_URL`/`S_ANDROID_OTA_VENDOR_URL`.
+
+### Le geste, sur le patron déjà éprouvé de la traduction ARM
+
+`s_android_images_obtenir()` (`partage-android.sh`) suit **exactement** le
+même schéma que `s_android_traduction_arm_installer()` (libhoudini,
+2026-08-30) : réseau et sha256 **sans privilège** (rien de tout ça n'en a
+besoin), **une seule élévation** pour la seule chose qui l'exige — déplier
+dans `/var/lib/waydroid/images`, `root:root`. Le `finally` du bloc élevé
+nettoie le dossier de travail **en root**, même raison que pour libhoudini :
+l'extraction tourne en root, donc chaque fichier qu'elle crée devient
+root:root, et seul root peut ensuite l'effacer.
+
+Un contrôle d'espace disque (`df --output=avail`, seuil 6 Go) refuse de
+commencer plutôt que de laisser `curl` échouer au milieu avec « No space left
+on device » sans dire pourquoi.
+
+**`s-android` ne s'arrête plus net.** L'ancien bloc faisait `s_echec` sans
+recours ; il appelle désormais `s_android_images_obtenir` si les images
+manquent — **jamais en mode `--silencieux`** (l'ouverture de session), pour
+la même raison que le Play Store un peu plus bas dans le même fichier : un
+téléchargement de plusieurs Go suivi d'un mot de passe n'a rien d'un geste
+silencieux. La session s'ouvre alors sans Android, en le disant clairement ;
+le premier clic sur « Android » ou « Play Store » déclenche le
+téléchargement.
+
+### Ce que cette passe ne prouve pas
+
+- **L'élévation finale (`s_root`, dépliage dans `/var/lib/waydroid/images`
+  en root) n'a jamais tourné pour de vrai.** Le test a prouvé le réseau, la
+  vérification sha256 et l'extraction `zipfile` — la partie qui compte le
+  plus, parce que c'est celle qui peut échouer de cent façons différentes
+  (réseau, redirection SourceForge, empreinte). L'élévation elle-même
+  reprend au caractère près la forme déjà éprouvée pour libhoudini
+  (`os.chown`/`os.chmod`/`shutil.rmtree` en root), jamais rejouée pour cette
+  fonction précise — écraser les vraies images de cette machine pour le
+  vérifier aurait cassé un Android qui fonctionne, décision qui n'était pas
+  à prendre seul.
+- **Aucun clic réel sur « Android » n'a déclenché ce chemin** — cette
+  machine a déjà ses images, donc `s_android_images_presentes` rend vrai et
+  le nouveau bloc ne s'exécute jamais ici. La seule machine qui l'exercerait
+  pour de vrai est une machine neuve, qui n'existe pas encore.
+- **Rien de tout ceci n'est dans l'image.** Écrit dans le dépôt, pas encore
+  construit ni déployé.
+
+---
+
+## 2026-09-04 — l'image Bazzite pour la ROG Ally n'a rien à donner à S, et c'est mesuré
+
+Pendant l'écriture d'une image `bazzite-deck-gnome-stable` sur la clé SanDisk
+(destinée à la ROG Ally de l'utilisateur, pas à S), question posée en
+parallèle : est-ce qu'il y a quelque chose dans cette image à incorporer dans
+S ? Rôle Wizard — chercher avant de conclure, jamais deviner.
+
+**L'ISO montée en lecture seule (`mount -o loop,ro`, jamais touché la clé en
+cours d'écriture) est un dossier OCI complet** —
+`bazzite-deck-gnome-stable/{index.json,blobs/}` — exactement le même format
+que l'image que S publie sur `ghcr.io`. `skopeo inspect oci:<dossier>` suffit
+à la lire sans rien dépaqueter, et son étiquette `dev.hhd.rechunk.info` porte
+la liste complète des 2233 paquets RPM avec leurs versions — pas besoin de
+`dnf` ni de decompresser les 73 couches pour savoir ce qu'elle contient.
+
+**Premier constat, indépendant de la question posée mais utile pour
+l'installation en cours** : cette ISO date du **2025-10-18**, sur **Fedora
+42** (`ostree.linux = 6.16.4-116.bazzite.fc42.x86_64`) — près d'onze mois
+avant aujourd'hui. Un `bootc upgrade`/`ujust update` s'imposera dès le
+premier démarrage de la Ally pour rattraper Fedora 44.
+
+**La comparaison des paquets tranche net.** Tout ce qui existe dans
+`deck-gnome` et pas dans S (mesuré par grep sur les deux listes, pas
+supposé) est strictement propre au matériel portatif : `hhd`/`hhd-ui`
+(Handheld Daemon — détection de manette, gyroscope, TDP), `adjustor`
+(intégration AMD/Ryzen pour hhd), `bmi260`/`kmod-bmi260`/`iio-sensor-proxy`
+(accéléromètre), `jupiter-fan-control`/`jupiter-hw-support-btrfs`
+(ventilateur et stockage du Steam Deck), `gamescope-session-plus/steam`
+(session de jeu plein écran — S a déjà sa propre coquille Constellation),
+et `steamdeck-backgrounds/dsp/gnome-presets` (habillage visuel du Deck).
+**Aucun de ces paquets n'a de sens sur la M720q** : pas de manette
+intégrée, pas de gyroscope, pas de batterie ni de contrôleur TDP à piloter.
+
+**Et ce qui semblait intéressant au premier regard — `gamescope`,
+`lm_sensors`, `btrfs-progs`, `ntfsprogs`, `exfatprogs` — est déjà dans S**,
+vérifié par `rpm -qa` sur la machine réelle : hérité du même socle Bazzite
+partagé, jamais ajouté par S lui-même. Rien à porter, parce que c'était
+déjà là.
+
+**Verdict : rien de cette image ne vaut la peine d'entrer dans S.** Ce
+n'est pas une lacune de S — c'est exactement la couche que Bazzite garde
+volontairement séparée entre sa variante bureau et sa variante portable.
+La question redeviendrait pertinente si S devait un jour tourner sur du
+matériel portatif ; sur un mini-PC de bureau, elle est fermée.
+
+---
+
 ## 2026-09-03 — le plein écran n'était pas plein, et la fenêtre n'était jamais minimisée
 
 Capture d'écran de l'utilisateur : une vidéo en plein écran dans Vivaldi,

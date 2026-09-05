@@ -394,3 +394,147 @@ PY
         "ro.dalvik.vm.isa.arm=x86" \
         "ro.dalvik.vm.isa.arm64=x86_64"
 }
+
+# --- Les images elles-memes, quand la machine n'en a aucune -----------------
+#
+# CE QUI EST REPRODUIT ICI, ET D'OU CA VIENT. « waydroid init -s GAPPS »
+# etait le seul chemin qui posait system.img/vendor.img sur une machine
+# neuve. Le paquet et son initialiseur Python sont partis le 2026-08-29 —
+# voir le commentaire laisse a l'epoque dans s-android, qui nommait deja le
+# remede sans l'ecrire : « il faudrait reproduire la logique OTA de l'ancien
+# initializer.py ». C'est ce bloc.
+#
+# LA LOGIQUE VIENT DE LA VRAIE SOURCE, LUE LE 2026-09-04, PAS DEVINEE :
+# waydroid/waydroid, tools/actions/initializer.py (construction des deux URL
+# de flux) et tools/helpers/images.py (choix de la construction, verification
+# sha256, extraction). Deux flux JSON — un par image — rendent chacun
+# {"response": [{"datetime", "url", "filename", "id" (sha256 hex)}, ...]},
+# tries du plus recent au plus ancien ; on prend le plus grand "datetime" par
+# securite plutot que de se fier a l'ordre.
+#
+# FIGE A CE QUE S A TOUJOURS DEMANDE, RIEN DE PLUS GENERIQUE. L'amont detecte
+# l'architecture et le "vendor type" du peripherique hote (get_vendor_type,
+# initializer.py) — sur une machine qui n'a jamais ete un telephone Android,
+# cette detection rend TOUJOURS "MAINLINE" (ro.vndk.version est vide ici).
+# Refaire cette detection pour ne jamais produire qu'une seule valeur aurait
+# ete une generalite sans objet ; x86_64/GAPPS/MAINLINE est ecrit en dur.
+#
+# LE MEME PATRON QUE LA TRADUCTION ARM, ET C'EST DELIBERE : reseau et sha256
+# SANS PRIVILEGE (rien de tout ca n'en a besoin), UNE SEULE elevation pour la
+# seule chose qui l'exige — deplier dans /var/lib/waydroid/images, root:root.
+S_ANDROID_OTA_ARCH="x86_64"
+S_ANDROID_OTA_SYSTEME_URL="https://ota.waydro.id/system/lineage/waydroid_${S_ANDROID_OTA_ARCH}/GAPPS.json"
+S_ANDROID_OTA_VENDOR_URL="https://ota.waydro.id/vendor/waydroid_${S_ANDROID_OTA_ARCH}/MAINLINE.json"
+
+s_android_images_presentes() {
+    [ -f /var/lib/waydroid/images/system.img ] && [ -f /var/lib/waydroid/images/vendor.img ]
+}
+
+# Lit un flux OTA, telecharge la construction la plus recente dans $2,
+# verifie son empreinte sha256 contre celle que le flux publie. Rend le
+# chemin du zip verifie sur stdout ; rend 1 et n'y laisse rien en cas
+# d'echec, a quelque etape que ce soit.
+s_android_ota_recuperer() {
+    local url_flux="$1" travail="$2" nom="$3"
+    local reponse zip_url zip_nom zip_id zip_chemin empreinte
+
+    reponse="$(curl -fsSL --retry 3 --retry-all-errors --max-time 60 "$url_flux")" || {
+        echo "$nom : flux OTA injoignable ($url_flux)" >&2
+        return 1
+    }
+
+    # LA SELECTION DE LA CONSTRUCTION SE FAIT EN PYTHON : bash n'a pas de
+    # parseur JSON natif, et c'est deja le choix fait ailleurs dans ce
+    # fichier (s_android_prop_ecrire) pour la meme raison.
+    read -r zip_url zip_nom zip_id < <(printf '%s' "$reponse" | /usr/bin/python3 -c '
+import json, sys
+reponses = json.load(sys.stdin)["response"]
+if not reponses:
+    sys.exit(1)
+plus_recente = max(reponses, key=lambda e: e["datetime"])
+print(plus_recente["url"], plus_recente["filename"], plus_recente["id"])
+' 2>/dev/null) || {
+        echo "$nom : flux OTA vide ou illisible" >&2
+        return 1
+    }
+
+    zip_chemin="$travail/$zip_nom"
+    echo "Telechargement de $nom ($zip_nom)…" >&2
+    curl -fL --retry 3 --retry-all-errors --max-time 1800 \
+        -o "$zip_chemin" "$zip_url" || {
+        echo "$nom : telechargement echoue" >&2
+        rm -f "$zip_chemin"
+        return 1
+    }
+
+    empreinte="$(sha256sum "$zip_chemin" | cut -d' ' -f1)"
+    if [ "$empreinte" != "$zip_id" ]; then
+        echo "$nom : empreinte differente de celle publiee ($empreinte != $zip_id)" >&2
+        rm -f "$zip_chemin"
+        return 1
+    fi
+    printf '%s\n' "$zip_chemin"
+}
+
+# Telecharge et pose system.img + vendor.img. Rend 1 sans rien avoir change
+# si l'un des deux echoue en chemin — jamais une image posee sans l'autre,
+# jamais un fichier a moitie ecrit dans /var/lib/waydroid/images.
+s_android_images_obtenir() {
+    if s_android_images_presentes; then
+        return 0
+    fi
+
+    # LES DEUX IMAGES DEPLIEES PESENT ENVIRON 3,1 GO (system.img 2,5 Go,
+    # vendor.img 561 Mo, mesure sur cette machine) ; le zip du systeme a lui
+    # seul en pese 1,2 en transit. On le verifie AVANT de commencer, pas
+    # apres avoir rempli le disque : le message doit nommer la cause, pas
+    # laisser echouer curl au milieu avec "No space left on device".
+    local libre_ko
+    libre_ko="$(df --output=avail -k /var/lib/waydroid 2>/dev/null | tail -1)"
+    if [ -n "$libre_ko" ] && [ "$libre_ko" -lt 6000000 ]; then
+        echo "moins de 6 Go libres sur /var — abandon avant de telecharger quoi que ce soit" >&2
+        return 1
+    fi
+
+    local travail
+    travail="$(mktemp -d "$S_ETAT/android-images.XXXXXX")" || return 1
+
+    local zip_systeme zip_vendor
+    zip_systeme="$(s_android_ota_recuperer "$S_ANDROID_OTA_SYSTEME_URL" "$travail" système)" \
+        || { rm -rf "$travail"; return 1; }
+    zip_vendor="$(s_android_ota_recuperer "$S_ANDROID_OTA_VENDOR_URL" "$travail" vendor)" \
+        || { rm -rf "$travail"; return 1; }
+
+    # UNE SEULE ELEVATION : deplier les deux zips DEJA VERIFIES (le reseau et
+    # le sha256 sont derriere nous, dans le compte de l'utilisateur) dans le
+    # dossier root:root, et nettoyer le dossier de travail — MEME RAISON QUE
+    # POUR libhoudini : l'extraction tourne en root, donc chaque fichier
+    # qu'elle cree devient root:root ; seul root peut ensuite l'effacer.
+    if ! s_root --limite 300 /usr/bin/python3 - "$zip_systeme" "$zip_vendor" <<'PY'
+import os
+import sys
+import zipfile
+import shutil
+
+zip_systeme, zip_vendor = sys.argv[1], sys.argv[2]
+cible = "/var/lib/waydroid/images"
+
+try:
+    os.makedirs(cible, mode=0o755, exist_ok=True)
+    for z in (zip_systeme, zip_vendor):
+        with zipfile.ZipFile(z) as archive:
+            archive.extractall(cible)
+    for nom in ("system.img", "vendor.img"):
+        chemin = os.path.join(cible, nom)
+        os.chown(chemin, 0, 0)
+        os.chmod(chemin, 0o644)
+finally:
+    shutil.rmtree(os.path.dirname(zip_systeme), ignore_errors=True)
+PY
+    then
+        echo "extraction des images Android refusee ou echouee" >&2
+        rm -rf "$travail"
+        return 1
+    fi
+    return 0
+}

@@ -75,19 +75,6 @@ class Pont(QObject):
         # oublie avoir marque des semaines plus tot.
         self._presse_papiers = None   # {"chemin": str, "couper": bool} ou None
 
-        # LE VERROU DE SORA. llama-server n'a QU'UN SEUL emplacement de
-        # traitement (aucun --parallel dans s-sora.service) — deux questions
-        # en meme temps ne tournent pas en parallele, elles font la queue.
-        # Et un appel qui expire cote client (urllib, 30 s) NE L'ANNULE PAS
-        # cote serveur : la tache reste dans la file. Mesure en direct le
-        # 2026-09-01 : plusieurs clics impatients pendant l'amorce ont
-        # empile des taches, et chaque appel suivant expirait a son tour en
-        # attendant son tour derriere les precedents — un cercle qui
-        # s'aggrave tout seul. Ce verrou refuse une seconde question tant
-        # que la premiere n'a pas rendu sa reponse, plutot que d'en ajouter
-        # une de plus a une file deja en retard.
-        self._sora_occupee = threading.Lock()
-
     # ---- Lecture ---------------------------------------------------------
     @Slot(result="QVariant")
     def etoiles(self):
@@ -431,39 +418,6 @@ class Pont(QObject):
         # l'etat que le panneau affiche, et rien d'autre ne le lui dirait.
         self.rafraichirReglages()
         return dit
-
-    # ---- Sora — l'assistant IA local --------------------------------------
-    #
-    # MEME RAISON QUE reglagesPrets/rafraichirReglages, EN PIRE : composer
-    # rapides() coute 914 ms deja mesures, une inference LLM en coute
-    # plusieurs SECONDES. Un Slot synchrone gelerait la coquille entiere le
-    # temps de la reponse — voir sora.py pour le detail du serveur residant
-    # (s-sora.service) qui rend ce delai supportable au lieu de charger
-    # 2,3 Go de poids a chaque question.
-
-    soraReponse = Signal(str)
-
-    @Slot(str)
-    def demander(self, texte):
-        if not self._sora_occupee.acquire(blocking=False):
-            self.soraReponse.emit("Sora repond deja a la question precedente — patience.")
-            return
-
-        def travail():
-            try:
-                try:
-                    import sora
-                    phrase = sora.demander(texte, pont=self)
-                except Exception as err:  # noqa: BLE001
-                    phrase = "Sora ne repond pas (%s)." % err
-            finally:
-                self._sora_occupee.release()
-            self.soraReponse.emit(phrase)
-            # Un « regler » ou un « lancer » peut avoir change l'etat que le
-            # panneau affiche (Mode S, Android, un volume...) — meme reflexe
-            # que reglerRapide, qui relit derriere lui pour la meme raison.
-            self.rafraichirReglages()
-        threading.Thread(target=travail, daemon=True).start()
 
     @Slot(QWindow, bool)
     def bornerLaterale(self, fenetre, deploye):

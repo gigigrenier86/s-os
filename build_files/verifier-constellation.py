@@ -240,14 +240,6 @@ class PontLeurre(QObject):
         # pas de mesurer la machine.
         self.reglagesPrets.emit(json.dumps(FAUX_REGLAGES))
 
-    soraReponse = Signal(str)
-
-    @Slot(str)
-    def demander(self, texte):
-        # Meme raison que rafraichirReglages : declarer le contrat sans
-        # interroger un vrai serveur Sora, absent au moment de la construction.
-        self.soraReponse.emit("essai")
-
     @Slot(str, "QVariant", result=str)
     def reglerRapide(self, cle, valeur):
         return cle

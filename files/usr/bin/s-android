@@ -55,28 +55,33 @@ _dire_android() {
 
 s_verrou android
 
-# --- Premiere utilisation : IL N'Y A PLUS DE TELECHARGEMENT -----------------
+# --- Premiere utilisation : les images elles-memes --------------------------
 #
-# CE BLOC FAISAIT « waydroid init -s GAPPS -c ... -v ... » — le seul chemin
-# qui ait jamais pose system.img/vendor.img sur une machine neuve. Le paquet
-# waydroid, et son initialiseur Python, sont partis avec lui le 2026-08-29 :
-# IL N'EXISTE PLUS AUCUN MOYEN NATIF DE TELECHARGER ANDROID.
+# CE BLOC DISAIT « S NE SAIT PLUS LES TELECHARGER » DEPUIS LE 2026-08-29 —
+# FAUX DEPUIS LE 2026-09-04. s_android_images_obtenir (partage-android.sh)
+# reprend nativement la logique OTA de l'ancien initializer.py : deux flux
+# JSON, la construction la plus recente, verification sha256, extraction. Le
+# gouffre nomme dans ce carnet depuis cinq jours est ferme — voir CLAUDE.md,
+# 2026-09-04.
 #
-# CETTE MACHINE-CI a deja ses images (residu du 2026-08-25, pose avant le
-# retrait) — le geste marche donc ICI. Une machine reconstruite a neuf n'aurait
-# ni system.img ni vendor.img, et rien dans ce depot ne saurait plus les poser
-# : il faudrait reproduire la logique OTA de l'ancien initializer.py (deux URL
-# JSON, extraction). NON COMMENCE, chantier a part — voir CLAUDE.md,
-# 2026-08-29.
-#
-# On verifie donc que ce qu'il faut est bien la, et on le DIT honnetement si ce
-# n'est pas le cas plutot que de pretendre pouvoir le reparer.
-if [ ! -f /var/lib/waydroid/images/system.img ] || \
-   [ ! -f /var/lib/waydroid/images/vendor.img ]; then
-    s_echec "Android n'est pas prepare sur cette machine" \
-"system.img ou vendor.img manque dans /var/lib/waydroid/images, et S ne sait \
-plus les telecharger depuis le retrait de Waydroid — voir CLAUDE.md, \
-2026-08-29."
+# JAMAIS EN MODE SILENCIEUX : le telechargement pese plusieurs Go et finit par
+# un mot de passe (l'elevation qui deplie dans /var/lib/waydroid, root:root).
+# Memes raisons que le Play Store plus bas — une session qui s'ouvre dessus
+# n'est pas ce qu'on veut. La session s'ouvre alors sans Android, le journal
+# le dit clairement ; le premier clic sur « Android » ou « Play Store »
+# declenchera le telechargement.
+if ! s_android_images_presentes; then
+    if [ "$MODE" = "--silencieux" ]; then
+        _dire_android "Android" "Aucune image posee sur cette machine — le premier clic sur Android les telechargera."
+        exit 0
+    fi
+    _dire_android "Android" \
+        "Premiere utilisation — telechargement des images (environ 3 Go, plusieurs minutes selon la connexion)." phone
+    if ! s_android_images_obtenir; then
+        s_echec "Android n'a pas pu obtenir ses images" \
+            "Voir le journal de ce terminal pour la cause exacte — relancer reessaiera le telechargement."
+    fi
+    _dire_android "Android" "Images posees — demarrage…" phone
 fi
 
 # --- Traduction ARM (libhoudini), posee le 2026-08-30 sur demande ----------
