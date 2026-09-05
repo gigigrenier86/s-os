@@ -84,7 +84,17 @@ Window {
 
     objectName: "barreLaterale"
     title: "S - barre laterale"
+    // « WindowDoesNotAcceptFocus » MANQUAIT ICI, ET NULLE PART AILLEURS DANS
+    // CE FICHIER. Barre.qml et Bulle.qml le portent tous les deux — trouve
+    // le 2026-09-05 en mesurant, avec un temoin D-Bus, que cliquer un
+    // reglage de cette fenetre laissait « S - barre laterale » activee POUR
+    // DE BON, sans jamais rendre l'activation a la vraie fenetre derriere.
+    // Voir fenetres.js::estChromeS pour le rattrapage general qui accompagne
+    // ce correctif — ce drapeau seul ne suffit pas (Barre.qml le porte deja
+    // et se fait quand meme activer par kwin a chaque clic, mesure le meme
+    // jour), mais l'absence ici etait une incoherence sans raison connue.
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+           | Qt.WindowDoesNotAcceptFocus
     color: "transparent"
     width: largeur
     height: Screen.height

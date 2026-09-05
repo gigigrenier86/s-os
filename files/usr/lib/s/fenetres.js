@@ -321,10 +321,12 @@ function suivreGeometrie(f) {
                     workspace.raiseWindow(f);
                 } catch (eReprise) {
                 }
-                // Le marqueur que le gestionnaire « windowActivated » plus
-                // bas consulte, pour rattraper la reprise de pile natives de
-                // kwin qui suit — voir son commentaire pour le detail.
-                pleinEcranSortieRecente = { fenetre: f, quand: Date.now() };
+                // Cette assignation declenche « windowActivated(f) » tout de
+                // suite (JS est mono-thread, le gestionnaire plus bas tourne
+                // avant la ligne suivante) : « derniereFenetreReelle » vaut
+                // deja « f » au moment ou kwin reasseoit sa pile juste apres.
+                // Le rattrapage general de « windowActivated » (plus bas)
+                // s'en sert directement — plus besoin d'un marqueur a part.
             }
             envoyer();
         });
@@ -491,32 +493,45 @@ function estBulleNotification(f) {
     return estConstellation(f) && String(f.caption) === "S - notification";
 }
 
-// LES DEUX BARRES VOLENT AUSSI L'ACTIVATION, MAIS SEULEMENT DANS UNE FENETRE
-// DE TEMPS TRES COURTE APRES UNE SORTIE DE PLEIN ECRAN.
+// LA BARRE ET LA BARRE LATERALE NE DOIVENT JAMAIS GARDER L'ACTIVATION —
+// TOUJOURS, PAS SEULEMENT APRES UNE SORTIE DE PLEIN ECRAN.
 //
-// RAPPORTE PAR L'UTILISATEUR, MESURE EN DIRECT LE 2026-09-03, avec le meme
-// temoin D-Bus que celui deja utilise pour la bulle : sortir du plein ecran
-// fait perdre « active » a la fenetre (mesure a chaque cycle), et kwin
-// lui-meme reassoit alors sa pile de fenetres « au-dessus » — « S - barre
-// laterale » puis « S - barre » sont brievement activees, en quelques
-// dizaines de millisecondes, AVANT que la fenetre reactivee dans
-// « fullScreenChanged » ci-dessus n'ait fini de reprendre sa place. Comme
-// aucune vraie fenetre n'est encore devant a cet instant, c'est LE BUREAU —
-// toujours tout en bas de la pile — qui reste visible : « j'atterris sur
-// Constellation », mot pour mot, rapporte par l'utilisateur.
+// CE QUE CE DEPOT CROYAIT LE 2026-09-03 : seule une sortie de plein ecran
+// declenchait le vol de focus de kwin, donc un rattrapage borne a une
+// fenetre de 600 ms apres cet evenement suffisait. FAUX, mesure en direct
+// le 2026-09-05 avec le meme temoin D-Bus, sur un signalement de
+// l'utilisateur (« les fenetres descendent quand ca leur tente, pas fluide
+// du tout ») : le meme vol de focus se produit sur TOUT clic sur la barre,
+// systematiquement, temoin a l'appui —
 //
-// LA BARRE ET LA BARRE LATERALE ONT LE DROIT D'ETRE ACTIVEES EN TEMPS
-// NORMAL (menu Demarrer, clic reel sur la barre — voir le commentaire du
-// 2026-08-27 plus bas). On ne les bascule donc PAS comme la bulle, en tout
-// temps — seulement si leur activation tombe dans les quelques centaines de
-// millisecondes qui suivent une sortie de plein ecran, ou un vrai clic de
-// l'utilisateur n'a physiquement pas le temps d'arriver.
-var pleinEcranSortieRecente = null;
-
+//   windowActivated(S - barre)          T+0
+//   windowActivated(<vraie cible>)      T + 80 a 680 ms selon le cas
+//
+// — malgre « Qt.WindowDoesNotAcceptFocus », deja pose sur Barre.qml, exacte-
+// ment le meme defaut que celui deja mesure sur la bulle. Et un clic sur un
+// reglage de la barre laterale (elle n'avait meme pas ce drapeau — corrige
+// le meme jour dans BarreLaterale.qml) laissait « S - barre laterale »
+// activee POUR DE BON : aucun rattrapage n'existait hors de la fenetre de
+// 600 ms, donc la vraie fenetre restait « inactive » aux yeux de
+// « decrire() » jusqu'au prochain evenement fortuit — plusieurs secondes
+// plus tard dans le releve, potentiellement jamais.
+//
+// LA REGLE GENERALE, PLUTOT QU'UNE FENETRE DE TEMPS A DEVINER : ni la barre
+// ni la barre laterale n'ont de raison legitime de garder l'activation —
+// aucune des deux n'accepte le clavier, et le menu Demarrer vit dans la
+// fenetre « Constellation » elle-meme (jamais dans la barre), donc jamais
+// capture par ce garde. On rattrape donc les DEUX, tout le temps, comme la
+// bulle l'est deja — voir « estChromeS » et le gestionnaire plus bas.
 function estBarreOuLaterale(f) {
     if (!estConstellation(f)) return false;
     var t = String(f.caption);
     return t === "S - barre" || t === "S - barre laterale";
+}
+
+// La bulle, la barre et la barre laterale : les trois fenetres de chrome de
+// Constellation qui ne doivent jamais garder l'activation reelle.
+function estChromeS(f) {
+    return estBulleNotification(f) || estBarreOuLaterale(f);
 }
 
 workspace.windowActivated.connect(function (f) {
@@ -538,10 +553,24 @@ workspace.windowActivated.connect(function (f) {
     // « avant=false » puis « apres=false » sur une demande de minimiser,
     // alors que le meme script rejoue seul, sans ce gestionnaire, minimise
     // pour de vrai.
-    if (estBulleNotification(f)) {
-        if (derniereFenetreReelle) {
+    //
+    // REPRODUIT LE MEME SOIR AVEC « estChromeS » ELARGI A LA BARRE ET LA
+    // BARRE LATERALE (2026-09-05) : cliquer sur la fenetre DEJA active pour
+    // la ranger passe par « S - barre », qui se fait activer par kwin comme
+    // n'importe quel clic dessus (mesure plus haut) — et ce rattrapage
+    // reactivait alors la fenetre qu'on venait tout juste de demander de
+    // minimiser, avant meme que le script Python de « activer() » n'ait eu
+    // le temps de poser « minimized = true ». La garde exacte de l'epoque
+    // (restreindre a la bulle seule) aurait refait disparaitre le
+    // rattrapage general qu'on vient d'etablir ; le bon garde est plus
+    // etroit et plus juste : ON NE RATTRAPE JAMAIS VERS UNE FENETRE DEJA
+    // MINIMISEE — lue en direct sur l'objet a cet instant, jamais sur un
+    // etat souvenu, puisque c'est exactement l'etat qui vient de changer.
+    if (estChromeS(f)) {
+        if (derniereFenetreReelle && !derniereFenetreReelle.minimized) {
             try {
                 workspace.activeWindow = derniereFenetreReelle;
+                workspace.raiseWindow(derniereFenetreReelle);
             } catch (e) {
                 // La fenetre remembree a pu fermer entre-temps : rien a
                 // rattraper, la prochaine vraie activation la remplacera.
@@ -549,36 +578,14 @@ workspace.windowActivated.connect(function (f) {
         }
         return;
     }
-    if (estBarreOuLaterale(f) && pleinEcranSortieRecente &&
-        (Date.now() - pleinEcranSortieRecente.quand) < 600) {
-        try {
-            workspace.activeWindow = pleinEcranSortieRecente.fenetre;
-            workspace.raiseWindow(pleinEcranSortieRecente.fenetre);
-        } catch (eRepriseBarre) {
-            // La fenetre a pu fermer entre-temps : rien a rattraper.
-        }
-        return;
-    }
     // « derniereFenetreReelle » NE DOIT JAMAIS POINTER SUR UNE FENETRE DE
-    // CONSTELLATION — sinon un jour ou la bulle vole vraiment le focus, on la
-    // rebasculerait vers le bureau ou la barre plutot que vers une vraie
-    // application. Le bureau et la barre, eux, ont quand meme le droit
-    // d'etre actives ; on laisse juste passer l'evenement sans les retenir.
+    // CONSTELLATION — sinon le jour ou la bulle ou la barre volent le focus,
+    // on les rebasculerait vers le bureau plutot que vers une vraie
+    // application. Le bureau, lui, garde le droit d'etre active (le menu
+    // Demarrer y vit) ; on laisse simplement passer l'evenement sans le
+    // retenir comme « derniere fenetre reelle ».
     if (!estConstellation(f)) {
         derniereFenetreReelle = f;
-        // « pleinEcranSortieRecente » N'EST JAMAIS EFFACE ICI, DELIBEREMENT.
-        //
-        // BOGUE TROUVE EN REJOUANT LE SCRIPT EN DIRECT LE 2026-09-03 : kwin
-        // reasseoit sa pile en PLUSIEURS temps — « S - barre laterale »
-        // PUIS « S - barre », quelques millisecondes plus tard, pas en un
-        // seul evenement. Le premier rattrapage (juste en dessous) redonne
-        // le focus a la vraie fenetre, ce qui declenche CE MEME
-        // gestionnaire avec elle en argument — si ce branchement effacait
-        // le marqueur ici, le DEUXIEME vol de focus (la barre, apres la
-        // barre laterale) arrivait sur un marqueur deja vide et gagnait.
-        // Mesure : sans cette garde, une reprise sur deux echouait. Le
-        // marqueur s'efface tout seul par expiration (le controle de temps
-        // ci-dessus), jamais par une activation intermediaire.
     }
     envoyer();
 });

@@ -8,6 +8,107 @@ Interface en français.
 
 ---
 
+## 2026-09-05, soir — les fenêtres n'étaient pas fluides, et deux défauts distincts se cachaient sous une seule plainte
+
+Signalement de l'utilisateur, sans détail technique : *« réel problème avec les
+fenêtres ouvertes... ça doit être fluide, pas des transitions fuyantes comme
+maintenant, tu clique sur une fenêtre, elle s'ouvre... les fenêtres descendent
+quand tu le décides, pas quand ça leur tente »*. `reglages.json` confirmait
+d'abord que ce n'était pas le mode veille (`"veille": "non"`) — donc pas une
+fonctionnalité mal réglée, un vrai bogue.
+
+### Mesuré en direct, avec le témoin déjà établi le 2026-09-03
+
+Même technique que pour le bogue du plein écran cinq jours plus tôt — un
+script kwin jetable qui publie chaque `windowActivated` vers un nom de bus
+témoin, capté par `dbus-monitor --session eavesdrop=true` — mais posé cette
+fois pour observer un usage normal : cliquer une fenêtre dans la barre, ouvrir
+une application, cliquer un réglage dans la barre latérale. Le relevé a
+tranché tout de suite :
+
+```
+windowActivated(S - barre)                       T+0
+windowActivated(<vraie cible>)                    T + 80 a 680 ms
+
+windowActivated(S - barre laterale)               T+0
+(rien pendant 5 s, jusqu'au prochain clic ailleurs)
+```
+
+**Deux défauts distincts, la même cause de fond.** Cliquer sur n'importe quel
+article de la barre du bas active d'abord « S - barre » elle-même — malgre
+`Qt.WindowDoesNotAcceptFocus`, déjà posé dessus, exactement le même défaut que
+celui déjà mesuré sur la bulle de notification le 2026-08-30 — et la vraie
+cible ne reprend l'activation que 80 à 680 ms plus tard : c'est le surlignage
+« actif » de la barre qui disparaît puis réapparaît à chaque clic, la
+sensation « fuyante » rapportée. Et cliquer un réglage dans la barre latérale
+laissait « S - barre laterale » activée **pour de bon** — rien ne la
+rattrapait hors d'une fenêtre de 600 ms bâtie le 2026-09-03 pour un tout autre
+déclencheur (la sortie de plein écran) — donc la vraie fenêtre derrière
+restait « inactive » aux yeux de `decrire()` jusqu'au prochain événement
+fortuit, parfois plusieurs secondes plus tard : « les fenêtres descendent
+quand ça leur tente ».
+
+**Une incohérence trouvée en cherchant la cause du second défaut** :
+`BarreLaterale.qml` n'avait jamais porté `Qt.WindowDoesNotAcceptFocus`, alors
+que `Barre.qml` et `Bulle.qml` le portent tous les deux depuis leur création.
+Corrigée par cohérence, même si elle ne suffit pas seule — Barre.qml le porte
+déjà et se fait quand même activer par kwin à chaque clic, mesuré le même
+soir.
+
+### Le correctif : une règle générale plutôt qu'une fenêtre de temps
+
+Le correctif du 2026-09-03 (`pleinEcranSortieRecente`, une fenêtre de 600 ms
+après une sortie de plein écran) ne couvrait qu'**un seul déclencheur** du
+même défaut de kwin — pas le défaut lui-même. Aucune des trois fenêtres de
+chrome de Constellation (bulle, barre, barre latérale) n'a de raison
+légitime de garder l'activation réelle : aucune n'accepte le clavier, et le
+menu Démarrer vit dans la fenêtre « Constellation » elle-même, jamais dans la
+barre. `estChromeS(f)` regroupe les trois, et le rattrapage devient
+inconditionnel — plus de minuterie à deviner, `pleinEcranSortieRecente`
+retiré entièrement (l'assignation directe dans `fullScreenChanged` déclenche
+déjà `windowActivated` de façon synchrone, donc `derniereFenetreReelle` est à
+jour avant même que kwin ne réasseye sa pile).
+
+**Un second bogue trouvé en généralisant, et il était déjà nommé une fois dans
+ce même fichier.** Élargir le rattrapage a immédiatement cassé le geste
+« cliquer sur la fenêtre déjà active pour la ranger » — rapporté par
+l'utilisateur dans la minute : le clic passe lui aussi par « S - barre »,
+donc le rattrapage réactivait la fenêtre qu'on venait justement de demander
+de minimiser, avant même que le script Python de `activer()` n'ait posé
+`minimized = true`. Un commentaire du 2026-08-26, resté dans le fichier,
+décrivait EXACTEMENT ce même échec pour une garde trop large de l'époque
+(« Reduire la fenêtre active fait parfois transiter l'activation par le
+bureau… rebascule vers la fenêtre qu'on venait justement de demander de
+ranger »). Le bon garde n'est pas de rétrécir la portée du rattrapage (ce qui
+aurait fait revenir le premier défaut) mais de vérifier l'état réel au moment
+du rattrapage : **on ne rattrape jamais vers une fenêtre déjà minimisée**, lu
+en direct sur l'objet, jamais sur un état souvenu.
+
+### Éprouvé en direct, sur cette machine, dans les deux sens
+
+Rechargement à chaud du script résident à chaque itération (patron déjà
+établi). Après le premier correctif (rattrapage général) : les trois gestes
+demandés par l'utilisateur confirmés propres au témoin. Après le second
+correctif (garde sur `.minimized`) : cliquer sur la fenêtre déjà active la
+range de nouveau — confirmé par l'utilisateur (« parfait »).
+
+### Ce que cette passe ne prouve pas
+
+- **Rien n'est dans l'image.** Le correctif tourne à chaud dans le kwin de
+  cette session depuis le dépôt ; il faut une construction et un
+  `bootc upgrade` pour qu'il survive au prochain démarrage.
+- **Le nouveau drapeau de `BarreLaterale.qml` n'a pas encore pris effet** —
+  il exige un redémarrage de Constellation (pas seulement un rechargement du
+  script kwin), qui n'a pas eu lieu pendant cette passe.
+- **Seuls les trois gestes explicitement demandés ont été rejoués** (clic sur
+  une fenêtre ouverte, ouverture d'une application, clic dans la barre
+  latérale) et le repli minimiser/restaurer. D'autres déclencheurs du même
+  vol de focus natif de kwin — Alt+Tab, un raccourci clavier, une fenêtre qui
+  se ferme — n'ont pas été testés séparément, même si la règle générale
+  devrait les couvrir par construction.
+
+---
+
 ## 2026-09-05 — Sora est retirée : elle coûtait de la mémoire résidente pour un usage qui ne la justifiait pas
 
 Décision de l'utilisateur, sans ambiguïté : *« on retire Sora, il prend trop
