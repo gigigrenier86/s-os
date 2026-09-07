@@ -8,6 +8,658 @@ Interface en français.
 
 ---
 
+## 2026-09-07, après-midi — le Wizard défriche les items 6 et 7, et un des deux se révèle déjà à moitié construit
+
+Demande de l'utilisateur : « chantiers 6 et 7 » — les deux items explicitement
+reportés la veille à « leur propre session dédiée », Quick Resume universel et
+le glisser-déposer inter-mondes. Rôle Wizard invoqué en premier, comme le plan
+l'exigeait, avant toute ligne de code.
+
+### Item 6 — Quick Resume universel : la question posée n'était pas la bonne
+
+**Trouvaille inattendue, avant même de chercher au dehors** : `criu` (4.2.1),
+`criu-libs`, et `lxc-checkpoint` sont **déjà installés sur cette machine**, et
+le noyau porte `CONFIG_CHECKPOINT_RESTORE=y`. Aucun script `build_files/` ne
+les pose — ils sont arrivés comme dépendance de quelque chose d'autre (LXC les
+tire). `podman container checkpoint` existe aussi nativement (podman 5.8.4),
+mais ne s'applique à rien ici : Android tourne par `lxc-start` direct, jamais
+par podman.
+
+**Le mur, confirmé par la documentation officielle de CRIU elle-même**
+([devzero.io](https://www.devzero.io/blog/gpu-container-checkpoint-restore),
+[LWN](https://lwn.net/Articles/1024747/)) : **CRIU ne capture pas l'état
+GPU.** Un processus qui tient un contexte DRM/GBM/EGL ouvert perd ce contexte
+au restore, sauf plugin dédié par vendeur (NVIDIA `cuda-checkpoint`, AMD
+`amdgpu` — tous deux pensés pour du calcul CUDA/ROCm, pas pour un contexte de
+rendu de fenêtre). **Mesuré sur cette machine** : le conteneur LXC d'Android
+bind-monte `/dev/dri/renderD128` en direct (`/var/lib/waydroid/lxc/android/
+config`, ligne `lxc.mount.entry = /dev/dri/renderD128 …`) — SurfaceFlinger
+tient ce descripteur ouvert en permanence. N'importe quel jeu Proton tient de
+même un contexte Vulkan/OpenGL ouvert via Mesa/i915. **Un vrai checkpoint qui
+survivrait à un redémarrage de la machine est donc structurellement hors de
+portée pour les trois mondes**, pas seulement en théorie : la limite touche
+exactement les deux mondes (Android, Windows) qui comptent le plus pour ce
+chantier.
+
+**Et Steam Deck, cité en modèle par le nom même du chantier, ne fait pas ce
+qu'on lui prête.** Recherche web faite pour trancher, pas supposée : le
+« Quick Resume » du Steam Deck est une **mise en veille système** (S3/s2idle)
+combinée à la gestion de session de SteamOS — pas un CRIU-like par-programme.
+Ce n'est pas un mécanisme transposable tel quel : c'est *toute la machine* qui
+dort, pas un programme choisi parmi d'autres qui continuent de tourner.
+
+**Et c'est là que la question se retourne : S a déjà, depuis le 2026-08-26,
+exactement ce que Steam Deck fait — en mieux ciblé.** Le mécanisme de veille
+des fenêtres (`cgroup.freeze`, voir l'entrée du 2026-08-26 soir plus bas) ne
+détruit jamais le processus : il suspend son ordonnancement pendant que sa
+mémoire ET son contexte GPU restent intacts en RAM. **Aucun problème de CRIU
+ne s'applique**, puisque rien n'est sérialisé sur disque ni recréé — c'est
+tout l'intérêt de `cgroup.freeze` par rapport à un vrai checkpoint. Ce
+mécanisme existe déjà pour Linux natif, avec une vraie étoile de menu et trois
+modes (`non`/`reduire`/`geler`).
+
+**Mesuré aujourd'hui, ce qu'il faudrait pour l'étendre aux deux autres
+mondes — et ce n'est pas gratuit :**
+
+```
+wineserver resident   -> /user.slice/.../app.slice/s-windows.service
+  (TOUS les processus Windows actuels — services.exe, winedevice.exe,
+  plugplay.exe, rpcss.exe — vivent dans CETTE SEULE portée cgroup)
+
+lxc-start (Android)   -> /lxc.monitor.android
+  (portée root:root, hors de la délégation utilisateur — écrire dans son
+  cgroup.freeze exige pkexec, comme tout le reste d'Android)
+```
+
+**Ni Windows ni Android n'ont de granularité par-programme aujourd'hui.**
+S partage délibérément **un seul** wineserver résident entre tous les
+logiciels Windows (décision du 2026-08-26, pour la vitesse de lancement) —
+geler `s-windows.service` gèlerait donc TOUS les programmes Windows ouverts à
+la fois, exactement le défaut déjà nommé et évité pour la veille Linux
+(« geler `s-windows.service` figerait d'un coup tous les programmes Windows
+de la machine »). Android n'a qu'**un seul** conteneur pour toutes ses
+applications : même limite, à l'échelle du monde entier plutôt que du
+programme.
+
+**Verdict, tranché :**
+- **Un « Quick Resume » qui survit à un redémarrage de la machine (la promesse
+  littérale du nom, façon sauvegarde d'état sur Xbox) est hors de portée**,
+  bloqué par un mur structurel de CRIU (l'état GPU), pas par un manque
+  d'effort. Aucun contournement propre n'existe pour un projet solo.
+- **Un « pause ce programme, reviens-y plus tard dans la même session » existe
+  déjà pour Linux natif**, et c'est tout ce que Steam Deck fait lui-même en
+  pratique (à l'échelle de la machine, pas du programme). L'étendre à Windows
+  et Android est un **vrai chantier, mais un chantier de couture, pas
+  d'invention** : il faudrait faire naître chaque lancement Windows dans sa
+  propre portée `systemd-run --scope` (au lieu du wineserver partagé actuel —
+  un choix qui a un coût de démarrage, déjà mesuré à 2,4 s la première fois
+  sans serveur amorcé, voir l'entrée du 2026-08-26), et geler le conteneur
+  Android entier plutôt qu'une application précise (impossible de faire mieux
+  tant qu'Android tourne dans un seul LXC).
+
+~~**Ce que ça ne prouve pas** — les hypothèses ci-dessus restent au barreau 2,
+faute de pouvoir les mesurer dans cette session : `criu check` n'a pas pu
+tourner, faute de `sudo` sans mot de passe.~~ **Mesuré la même après-midi,
+avec l'utilisateur présent — voir l'addendum plus bas. Barreau 3 atteint, et
+un second mur, distinct du GPU, est tombé en premier.**
+
+### Addendum, la même après-midi — le vrai test CRIU, et un mur trouvé avant même celui du GPU
+
+L'utilisateur a autorisé le geste (`pkexec`, mot de passe entré à l'écran).
+Une fenêtre jetable (`QLabel` PySide6, jamais une fenêtre réelle de
+l'utilisateur — même prudence que partout ailleurs dans ce dépôt) a servi de
+cible :
+
+```
+pkexec criu dump -t <pid> -D /tmp/criu-dump-test -v4 -o dump.log
+```
+
+**Échec, et pas sur le GPU — sur le bus D-Bus de session.** Le journal de
+CRIU le nomme au caractère près :
+
+```
+unix: Ext stream not supported: ... peer name: /run/user/1000/bus
+Error: unix: Can't dump half of stream unix connection.
+        name: (null); peer name: /run/user/1000/bus
+```
+
+CRIU refuse de sérialiser un processus qui tient un **socket flux** connecté
+à un pair qu'il ne checkpointe pas lui-même — ici `dbus-broker`, le bus de
+session. Rejoué avec `--ext-unix-sk` (le drapeau documenté pour justement ce
+cas) : **même échec**, ce drapeau ne couvre que les sockets *datagramme*, pas
+les sockets *flux* comme une connexion D-Bus.
+
+**Et c'est un mur plus large que le premier, pas plus étroit.** Le mur GPU
+(section précédente) ne visait que les programmes qui tiennent un contexte de
+rendu ouvert — Android, les jeux Proton. **Celui-ci vise toute application
+connectée au bus de session** — c'est-à-dire, sur un bureau Linux moderne,
+à peu près tout : Qt, GTK, les portails XDG, les notifications. Un simple
+`QLabel` sans aucun rendu GPU, sans aucune fenêtre de jeu, tombe dessus en
+premier, avant même d'atteindre la question du GPU.
+
+**Pourquoi `podman container checkpoint` et `lxc-checkpoint`, eux, marchent
+en pratique.** Ce n'est pas parce qu'ils évitent le problème — c'est parce
+qu'ils checkpointent un **conteneur entier**, où tout ce à quoi un processus
+se connecte (son propre bus, ses propres sockets) vit **dans la même
+espace de noms** que ce qu'on sauvegarde. Rien ne pointe vers l'extérieur.
+Un processus de bureau ordinaire, lui, parle à un bus de session qui vit
+**hors** de ce qu'on lui demande de sauvegarder — exactement la situation
+qu'aucun `--ext-unix-sk` ne répare pour un socket flux.
+
+**Verdict, confirmé et non plus supposé :** un « Quick Resume » par CRIU pour
+une application de bureau ordinaire est bloqué **avant même** d'atteindre la
+question du GPU — par une propriété structurelle de tout programme connecté
+à D-Bus, sur cette machine, mesurée en direct. Le verdict du barreau 2 tient,
+et il est maintenant plus solide qu'une lecture de documentation externe.
+
+**Ce que ça ne prouve pas** : le mur GPU documenté par le projet CRIU
+lui-même n'a jamais été *atteint* sur cette machine — le mur D-Bus a
+bloqué en premier. Rien ne dit qu'un processus SANS connexion D-Bus (un
+calcul pur, sans interface) ne butterait pas ensuite sur le GPU ; ce
+second mur reste une hypothèse externe, non mesurée ici, simplement devenue
+hors de propos pour ce chantier précis. Nettoyage fait : processus jetable
+tué, dossiers de dump (root:root) effacés par `pkexec`.
+
+### Item 7 — glisser-déposer inter-mondes : une moitié est probablement déjà gratuite
+
+**Confirmé sur la machine** : kwin annonce `wl_data_device_manager` version 3
+(le protocole Wayland de glisser-déposer), et **Xwayland tourne** (24.1.11,
+PID relevé). Tout logiciel Windows de S passe par Xwayland — établi depuis le
+2026-08-29 (« Aucun `winewayland.drv` dans ce Proton »).
+
+**Recherche web, et c'est une fonctionnalité mûre, pas une hypothèse fragile**
+([phabricator.kde.org/T4611](https://phabricator.kde.org/T4611),
+[deepwiki — X11 DnD bridge](https://deepwiki.com/openkylin/kylin-wayland-compositor/5.4-x11-drag-and-drop-bridge)) :
+**Xwayland pontage nativement le glisser-déposer entre X11 et Wayland dans
+les deux sens**, depuis des années — traduction des types MIME
+XdndTypeList↔wl_data_source, XdndStatus↔wl_data_offer, XdndFinished renvoyé
+côté X11 après un drop côté Wayland. **Ce n'est pas quelque chose à construire
+pour S** : si le pont fonctionne comme documenté, glisser un fichier entre
+Constellation (QtQuick natif) et n'importe quel logiciel Windows de S
+(rendu par Xwayland) devrait déjà marcher aujourd'hui, sans une ligne de code.
+
+**Android reste la vraie inconnue, et la piste trouvée est ambiguë.**
+`hwcomposer.waydroid.so` (le pont Waydroid→Wayland déjà documenté le
+2026-08-28/29) **lie le protocole `wl_data_device` en entier** — `wl_data_
+device_manager`, `wl_data_source`, `wl_data_offer`, et même les événements
+`start_drag`/`dnd_drop_performed`/`dnd_finished` et les noms de curseurs de
+glissement (`Pointer_Drag1`…`5`, `Pointer_Drag_Dflt`). **Mais la présence de
+ces symboles ne prouve rien à elle seule** — ce sont les stubs standard du
+protocole Wayland, potentiellement liés en bloc même si seule une partie sert
+(le changement d'icône de curseur pendant un redimensionnement de fenêtre,
+par exemple, qui n'a rien à voir avec un vrai transfert de données).
+
+**Une recherche pour confirmer ou infirmer par la documentation a échoué à
+trancher.** Un résumé de recherche affirmait « Waydroid n'a pas de
+glisser-déposer sous Wayland », mais la page officielle citée
+([docs.waydro.id/debugging/known-issues](https://docs.waydro.id/debugging/known-issues))
+**ne mentionne pas ce sujet du tout** une fois ouverte directement — seulement
+trois problèmes connus (dnsmasq, GPU double, ACL du dossier personnel après
+Android 13). **L'affirmation n'a jamais été vérifiée contre sa propre
+source : elle est écartée, pas retenue.** Les tickets GitHub trouvés
+(`waydroid/waydroid#1273`, `#1035`) parlent tous de faire glisser *la fenêtre
+Waydroid elle-même* (la déplacer à l'écran), pas de glisser un fichier
+*depuis* ou *vers* une application Android — question différente, sans
+réponse trouvée.
+
+**Verdict, tranché :**
+- **Windows ↔ Linux : très probablement déjà acquis**, par un mécanisme mûr
+  de l'amont (Xwayland) que S n'a jamais eu à construire ni même à activer.
+  Rien à forger — seulement à vérifier par un vrai geste de souris.
+- **Android ↔ le reste : question réellement ouverte**, ni confirmée ni
+  infirmée par la documentation. Si le pont ne marche pas nativement, le
+  patron déjà éprouvé dans ce dépôt pour ce genre de pont (le presse-papiers
+  Linux↔Android, `waydroidclipboard` + `python3-pyclip`, 2026-08-25) donnerait
+  la forme d'un correctif actif — mais rien ne dit qu'il soit nécessaire avant
+  d'avoir essayé.
+
+**Ce que ça ne prouve pas — et c'est le cœur de ce qui reste à faire :**
+- **Aucun geste de souris réel n'a eu lieu.** Un glisser-déposer suppose un
+  vrai appui de bouton, un vrai mouvement, un vrai relâchement — la même
+  limite déjà notée pour la sélection au glissement du bureau
+  (« `sendEvent` sur une `QQuickWindow` ne livre rien en PySide6 », 2026-08-28).
+  Aucun script ne peut simuler ça de façon crédible ; il faut la main de
+  l'utilisateur.
+~~- **La mesure qui trancherait, pour de vrai, en deux gestes** : (1) glisser un
+  fichier depuis un gestionnaire de fichiers Linux (Dolphin, ou une étoile du
+  bureau de Constellation) vers la fenêtre d'un logiciel Windows ouvert (PURPLE,
+  Cursor…) — vérifier si le programme Windows reçoit le fichier ; (2) glisser
+  un fichier depuis Linux vers une fenêtre Android ouverte (un gestionnaire de
+  fichiers Android, par exemple) — le test qui répond à la vraie question
+  ouverte. Les deux se font en moins d'une minute, avec ce qui tourne déjà.~~
+**Fait, la même après-midi, avec l'utilisateur à la souris — voir l'addendum.**
+
+### Addendum, la même après-midi — le geste réel, et l'hypothèse Windows tombe
+
+**Windows ↔ Linux, testé deux fois, réfuté les deux fois.** Premier essai :
+un fichier glissé de Dolphin vers **PC Boost** (WPF) — curseur « impossible »
+sans interruption, aucune réaction au relâchement. Ambigu en soi (PC Boost
+n'a peut-être simplement jamais déclaré `AllowDrop`), donc second essai avec
+un programme dont c'est un comportement natif et attendu sur un vrai
+Windows : **le Bloc-notes de Windows lui-même**
+(`drive_c/windows/notepad.exe`, lancé par `s-ouvrir-exe`, fenêtre placée à
+côté de Dolphin par un script kwin). **Le curseur ne montrait plus le rejet
+explicite — mais le fichier déposé n'a produit aucun effet : la page est
+restée blanche.**
+
+**L'hypothèse « Xwayland ponte gratuitement, rien à construire » est donc
+réfutée sur cette machine précise.** Le pont documenté existe bien en amont
+(la recherche du matin le confirme, source par source) — mais quelque chose
+dans cette chaîne précise (GE-Proton11-6, ce Xwayland 24.1.11, ce kwin 6.7.4)
+ne le laisse pas aboutir jusqu'à livrer un fichier à une fenêtre Wine. **Une
+hypothèse réfutée par la mesure est un bon résultat** : elle ferme la piste
+« rien à faire » et rouvre, si ce chantier reprend un jour, une vraie
+question de diagnostic — où exactement le fichier se perd-il, entre le
+`wl_data_source` de Dolphin et le `WM_DROPFILES` que `notepad.exe`
+attendrait.
+
+**Android ↔ le reste, toujours sans réponse — mais pour une raison neuve et
+plus grave que prévu.** En préparant le même test avec F-Droid, une
+régression indépendante du glisser-déposer est apparue :
+**`persist.waydroid.multi_windows` était retombé à `false`** sur cette
+machine, alors que ce réglage est censé être permanent depuis le 2026-08-26
+(c'est lui qui avait réglé le vieux glitch d'affichage d'Android). Sans lui,
+toute application lancée s'ouvre sous l'enveloppe générique « Waydroid »
+plutôt que dans sa propre fenêtre. Reposé à la main (`waydroid.prop`,
+`pkexec`) et le conteneur redémarré deux fois — **sans effet observé sur ce
+lancement précis** : F-Droid, lancé après coup avec `multi_windows=true` et
+`active_apps=org.fdroid.fdroid` posés dans le bon ordre, ne produit toujours
+pas de fenêtre `waydroid.org.fdroid.fdroid`, seulement l'enveloppe générique
+masquée. **Cette régression n'a pas été résolue** dans cette passe — elle
+dépasse le cadre du chantier 7 (elle toucherait tout usage d'Android sur
+cette machine, pas seulement le glisser-déposer) et mérite sa propre session
+de diagnostic plutôt qu'un rafistolage en marge d'autre chose.
+
+**Verdict, révisé :**
+- **Windows ↔ Linux : hypothèse « déjà acquis gratuitement » réfutée.**
+  Quelque chose casse la livraison du fichier entre Xwayland et Wine sur
+  cette machine — non diagnostiqué, mais mesuré et reproductible (deux
+  programmes différents, même résultat négatif).
+- **Android ↔ le reste : toujours sans réponse**, bloqué non pas par une
+  réponse négative au glisser-déposer lui-même, mais par une régression
+  distincte (`multi_windows`) qui empêche même d'ouvrir une fenêtre d'app
+  pour tenter le test. À reprendre une fois cette régression comprise.
+
+### Ce que cette passe ne prouve pas, en somme
+
+- **Rien n'a été construit.** C'est une passe de recherche pure, comme le plan
+  l'exigeait pour ces deux items — le Wizard avant tout le reste. Les deux
+  items ont atteint le **barreau 3** (mesure faite), pas le barreau 4 : aucun
+  mécanisme n'est extrait ni éprouvé, seulement des verdicts tranchés sur ce
+  qui vaut ou non la peine d'être construit.
+- **Le chantier 6, tel que nommé, ne sera probablement jamais construit tel
+  quel** — confirmé par une mesure directe (le mur D-Bus, pas seulement le
+  mur GPU documenté ailleurs). Une version plus modeste (étendre la veille
+  déjà existante à Windows et Android) reste un vrai chantier de couture,
+  dimensionné, pas encore commencé.
+- **Le chantier 7 a changé de forme en cours de route.** L'hypothèse
+  optimiste sur Windows (rien à construire) est tombée ; la moitié Android
+  est bloquée par une régression qui n'a rien à voir avec le sujet et qui
+  mérite sa propre session (`persist.waydroid.multi_windows` retombé à
+  `false`, cause non trouvée). Les deux moitiés de ce chantier restent donc
+  ouvertes, mais pour des raisons différentes de celles envisagées le matin.
+
+---
+
+## 2026-09-07, matin — le redémarrage du 2026-09-06 a réussi, et la bulle de `s-nouveautes` est vue à l'écran pour la première fois
+
+**PREUVE :** capture plein écran (`spectacle -f`), prise sur `s`, montrant la
+bulle « S s'est mis à jour — fix(git): s-nouveautes avait perdu son bit
+d'execution dans l'index, pas sur le disque » en haut à droite, exactement le
+texte que `s_dire` envoie et exactement la position posée par la règle kwin de
+`regles-kwin.py`.
+
+### Le redémarrage laissé en suspens la veille a réussi
+
+`bootc status`/`rpm-ostree status` : la machine est bootée sur
+`44.20260907.3b51923`, digest `sha256:e8eab3d5…`, celui-là même qui avait été
+mis en file par `bootc upgrade` et confirmé par `skopeo inspect` la veille.
+Zéro unité en échec au niveau système. Une seule unité **utilisateur** en
+échec — voir plus bas, sans rapport avec S.
+
+### `s-nouveautes` a tourné pour de vrai, sur un vrai démarrage à froid, pour la première fois
+
+Le journal du démarrage montre `s-nouveautes.service` démarré, la phrase
+émise, et le marqueur de version écrit — la première fois que ce mécanisme
+(construit et documenté le 2026-09-05, jamais éprouvé que depuis un chemin
+redirigé) tourne sur une image réellement déployée, au tout premier démarrage
+qui la porte.
+
+**Restait une chose que le journal ne peut pas dire : est-ce que la bulle
+s'est vraiment affichée.** Éprouvé en la redéclenchant sur cette même
+machine, sans rien casser :
+
+1. Le marqueur `$S_ETAT/derniere-version-vue` a été **sauvegardé** avant tout
+   geste, puis remplacé par une valeur différente de la version bootée.
+2. `/usr/bin/s-nouveautes` relancé — le vrai binaire déployé, pas une copie du
+   dépôt.
+3. `spectacle -b -n -f` a capturé tout l'écran dans la foulée.
+4. Le marqueur a été **restauré à l'identique** immédiatement après, `diff`
+   vérifié.
+
+**Un premier essai de capture a échoué, et c'est instructif.**
+`grimoire/kwin-capturer-la-coquille.sh::capturer_fenetre` — la recette déjà
+éprouvée pour photographier une fenêtre précise — a bien trouvé la fenêtre
+« S - notification » (le témoin D-Bus l'a confirmé), mais `spectacle -a`
+(« la fenêtre active ») a photographié VS Code, pas la bulle. **La bulle
+porte `Qt.WindowDoesNotAcceptFocus` depuis le 2026-08-30**, précisément pour
+ne jamais voler le focus — et `workspace.activeWindow = f` ne peut donc
+jamais la rendre réellement « active » aux yeux de kwin, même quand le script
+la trouve et l'assigne sans erreur. **Cette recette du Grimoire ne peut donc
+pas servir à photographier LA bulle spécifiquement** — elle reste valide pour
+tout le reste, ce n'est pas une régression du mécanisme, c'est une limite que
+personne n'avait mesurée. La capture plein écran, elle, ne dépend d'aucune
+activation et a fonctionné du premier coup.
+
+### Une anomalie trouvée en vérifiant, qui n'est pas une faute de S
+
+`bazzite-user-setup.service` (unité **utilisateur**, « Configure Bazzite for
+current user ») a échoué sur ce démarrage, code 2/INVALIDARGUMENT. Cause,
+lue dans `/usr/libexec/bazzite-user-setup` (fichier non tracké par aucun RPM,
+`rpm -qf` le confirme — un script amont livré tel quel, jamais touché par S) :
+
+```bash
+if [[ $BASE_IMAGE_NAME =~ "kinoite" ]]; then
+
+else
+  gnome-extensions enable tdp-control@opengamingcollective.org
+fi
+```
+
+Un `then` vide immédiatement suivi d'un `else` est une erreur de syntaxe bash
+qui casse l'exécution du script à cette ligne — et l'image de S étant basée
+sur Kinoite, cette branche est toujours empruntée, donc toujours cassée.
+**C'est un bug amont, pas une régression de S.** Sans conséquence sur cette
+machine : le code mort gère le contrôle TDP de bureau et la rotation d'écran
+Legion Go, deux réglages pour matériel portatif — la M720q est un mini-PC de
+bureau. Rapporté ici, non corrigé, pas de raison de le faire pour du code qui
+n'appartient pas à ce dépôt.
+
+### Ce que cette passe ne prouve pas
+
+- **La recette `capturer_fenetre` n'a pas été corrigée** pour gérer le cas
+  d'une fenêtre `WindowDoesNotAcceptFocus` — elle reste en l'état, avec sa
+  limite désormais connue et écrite ici plutôt que redécouverte.
+
+### Addendum, le même matin — le harnais de tests rejoué contre le fichier réellement déployé
+
+Item fermé du plan du jour. Jusqu'ici `grimoire/fenetres-eprouver-les-
+regressions.sh` n'avait tourné que contre `files/usr/lib/s/fenetres.js` du
+dépôt — jamais contre `/usr/lib/s/fenetres.js`, le fichier que kwin charge
+réellement sur cette machine depuis le déploiement de `3b51923`.
+
+`diff` confirme d'abord les deux fichiers identiques, octet pour octet — 
+attendu, `COPY files/ /` les rend identiques à la construction. **Mais une
+déduction n'est pas une mesure**, la règle que ce carnet répète depuis le
+premier jour : le banc a donc été rejoué en pointant explicitement sur le
+fichier déployé (une copie du script avec `FENETRES_JS="/usr/lib/s/
+fenetres.js"`, rien d'autre changé).
+
+```
+SCENARIO-A rattrape=true
+SCENARIO-B minimisee=true pas_reactivee=true
+TOUT PASSE
+```
+
+Même verdict que contre le dépôt. Nettoyage vérifié après coup : `s-fenetres`
+(le vrai script résident) reste chargé, le script de banc est bien déchargé,
+aucun processus témoin ne traîne — le banc n'a laissé aucune trace sur la
+session réelle.
+
+C'est la première fois que ce harnais est éprouvé contre ce qui tourne
+vraiment en production sur cette machine, et non seulement contre ce que le
+dépôt promet d'y déposer.
+
+### Addendum, item 3 du plan — PC Boost gagne sa vraie étoile
+
+Demande de l'utilisateur du 2026-08-27 (« ce qui fonctionne ici doit
+fonctionner partout »), jamais suivie d'un geste concret : PC Boost tournait
+depuis `~/.local/bin/s-pcboost-lancer`, en ligne de commande, sans jamais
+apparaître sur le ciel de Constellation.
+
+**Le patron repris est celui de `s-menu-windows`, pas le mécanisme lui-même.**
+`poser_lanceur()` (dans `s-menu-windows`) écrit systématiquement
+`Exec=/usr/bin/s-ouvrir-exe <exe>` — ce qui aurait sauté les trois étages de
+`s-pcboost-lancer` (recompilation si le code source a changé, resynchronisation
+de la copie posée, rafraîchissement des trois ponts matériel/firmware/
+performance). Le `.desktop` a donc été écrit à la main
+(`~/.local/share/applications/s-windows-pcboost.desktop`, hors du dépôt —
+même raison que `s-pcboost-lancer` lui-même : pas d'installateur, une copie
+propre à un seul compte), `Exec=/var/home/RyuRex/.local/bin/s-pcboost-lancer`.
+
+**Un vrai défaut trouvé en posant ça, pas en le devinant.**
+`noyau.py::choisir_monde()` décide l'anneau de couleur de l'étoile en lisant
+la ligne `Exec` du `.desktop` — et ne reconnaît que `s-ouvrir-exe`, `umu-run`,
+`wine`, `proton`. L'`Exec` de PC Boost ne contient aucun de ces mots : le
+lanceur appelle `s-pcboost-lancer`, qui ne fait `exec s-ouvrir-exe` que dans
+sa toute dernière ligne, une fois ses trois étages terminés — invisible pour
+une fonction qui ne lit que le texte de la commande, jamais ce que le script
+appelé fait vraiment. Sans correctif, l'étoile aurait porté l'anneau Linux au
+lieu de Windows. Corrigé dans `files/usr/lib/s/noyau.py` en ajoutant
+`s-pcboost-lancer` à la liste reconnue — même principe déjà en place pour
+`s-android` (un nom de lanceur compte autant qu'un moteur nommé en clair).
+
+**Icône : repli générique, et c'est le comportement déjà mesuré et accepté.**
+`s_icone_exe` (`grimoire`/`icone-exe.sh`) tenté sur le vrai
+`PcBoostApp.exe` déployé dans le préfixe : rien à extraire —
+`PcBoostApp.csproj` ne porte toujours pas `<ApplicationIcon>`, exactement
+comme mesuré le 2026-08-26. `Icon=application-x-executable` reste juste.
+
+**Éprouvé de bout en bout, sur cette machine :**
+
+```
+noyau.inventaire()['s-windows-pcboost']
+    -> nom='PC Boost', fichier=le .desktop pose
+
+placees.json['s-windows-pcboost']
+    -> {'x': 0.45, 'y': 0.49}          (position stable, derivee de l'identifiant)
+
+composer_etoiles()['etoiles']
+    -> id='s-windows-pcboost' present, avec sa position dans ['placees']
+```
+
+Et le vrai lancement — **exactement** ce que l'étoile exécutera, pas une
+version raccourcie — via `s-pcboost-lancer` en direct : recompilation sautée
+(code déjà à jour), copie déjà synchronisée, les trois ponts (matériel,
+firmware, performance) rafraîchis sans erreur, fenêtre `steam_proton | PC
+Boost` ouverte, tableau de bord complet rendu (capture à l'appui). Arrêté
+proprement, par PID exact — jamais par motif, la règle payée cinq fois dans
+ce dépôt.
+
+### Ce que cette passe ne prouve pas
+
+- **Le correctif de `choisir_monde()` n'est pas dans l'image.** Le
+  `/usr/lib/s/noyau.py` déployé (immuable, sudo non disponible dans cette
+  session pour un `bootc usr-overlay`) reste l'ancienne version : mesuré,
+  `noyau.inventaire()['s-windows-pcboost']['src']` rend encore `'linux'` sur
+  la machine réelle. L'étoile fonctionne, se lance, s'appelle bien « PC
+  Boost » — seul son **anneau de couleur** reste celui de Linux jusqu'au
+  prochain `bootc upgrade` qui embarquera ce fichier.
+- **Aucun clic réel n'a été donné sur le ciel de Constellation** pour ouvrir
+  PC Boost — le lancement a été fait en ligne de commande, avec exactement
+  la commande que l'étoile exécute, mais pas par un geste souris.
+- **La fonction que PC Boost effectue une fois ouvert n'a pas été exercée** —
+  seul son tableau de bord a été vu, aucune action réelle (diagnostic,
+  optimisation) n'a été cliquée.
+
+### Item 4 — le défaut ICU rejoué, et une seconde panne trouvée derrière lui
+
+Reprise du protocole du 2026-08-30 : préfixe Wine **jetable** (jamais le vrai
+préfixe de S), archive `Chocolatey-for-wine.7z` retéléchargée et **vérifiée
+bit pour bit** contre l'empreinte que GitHub calcule lui-même
+(`225fadb6…`, identique) — toujours `v0.5c.765`, toujours la plus récente,
+aucun correctif amont depuis le 2026-08-30 (vérifié).
+
+**L'hypothèse du lien symbolique, posée hier soir dans ce même carnet, était
+mal formée — et il fallait le voir avant de la tenter.** ICU ne fournit
+aucun alias ELF non versionné : `u_charsToUChars` et `u_charsToUChars_77`
+sont deux **noms de symboles C distincts**, pas deux noms de fichiers. Un
+`ln -s` entre deux chemins ne peut pas faire apparaître un symbole absent
+d'une bibliothèque compilée. La vraie piste, trouvée en lisant le rapport de
+bug `bugs.winehq.org/53354` (« Wine should provide icu.dll ») et un fil
+WineHQ sur une régression Cyberpunk 2077 sous Wine 10.20 : **GE-Proton
+embarque déjà une vraie ICU 68 autonome**, mesuré sur cette machine —
+`files/lib/wine/icu/x86_64-windows/icuuc68.dll` (2,1 Mo) et `icudt68.dll`
+(28,5 Mo) sont de **vrais binaires Windows PE**, sans la moindre dépendance à
+la bibliothèque de l'hôte. Seul `icuuc.dll` (32 Ko, une simple table de
+renvoi PE) décide, par défaut, de ponter ailleurs. Le levier documenté est
+`WINEDLLOVERRIDES=icuin,icuuc=n` — forcer le natif (les fichiers autonomes
+déjà présents dans le préfixe) plutôt que le pont par défaut.
+
+**Deux essais, et aucun des deux n'a reproduit l'erreur ICU du 2026-08-30 —
+un troisième mur est apparu à la place.**
+
+- **Premier essai, sans le correctif** (pour confirmer d'abord que le défaut
+  existe encore) : l'installation a dépassé le point d'échec du 2026-08-30 —
+  Chocolatey, PowerShell 7 et ConEmu **tous posés en entier** (983 Mo),
+  aucune trace ICU dans le journal. Mais l'essai a été **pollué par ma propre
+  erreur** : j'ai lancé un second `umu-run` (`choco.exe --version`) **pendant
+  que l'installation d'origine tournait encore** sur le même préfixe — deux
+  clients Wine concurrents sur le même `WINEPREFIX`, qui se sont mutuellement
+  bloqués. Verdict invalidé par ma propre faute, pas par le logiciel.
+- **Second essai, propre, avec `WINEDLLOVERRIDES=icuin,icuuc=n` posé,
+  préfixe neuf, rien d'autre lancé en parallèle** : même chemin, même
+  volume (983 Mo), et **le même blocage** — mais ce n'est PAS l'erreur ICU.
+  `/proc/<pid>/wchan` montre `ntsync_schedule.isra.0` — un vrai blocage sur
+  un objet de synchronisation Windows, jamais signalé — et `/proc/<pid>/io`
+  montre **zéro octet lu ou écrit en quinze secondes** : ni un réseau lent,
+  ni un calcul long, un vrai blocage mort. Capturé à l'écran (une fenêtre
+  console bien réelle existait, `Administrator: …ChoCinstaller_0.5a.765.exe`) :
+  la dernière sortie visible montre des `Copy-Item` refusés sur
+  `wusa.exe`/`schtasks.exe`/`setx.exe`/`wmic.exe`
+  (« Access to the path … is denied »), suivis de requêtes de registre —
+  **rien qui touche ICU**. Vingt-sept minutes sans le moindre octet
+  d'E/S avant l'arrêt.
+
+**Verdict, honnête plutôt que définitif** : l'hypothèse ICU de 2026-08-30
+n'a été ni confirmée ni réfutée cette nuit — elle n'a simplement jamais été
+retestée dans les mêmes conditions, parce qu'un second défaut, distinct et
+tout aussi bloquant, se trouve maintenant plus loin dans le même script.
+Chocolatey-for-wine reste inutilisable ici, pour au moins deux raisons
+indépendantes. Conforme à ce que le plan du jour anticipait
+(« probablement jamais dans l'image telle quelle ») — mais pour une cause
+qui n'était pas encore identifiée.
+
+**Une leçon de méthode, payée deux fois cette nuit.** La première contamination
+(deux `umu-run` concurrents) a coûté un essai entier. En nettoyant l'arbre de
+processus qui en résultait, `xalia.exe` — un pont d'accessibilité, PAS suivi
+par le cgroup de `s-windows.service` — a reçu un signal par erreur, sans
+vérifier au préalable à quel `WINEPREFIX` il appartenait : c'était le **vrai**
+préfixe de S. Sans conséquence mesurée (`s-windows.service` intact, aucune
+nouvelle unité en échec), mais c'est une faute de méthode, pas de chance. Le
+second nettoyage a vérifié le `WINEPREFIX` de **chaque** `wineserver` avant
+de toucher quoi que ce soit — la forme qui aurait dû être utilisée depuis le
+début.
+
+### Ce que cette passe ne prouve pas
+
+- **L'hypothèse `WINEDLLOVERRIDES=icuin,icuuc=n` n'a jamais été mesurée
+  contre le vrai défaut ICU** — seulement contre un défaut différent
+  rencontré avant d'atteindre le point où ICU importerait.
+- **La cause du blocage `ntsync_schedule` n'est pas identifiée.** Un
+  `strace -f` sur le process au moment du blocage, ou un
+  `WINEDEBUG=+process,+registry` ciblé sur cette seule étape, la nommerait —
+  non fait, faute de temps dans cette passe.
+- **Rien de tout ceci n'a été rejoué une troisième fois** avec les deux
+  correctifs combinés (contourner le `Copy-Item` refusé ET forcer l'ICU
+  natif) — la piste reste ouverte, mais son coût (25-30 minutes par essai,
+  deux préfixes jetables déjà consommés) ne justifiait pas un troisième essai
+  cette nuit.
+
+### Item 5 — le glitch Waydroid, bloqué avant même de commencer
+
+`s-android.service` est un vrai service **système** (pas utilisateur) —
+démarré sans mot de passe grâce à la règle polkit dédiée
+(`50-s-android.rules`, déjà documentée le 2026-08-29). Mais **basculer
+`ro.dalvik.vm.native.bridge` vers `libndk.so` exige plus que démarrer le
+conteneur** : `libndk` n'a jamais été installé sur cette machine (seul
+`libhoudini` l'a été, le 2026-08-30), et son installation, comme celle de
+`libhoudini` avant elle, extrait des fichiers dans l'overlay système
+d'Android **en root**, via `pkexec` — un vrai mot de passe humain, pas
+contournable par une règle polkit passive.
+
+Essayé : `s_android_dans` (lxc-attach direct) a demandé ce mot de passe et
+personne n'a répondu en 120 s — le geste s'est arrêté proprement, exactement
+comme `s_root` est censé le faire, sans rien bloquer d'autre. Cette session
+n'a ni clavier de session graphique pour cliquer un agent polkit, ni mot de
+passe en clair à fournir. **Cet item ne peut pas avancer sans la présence de
+l'utilisateur devant la machine** — ce n'est pas un choix, c'est une porte
+qui exige une clé que cette session n'a pas.
+
+### Addendum, le même jour — l'utilisateur revient, l'élévation redevient possible, et le jeu ARM fonctionne enfin
+
+L'utilisateur est revenu se rendre disponible pour répondre aux demandes
+`pkexec`. Item 5 repris, avec deux précautions posées avant tout geste
+irréversible : question explicite à l'utilisateur sur le risque connu
+(`waydroid#2051`, amont — installer `libndk` en plus de `libhoudini` peut
+casser les applications ARM, les deux ne cohabitant pas proprement), et une
+**sauvegarde de l'overlay système Android avant tout** (`tar -czf`, 190 Mo,
+`$S_ETAT/sauvegardes/`) — décision de l'utilisateur : « installer quand même,
+tenter le jeu ».
+
+**La vraie source de `libndk`, jamais devinée** : `ublue-os/waydroid_script`,
+`stuff/ndk.py`, récupéré mot pour mot (`curl` direct, pas de résumé
+intermédiaire). URL Android 13 :
+`.../vendor_google_proprietary_ndk_translation-prebuilt/archive/68734c525…zip`,
+empreinte `0b2207c490fcb400aa5c87fcf0d52d38` — **vérifiée avant tout geste
+privilégié**, comme pour `libhoudini`. Propriété clé, et elle diffère
+légèrement de ce que le plan du matin supposait : `ro.dalvik.vm.native.
+bridge=libndk_translation.so` (pas `libndk.so` — une supposition du plan qui
+aurait échoué en silence si elle n'avait pas été vérifiée contre la vraie
+source).
+
+**Même patron que `libhoudini`** : téléchargement et vérification MD5 sans
+privilège, une seule élévation pour extraire dans l'overlay système et poser
+les permissions (`bin/` au groupe 2000, le reste `root:root` — même schéma
+que l'amont). Contrairement à `libhoudini`, l'archive de `libndk` porte déjà
+son propre `etc/init/ndk_translation.rc` tout fait — rien à composer à la
+main.
+
+**Éprouvé de bout en bout, sur cette machine, sur le vrai jeu qui bloquait
+le 2026-08-30** (`com.soulland.us`, « Soul Land: New World ») :
+
+| Étape | Résultat |
+|---|---|
+| Propriété relue depuis Android (pas le fichier hôte) | `ro.dalvik.vm.native.bridge = libndk_translation.so` |
+| Conteneur redémarré, `sys.boot_completed` | atteint normalement |
+| Le jeu, relancé | **1 % « Loading Resources »** à 15 s — jamais vu sous `libhoudini`, qui restait figé sur son tout premier écran |
+| À 60 s | écran de notices du jeu **entièrement rendu** (bannières, texte, boutons) |
+| À 85 s | **en jeu** — cinématique 3D rendue, dialogue actif, personnage animé |
+
+**Le blocage exact documenté le 2026-08-30 — deux ANR consécutifs, pile
+entièrement dans `libhoudini.so`, jamais au-delà de l'écran de démarrage —
+ne se reproduit pas sous `libndk`.** L'hypothèse nommée ce soir-là
+(« la mesure qui trancherait la suite ») est confirmée par la mesure,
+positivement, pour la première fois sur ce chantier.
+
+**Contrôle de non-régression, léger mais réel** : KOHO (déjà connue pour
+fonctionner sous `libhoudini`) relancée après la bascule — s'ouvre
+normalement, écran de connexion intact. Un seul point de contrôle sur les 32
+applications installées, pas une couverture complète.
+
+### Ce que cette passe ne prouve pas
+
+- **Un seul point de contrôle de non-régression** (KOHO) sur 32 applications
+  installées. Le risque nommé par `waydroid#2051` — une cohabitation
+  `libhoudini`/`libndk` qui casse des applications — n'a pas été exclu pour
+  le reste du catalogue, seulement pour ce point précis.
+- **`libhoudini.so` reste physiquement présent dans l'overlay**, seule la
+  propriété qui le sélectionne a changé. Rien n'a été retiré ; la sauvegarde
+  d'avant-geste (`$S_ETAT/sauvegardes/overlay-system-avant-libndk-*.tar.gz`)
+  reste le seul chemin de retour si un défaut apparaît plus tard.
+- **Rien n'est encore un réglage permanent de S.** La bascule vit dans les
+  propriétés actuelles d'Android (`waydroid.prop` côté hôte) et dans
+  l'overlay de cette machine — aucun script `build_files/` ne pose `libndk`
+  dans l'image, contrairement à `libhoudini` (`21-android-arm.sh`). Une
+  reconstruction de l'image ne perdrait rien de ceci (l'overlay Android n'est
+  jamais touché par un `bootc upgrade`), mais rien n'a été écrit pour qu'une
+  machine neuve reproduise ce choix.
+- **Le jeu n'a été observé que ~85 secondes** — assez pour dépasser tous les
+  points de blocage déjà mesurés, pas assez pour garantir une session de jeu
+  complète sans accroc plus tard.
+
+---
+
 ## 2026-09-06, tard le soir — la construction a échoué sur le runner, encore, et le stockage podman est dérouté vers `/mnt`
 
 Le commit du harnais de tests (`794e930`) a fait échouer « Construire l'image »

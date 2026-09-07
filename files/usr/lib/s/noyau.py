@@ -322,9 +322,18 @@ def choisir_monde(exec_ligne):
     On le lit dans la commande, seul endroit ou la verite se trouve : un
     raccourci Windows moissonne par s-menu-windows repasse par s-ouvrir-exe,
     une application Android par waydroid. Tout le reste est natif.
+
+    « s-pcboost-lancer » (2026-09-07) : le seul lanceur dont l'Exec du
+    .desktop ne mentionne aucun de ces mots directement, alors qu'il termine
+    toujours par « exec s-ouvrir-exe » — il recompile et resynchronise
+    PC Boost avant de lancer, geste que noyau.py ne peut pas voir puisqu'il
+    ne lit que la ligne Exec, jamais le contenu du script qu'elle appelle.
+    Meme principe que « s-android » plus bas : un nom de lanceur connu
+    compte autant qu'un moteur nomme en clair.
     """
     e = exec_ligne.lower()
-    if "s-ouvrir-exe" in e or "umu-run" in e or "wine" in e or "proton" in e:
+    if ("s-ouvrir-exe" in e or "umu-run" in e or "wine" in e or "proton" in e
+            or "s-pcboost-lancer" in e):
         return "windows"
     if "waydroid" in e or "s-android" in e:
         return "android"

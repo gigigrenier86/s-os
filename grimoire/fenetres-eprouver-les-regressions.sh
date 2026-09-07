@@ -7,6 +7,12 @@
 #          chaud, les deux scénarios passent : SCENARIO-A rattrape=true,
 #          SCENARIO-B minimisee=true pas_reactivee=true. Coût : ~6 secondes,
 #          deux fenêtres Qt jetables, aucune fenêtre de l'utilisateur touchée.
+#          Rejoué le 2026-09-07 contre /usr/lib/s/fenetres.js — le fichier
+#          RÉELLEMENT chargé par kwin sur cette image (44.20260907.3b51923),
+#          jamais éprouvé jusque-là : seule la copie du dépôt l'avait été.
+#          Même verdict, TOUT PASSE. `diff` confirme aussi les deux fichiers
+#          identiques octet pour octet, mais la mesure a été prise en direct
+#          plutôt que déduite de cette seule égalité.
 # POUR   : toute modification de la logique windowActivated / estChromeS /
 #          estBarreOuLaterale de files/usr/lib/s/fenetres.js. Recharger ce
 #          fichier depuis le dépôt puis relancer ce banc avant de pousser.
