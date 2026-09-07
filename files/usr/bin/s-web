@@ -1,0 +1,18 @@
+#!/usr/bin/bash
+# S Web — un navigateur a part entiere, pas une fenetre de plus sur Vivaldi.
+#
+# Le moteur EST Vivaldi (deja dans l'image) : on ne reimplemente pas un
+# bloqueur de pubs/traqueurs quand l'amont en maintient deja un vrai, a base
+# de listes de filtres (EasyList et consorts) mises a jour toutes seules.
+# Mesure sur cette machine le 2026-09-07, sur un profil totalement neuf,
+# sans le moindre reglage : 40 sources de blocage de pubs deja abonnees,
+# 1 source de blocage de traqueurs, popups bloques par defaut. C'est le
+# comportement de base de Vivaldi, pas quelque chose que S a construit.
+#
+# Ce que S ajoute : une IDENTITE separee. S Web ne partage ni l'historique,
+# ni les cookies, ni les extensions d'aucun autre usage de Vivaldi sur cette
+# machine — son propre profil, sous S_WEB, cree au premier lancement par
+# Vivaldi lui-meme (--user-data-dir cree le dossier s'il manque).
+source /usr/bin/s-monde
+
+exec /usr/lib/opt/vivaldi/vivaldi --user-data-dir="$S_WEB" --no-first-run "$@"

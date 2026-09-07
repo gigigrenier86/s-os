@@ -12,7 +12,7 @@ echo "=== 40-coutures : les gestes qui manquaient ==="
 chmod 0755 /usr/bin/s-monde /usr/bin/s-ouvrir-* /usr/bin/s-menu-windows \
            /usr/bin/s-android /usr/bin/s-android-lancer /usr/bin/s-play-store \
            /usr/bin/s-diagnostic /usr/bin/s-nettoyer \
-           /usr/bin/s-magasin-android
+           /usr/bin/s-magasin-android /usr/bin/s-web
 
 # --- Un magasin de secours, a provenance certaine ---------------------------
 # Le Play Store arrive avec l'image GAPPS de Waydroid, telechargee au premier
@@ -481,6 +481,26 @@ systemctl --global enable s-nouveautes.service
 test -L /etc/systemd/user/s-session.target.wants/s-nouveautes.service \
     || { echo "ECHEC : s-nouveautes.service n'est pas tire par s-session.target." >&2; exit 1; }
 echo "  s-nouveautes.service : annonce de version, tire par s-session.target"
+
+# --- S WEB — un profil separe sur le vrai bloqueur de Vivaldi ---------------
+# 2026-09-07 : mesure sur cette machine, sur un profil totalement neuf, sans
+# le moindre reglage — 40 sources de blocage de pubs, 1 source de blocage de
+# traqueurs, popups bloques, deja actifs par defaut chez Vivaldi lui-meme.
+# S Web n'ajoute qu'une identite separee (S_WEB, dans s-monde) ; le controle
+# porte donc sur cette separation, pas sur un blocage qu'on n'a rien construit.
+test -x /usr/bin/s-web \
+    || { echo "ECHEC : s-web absent ou non executable." >&2; exit 1; }
+grep -qF -- '--user-data-dir="$S_WEB"' /usr/bin/s-web \
+    || { echo "ECHEC : s-web ne pointe plus vers un profil separe — il partagerait celui d'un autre usage de Vivaldi." >&2; exit 1; }
+grep -q '^S_WEB=' /usr/bin/s-monde \
+    || { echo "ECHEC : S_WEB n'est plus declaree dans s-monde." >&2; exit 1; }
+test -s /usr/share/applications/s-web.desktop \
+    || { echo "ECHEC : s-web.desktop absent — aucune etoile pour S Web." >&2; exit 1; }
+test -s /usr/share/icons/hicolor/256x256/apps/s-web.png \
+    || { echo "ECHEC : s-web.png absent — l'etoile retomberait sur une icone generique." >&2; exit 1; }
+grep -q '^Icon=s-web$' /usr/share/applications/s-web.desktop \
+    || { echo "ECHEC : s-web.desktop ne vise plus sa propre icone." >&2; exit 1; }
+echo "  s-web : navigateur S, profil separe sous \$S_DATA/web, icone propre"
 
 test -s /usr/lib/systemd/user/s-pilotes.timer \
     || { echo "ECHEC : s-pilotes.timer absent." >&2; exit 1; }

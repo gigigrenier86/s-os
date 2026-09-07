@@ -8,6 +8,7 @@
 
 S_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/S"
 S_PREFIXE="$S_DATA/windows"          # le prefixe Wine unique, vu comme « le Windows de S »
+S_WEB="$S_DATA/web"                  # le profil de S Web, separe de tout autre usage de Vivaldi
 S_LANCEURS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 S_ETAT="${XDG_STATE_HOME:-$HOME/.local/state}/S"
 S_PARTAGE="$HOME/Partage"            # le dossier commun aux trois mondes

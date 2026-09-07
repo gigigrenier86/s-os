@@ -126,6 +126,20 @@ fi
 command -v desktop-file-validate >/dev/null 2>&1 && desktop-file-validate "$F"
 echo "  lanceur       : vivaldi-stable.desktop vise /usr/lib/opt/vivaldi/vivaldi directement"
 
+# --------------------------------------------------------------------------
+# Demande du 2026-09-07 : « on retire vivaldi et on met S Web en avant »
+# --------------------------------------------------------------------------
+# Le moteur reste — S Web EST Vivaldi en dessous, RapidO et Gemini aussi.
+# Ce qui disparait, c'est l'etoile generique « Vivaldi » elle-meme : masquee,
+# jamais effacee, meme patron que les sessions de l'amont au greeter
+# (voir CLAUDE.md 2026-08-22). noyau.py respecte deja NoDisplay/Hidden pour
+# composer le ciel — verifie, pas suppose.
+sed -i '/^\[Desktop Entry\]/a NoDisplay=true' "$F"
+grep -q '^NoDisplay=true' "$F" \
+    || { echo "ECHEC : vivaldi-stable.desktop n'est pas masque." >&2; exit 1; }
+command -v desktop-file-validate >/dev/null 2>&1 && desktop-file-validate "$F"
+echo "  lanceur       : vivaldi-stable.desktop masque (NoDisplay) — S Web est l'entree visible"
+
 # On verifie le binaire REEL, pas /usr/bin/vivaldi-stable : celui-ci vise
 # /opt/vivaldi/vivaldi, qui ne resout pas pendant la construction puisque le
 # pont n'existe qu'au demarrage.

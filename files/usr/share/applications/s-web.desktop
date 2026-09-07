@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=S Web
+GenericName=Navigateur web
+Comment=Navigateur de S — pubs, traqueurs et fenetres surgissantes bloques par defaut
+Exec=/usr/bin/s-web %U
+TryExec=/usr/bin/s-web
+Icon=s-web
+Terminal=false
+StartupNotify=true
+StartupWMClass=vivaldi-stable
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;

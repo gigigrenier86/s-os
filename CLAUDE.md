@@ -8,6 +8,175 @@ Interface en français.
 
 ---
 
+## 2026-09-07, fin d'après-midi — S Web : un navigateur avec son identité propre, et le blocage était déjà là
+
+Demande de l'utilisateur : « on créé un navigateur web exprès pour S, bloque
+les pubs entièrement, les traqueurs et les pop ups si voulu, on va
+l'appeller S Web ». Vérifié avant d'écrire une ligne, comme la règle du
+projet l'exige.
+
+### Rien à construire pour le blocage — Vivaldi le fait déjà, par défaut, sans un seul clic
+
+**Mesuré sur cette machine, sur un profil totalement neuf**
+(`--user-data-dir` pointant sur un dossier qui n'a jamais existé,
+`--no-first-run`, sans qu'aucun écran d'accueil n'ait été traversé) :
+
+```
+AdBlockState.json (ad-blocking-rules.known-sources)  -> 40 sources deja abonnees
+AdBlockState.json (tracking-rules.rule-sources)       -> 1 source deja abonnee
+Preferences (default_content_setting_values.popups)   -> absent = defaut Chromium = bloque
+```
+
+Les 40 sources sont de vraies listes de filtres (variantes régionales
+d'EasyList, Fanboy, etc.), avec leurs propres URL de mise à jour et leur
+propre cycle de rafraîchissement (`expires`/`next-fetch` déjà posés). **Ce
+n'est pas un réglage que S doit activer : c'est le comportement de sortie
+d'usine de Vivaldi**, déjà dans l'image. *On ne réimplémente pas ce que
+l'amont maintient* — et ici, il n'y avait même pas besoin de le configurer.
+
+### Ce que S ajoute réellement : une identité séparée
+
+`S Web` n'est pas une seconde fenêtre du même Vivaldi : il vit dans son
+**propre profil**, `$S_DATA/web` (donc `~/.local/share/S/web`), une
+variable neuve posée dans `s-monde` sur le même patron que `S_PREFIXE`.
+Aucun historique, aucun cookie, aucune extension partagée avec un autre
+usage de Vivaldi sur cette machine.
+
+`files/usr/bin/s-web` — trois lignes utiles : source `s-monde`, puis
+`exec vivaldi --user-data-dir="$S_WEB" --no-first-run "$@"`. Le dossier
+n'est pas créé à la main : Vivaldi le fait lui-même au premier lancement,
+comme il le fait déjà pour tout `--user-data-dir` inédit.
+
+`files/usr/share/applications/s-web.desktop` — étoile « S Web » sur le
+ciel, catégorie navigateur. **Icône provisoire** (`internet-web-browser`,
+une vraie icône Breeze, pas un glyphe générique) : une identité visuelle
+propre reste à faire, c'est le travail du Peintre, pas fait ce soir faute
+de direction donnée sur l'allure voulue.
+
+### Un défaut trouvé en mesurant, pas en devinant
+
+`vivaldi-stable.desktop` (le lanceur générique déjà dans l'image) déclare
+`StartupWMClass=vivaldi` — **faux**, mesuré par un script kwin témoin sur
+une vraie fenêtre lancée avec `--user-data-dir` : la classe réelle est
+`vivaldi-stable`. `s-web.desktop` porte la valeur mesurée, pas celle
+recopiée du lanceur existant, qui ment depuis toujours sur ce point sans
+que personne ne l'ait mesuré jusqu'ici.
+
+### Éprouvé de bout en bout, sur le vrai emplacement, pas un dossier jetable
+
+`~/.local/share/S/web` — le vrai profil que `s-web` utilisera une fois
+déployé, pas un `/tmp` de test :
+
+```
+40 sources de blocage de pubs, 1 source de blocage de traqueurs, popups
+bloques — memes chiffres que sur le profil jetable, sur l'emplacement reel.
+```
+
+Capturé à l'écran (`kwin-capturer-la-coquille.sh`) : une vraie fenêtre
+Vivaldi, sur l'écran d'accueil « C'est parti pour la configuration ! » —
+attendu et normal pour un tout premier lancement, indépendant du blocage
+qui est déjà actif en dessous. Fermé proprement par PID exact, jamais par
+motif ; les processus zygote/gpu/renderer fils ont disparu avec le
+processus principal.
+
+**Le contrôle de construction** (`40-coutures.sh`) a d'abord été écrit
+faux — un `grep --` sur un motif contenant `$S_WEB` échouait toujours,
+même contre le fichier qui le contient mot pour mot, parce que GNU grep en
+BRE traite `$` comme spécial même au milieu d'un motif dans certains cas.
+Trouvé en le testant, pas en le relisant ; corrigé en `grep -qF` (chaîne
+fixe, jamais une regex, pour un motif qui n'en a pas besoin).
+
+### Ce que cette passe ne prouve pas
+
+- **Rien n'est dans l'image.** Le geste tourne depuis le dépôt et depuis
+  un lancement direct sur cette machine ; il faut une construction et un
+  `bootc upgrade` pour que l'étoile apparaisse sur un ciel neuf.
+- **Aucune icône propre à S Web n'existe.** Le repli Breeze est honnête et
+  fonctionnel, pas une identité visuelle voulue.
+- **« Les pop-ups si voulu »** — la demande sous-entend un choix, pas
+  seulement un blocage forcé. C'est déjà le cas : le réglage « Popups et
+  redirections » de Vivaldi (Paramètres → Confidentialité) reste accessible
+  normalement dans S Web, exactement comme dans n'importe quel Vivaldi —
+  rien de plus à construire, mais **jamais cliqué pour confirmer qu'il est
+  bien atteignable** depuis ce profil précis.
+- **Aucun clic réel sur l'étoile S Web** — le lancement a été fait en ligne
+  de commande, avec exactement ce que l'étoile exécutera, mais pas par un
+  geste souris depuis Constellation.
+
+### Addendum, le même soir — l'icône composée, et Vivaldi retiré du ciel
+
+Demande de l'utilisateur : « on retire vivaldi et on met S web en avant, un
+beau S de verre brisés vert rouge et bleu, comme le logo de S ».
+
+**L'icône est composée, pas découpée.** Le logo de S (`galerie/logo-s-os/`)
+est une photo fournie — un médaillon en verre brisé vert/bleu/or, avec
+anneau et texte — dont le script `graver.py` ne fait que découper le
+médaillon. Aucune image source n'existe avec le triptyque rouge/vert/bleu
+demandé : `galerie/logo-s-web/graver.py` compose donc l'icône à partir de
+rien, dans le même langage visuel (des éclats anguleux qui reconstituent la
+lettre), sans médaillon ni anneau ni texte — une icône d'application reste
+lisible à 16 px, un cercle doré et une légende ne le permettraient pas à
+cette taille.
+
+**La technique, faute de bibliothèque de géométrie** (`scipy`/`shapely`
+absentes de cette machine, vérifié avant d'écrire une ligne) : un masque du
+glyphe « S » rendu en gras (Liberation Sans Bold, la plus grande taille qui
+tient dans le cadre, trouvée par dichotomie plutôt que recopiée à l'œil),
+puis un semis d'éclats polygonaux irréguliers, chacun teinté d'un dégradé
+clair→foncé (`Image.linear_gradient` + `ImageOps.colorize`, pas un aplat —
+c'est ce dégradé qui donne le relief du verre), rogné à l'intersection du
+masque (`ImageChops.multiply` sur le canal alpha), puis **légèrement**
+poussé vers l'extérieur du centre du S pour ouvrir de vraies fentes entre
+éclats voisins, sans qu'aucune fracture n'ait été calculée géométriquement.
+
+**Un premier essai a été rejeté avant d'être gardé — jugé sur l'image, pas
+sur l'intention.** La première passe poussait les éclats proportionnellement
+à leur distance au centre : les éclats du bord s'envolaient carrément hors
+de la silhouette du S, en confettis détachés, cassant la lisibilité de la
+lettre. Vu à l'écran, corrigé : la poussée est redescendue à une valeur fixe
+et modeste (0,6 % de la résolution de travail), et les éclats gardent
+désormais des fentes fines plutôt que de se détacher. **Vérifié aussi à
+petite taille** (64 px, 32 px) — la lettre reste lisible à 64 px, plus
+difficilement à 32 px : réserve honnête, pas corrigée ce soir, le contexte
+réel (étoiles du ciel de Constellation) affiche des icônes nettement plus
+grandes que 32 px.
+
+**Vivaldi masqué, jamais effacé — même patron que les sessions de l'amont
+au greeter (2026-08-22).** `build_files/25-navigateur.sh` insère
+`NoDisplay=true` dans `vivaldi-stable.desktop` juste après l'avoir réparé
+(le correctif du 2026-08-23 sur `Exec=`/`TryExec=` reste nécessaire : un
+lanceur masqué qui pointe dans le vide resterait cassé si jamais démasqué).
+`noyau.py` respecte déjà `NoDisplay`/`Hidden` pour composer le ciel —
+vérifié dans le code (lignes 362 et 1277), pas supposé. Éprouvé sur une
+copie du vrai fichier de cette machine : l'insertion tombe au bon endroit,
+une seule fois, et `desktop-file-validate` reste vert après coup.
+
+**Un piège trouvé en testant l'apparition de l'étoile, et ce n'est PAS un
+défaut — c'est `TryExec` qui fait exactement son travail.** Poser
+`s-web.desktop` et ses icônes dans `~/.local/share/` sur cette machine pour
+vérifier que `noyau.inventaire()` le trouve a rendu `None` : l'entrée est
+silencieusement écartée parce que `TryExec=/usr/bin/s-web` pointe sur un
+binaire qui n'existe pas encore sur cette machine (rien n'a été construit
+ni déployé). C'est précisément le garde-fou que ce carnet documente pour
+ce même champ (« ne me montre pas si ce binaire n'existe pas », la faute
+qui avait cassé Vivaldi le 2026-08-23) — vu fonctionner en sens inverse ici,
+sur notre propre lanceur cette fois. L'étoile S Web n'apparaîtra donc sur le
+ciel qu'après une vraie construction et un `bootc upgrade`, comme toute
+addition `s-*` de ce dépôt.
+
+### Ce que cet addendum ne prouve pas
+
+- **L'icône n'a jamais été vue dans le ciel de Constellation**, seulement en
+  grand format hors contexte. Le rendu réel (avec l'anneau de progression,
+  à côté des autres étoiles) reste à voir après construction.
+- **Vivaldi n'a jamais été masqué sur cette machine** — le `sed` a été
+  éprouvé sur une copie jetable, jamais sur `/usr/share/applications/
+  vivaldi-stable.desktop` réel, qui reste en lecture seule ici de toute
+  façon.
+- **La lisibilité à 32 px reste faible**, notée et non corrigée.
+
+---
+
 ## 2026-09-07, après-midi — le Wizard défriche les items 6 et 7, et un des deux se révèle déjà à moitié construit
 
 Demande de l'utilisateur : « chantiers 6 et 7 » — les deux items explicitement
