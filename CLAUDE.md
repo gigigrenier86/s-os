@@ -41,8 +41,55 @@ par défaut sur `/`.
 - **Le déroutement n'a jamais tourné sur un vrai runner GitHub** — écrit,
   relu en YAML (`yaml.safe_load`) et en bash (`bash -n`), jamais exécuté hors
   de cette machine.
-- **La cause exacte de l'échec du 2026-09-06 reste une hypothèse**, pas une
-  mesure — le journal du runner n'a jamais été lu.
+- ~~**La cause exacte de l'échec du 2026-09-06 reste une hypothèse**, pas une
+  mesure — le journal du runner n'a jamais été lu.~~ **Réfutée par la mesure
+  qui suit : ce n'était pas l'espace disque.** Le déroutement vers `/mnt` a
+  bien été poussé et tourné sur un vrai runner (« Faire de la place »
+  verte) — et « Construire l'image » a échoué à l'identique. Le
+  déroutement n'était pas fautif ; il visait la mauvaise cause. Voir
+  l'entrée suivante.
+
+### Addendum — la vraie cause, et c'était le piège déjà nommé le 2026-08-29
+
+Le second essai (avec `/mnt`) a échoué exactement comme le premier —
+signal que l'hypothèse de l'espace disque était fausse, pas seulement
+non prouvée. `core.filemode = false` sur ce dépôt (confirmé,
+`git config --get core.filemode`) — **le piège que ce carnet documente
+depuis le 2026-08-29 matin**, retombé sur les mêmes pieds : `files/usr/bin/
+s-nouveautes` avait été rendu exécutable sur le disque (`chmod +x`, à sa
+création), mais jamais `git update-index --chmod=+x` — sur ce dépôt, un
+`chmod` seul n'est jamais suivi par l'index git, et `git status`/`git diff`
+ne le signalent pas.
+
+**Pourquoi la reconstruction locale passait quand même, et n'était donc pas
+une preuve.** `podman build` lit `files/` **depuis le disque de travail**,
+pas depuis l'index git — mon disque avait le bon mode, donc `COPY files/ /`
+copiait un fichier exécutable et `test -x /usr/bin/s-nouveautes`
+(`build_files/40-coutures.sh`) passait. Le runner GitHub, lui, part d'un
+`git checkout` frais : il matérialise exactement ce que l'index contient —
+`100644`, pas exécutable — et le même contrôle échouait à coup sûr, sur les
+deux essais, sans le moindre rapport avec l'espace disque.
+
+**Trouvé en comparant les modes trackés** (`git ls-files -s`) entre
+`files/usr/bin/s-nouveautes` (`100644`) et un geste voisin déjà en image,
+`files/usr/bin/s-accueil` (`100755`) — la même vérification que l'entrée du
+2026-08-29 matin décrit déjà. `grimoire/fenetres-eprouver-les-regressions.sh`
+portait la même faute (un `chmod +x` fait par outil, jamais suivi de
+`git update-index`) ; sans conséquence pour l'image — `grimoire/` n'y entre
+jamais — mais corrigé pour la même raison qu'un script du Grimoire doit
+rester exécutable dès le clone. `build_files/44-nouveautes.sh` corrigé par
+cohérence avec le reste de `build_files/`, bien qu'invoqué par `bash ...`
+et non directement.
+
+**La leçon, répétée pour la troisième fois dans ce carnet** : sur ce dépôt,
+`chmod +x` sur disque ne suffit jamais. Il faut
+`git update-index --chmod=+x <fichier>`, et le vérifier par
+`git ls-files -s` — jamais par `git status`, qui ne le montre pas — **avant**
+de pousser, pas après un runner qui échoue sans journal lisible.
+
+Le déroutement du stockage vers `/mnt` reste dans le workflow : il n'a rien
+cassé, et il reste une protection raisonnable si l'espace redevient un jour
+la vraie cause — mais ce soir-là, il n'était pour rien dans la panne.
 
 ---
 
