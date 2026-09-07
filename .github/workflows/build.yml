@@ -140,8 +140,29 @@ jobs:
         # sans que personne ne le remarque tant que l'image restait petite.
         # Reproduit en local (podman build seul, sur cette machine) : succes
         # complet, donc le code est juste — seul l'espace du runner manquait.
+        #
+        # ECHEC DU MEME GENRE LE 2026-09-06 (« Construire l'image » mort sans
+        # message lisible, journal hors de portee — 403 sans droits admin).
+        # Reconstruit en local sur S, deux fois : la premiere a mange les 21 Go
+        # alors libres de cette machine, la seconde a reussi une fois 32 Go
+        # degages. Meme famille de panne que le 2026-09-02, jamais confirmee
+        # cote runner (journal inaccessible), mais l'hypothese la plus simple.
+        # « / » sur un runner ubuntu-24.04 est le disque ETROIT ; « /mnt », deja
+        # touche trois lignes plus bas pour son fichier d'echange, est un
+        # second disque bien plus grand, quasiment inutilise une fois le swap
+        # coupe. Le stockage de podman **rootless** (celui qu'utilise cette
+        # construction, sans « sudo ») vit par defaut sous
+        # « ~/.config/containers/storage.conf » — jamais touche jusqu'ici, donc
+        # jamais devie de « / ». On le deroute vers « /mnt » AVANT le premier
+        # appel a podman de cette etape (le « system prune » plus bas), sinon
+        # ce premier appel fige deja le stockage par defaut.
         run: |
-          echo "=== Avant ===" && df -h /
+          echo "=== Avant ===" && df -h / /mnt
+          sudo mkdir -p /mnt/containers-storage
+          sudo chown "$(id -u):$(id -g)" /mnt/containers-storage
+          mkdir -p ~/.config/containers
+          printf '[storage]\ndriver = "overlay"\ngraphroot = "/mnt/containers-storage"\n' \
+              > ~/.config/containers/storage.conf
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
                       /usr/local/share/boost /usr/local/lib/node_modules \
                       /opt/hostedtoolcache /usr/lib/jvm /usr/local/.ghcup \
@@ -151,7 +172,7 @@ jobs:
           sudo apt-get clean || true
           sudo docker image prune --all --force || true
           podman system prune --all --force || true
-          echo "=== Apres ===" && df -h /
+          echo "=== Apres ===" && df -h / /mnt
 
       - name: Construire l'image
         run: |

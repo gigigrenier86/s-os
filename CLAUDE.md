@@ -8,6 +8,44 @@ Interface en français.
 
 ---
 
+## 2026-09-06, tard le soir — la construction a échoué sur le runner, encore, et le stockage podman est dérouté vers `/mnt`
+
+Le commit du harnais de tests (`794e930`) a fait échouer « Construire l'image »
+sur le runner GitHub, sans message lisible (journal hors de portée, 403 sans
+droits admin). Reconstruit deux fois en local sur `s` pour comparer : le
+premier essai a mangé les 21 Go alors libres de la machine
+(`no space left on device`, à l'étape `26-outils.sh`) ; le second, une fois
+32 Go dégagés (deux images de test oubliées d'une session antérieure,
+2026-09-01), a réussi entièrement — image taguée, `s-nouveautes.service`
+correctement activé.
+
+**Le code du commit est donc juste** — même conclusion, même méthode que le
+2026-09-02 pour Sora : une reconstruction locale qui aboutit pendant que le
+runner échoue au même endroit désigne l'espace disque, pas le code.
+
+**Jamais confirmé côté runner** (le journal reste inaccessible), mais
+l'hypothèse la plus simple et la moins coûteuse à essayer : le stockage
+**rootless** de podman — celui que « Construire l'image » utilise, sans
+`sudo` — vit par défaut sous `~/.config/containers/storage.conf`, jamais
+touché jusqu'ici, donc jamais dévié de `/`, le disque étroit d'un runner
+`ubuntu-24.04`. `/mnt`, déjà visé par le nettoyage du fichier d'échange
+(`rm -f /mnt/swapfile`), est un second disque, nettement plus grand, presque
+entièrement libre une fois le swap coupé. `.github/workflows/build.yml`
+déroute désormais ce stockage vers `/mnt/containers-storage`, **avant** le
+premier appel à podman de l'étape « Faire de la place » (le
+`system prune` qui suit) — un appel plus tôt aurait déjà figé le stockage
+par défaut sur `/`.
+
+### Ce que cette passe ne prouve pas
+
+- **Le déroutement n'a jamais tourné sur un vrai runner GitHub** — écrit,
+  relu en YAML (`yaml.safe_load`) et en bash (`bash -n`), jamais exécuté hors
+  de cette machine.
+- **La cause exacte de l'échec du 2026-09-06 reste une hypothèse**, pas une
+  mesure — le journal du runner n'a jamais été lu.
+
+---
+
 ## 2026-09-06 — le premier harnais de tests automatisés de S : `fenetres.js` éprouvé contre le vrai résident, pas une simulation
 
 Demande de l'utilisateur, choisie parmi trois chantiers offerts après l'audit
