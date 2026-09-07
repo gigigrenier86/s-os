@@ -177,6 +177,16 @@ jobs:
           # chaque construction, ce que « 44.20260825 » ne faisait pas.
           VERSION="44.$(date -u +%Y%m%d).$(git rev-parse --short HEAD)"
           echo "Version de cette image : $VERSION"
+          # LE RESUME QUE s-nouveautes AFFICHERA AU PROCHAIN DEMARRAGE — voir
+          # build_files/44-nouveautes.sh. « .git » n'entre jamais dans le
+          # contexte de construction (le stage « ctx » du Containerfile ne
+          # copie que build_files/) : c'est ici, sur le runner, avant le
+          # build, qu'il faut le lire. Assaini pour un ARG Docker — retire
+          # guillemets, dollars, accents graves et barres inverses, les
+          # quatre caracteres qui casseraient la substitution textuelle d'un
+          # ARG dans un RUN — et borne a 200 caracteres.
+          RESUME="$(git log -1 --format=%s | tr -d '"$`\\' | cut -c1-200)"
+          echo "Resume de cette construction : $RESUME"
           podman build \
             --tag "${IMAGE_NAME}:${GITHUB_SHA}" \
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
@@ -184,6 +194,7 @@ jobs:
             --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --label "org.opencontainers.image.version=${VERSION}" \
             --label "org.opencontainers.image.title=S" \
+            --build-arg "S_RESUME=${RESUME}" \
             --file Containerfile \
             .
 

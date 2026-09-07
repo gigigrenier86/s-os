@@ -1,0 +1,15 @@
+[Unit]
+Description=S - annonce des nouveautes (une fois par version)
+# MEME PATRON QUE s-accueil.service : gate par un marqueur DANS le script
+# (la version deja vue), jamais par ConditionPathExists=!, parce que ce
+# geste doit reparler a CHAQUE nouvelle version, pas une seule fois dans la
+# vie du compte.
+After=s-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/s-nouveautes
+TimeoutStartSec=30
+
+[Install]
+WantedBy=s-session.target

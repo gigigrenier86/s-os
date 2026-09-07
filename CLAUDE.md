@@ -8,6 +8,178 @@ Interface en français.
 
 ---
 
+## 2026-09-06 — le premier harnais de tests automatisés de S : `fenetres.js` éprouvé contre le vrai résident, pas une simulation
+
+Demande de l'utilisateur, choisie parmi trois chantiers offerts après l'audit
+de la veille : « Harnais de tests automatisés ». Le premier candidat naturel
+était `files/usr/lib/s/fenetres.js` — le fichier le plus retouché de la
+session précédente, corrigé deux fois de suite sur le même soir sans qu'aucun
+filet n'existe pour empêcher une troisième régression du même genre.
+
+### Pourquoi une fenêtre réelle plutôt qu'un mock
+
+`fenetres.js` tourne **dans** kwin, comme script résident chargé par
+`s-coquille` sous le nom `s-fenetres`. Rien ne permet de l'appeler depuis
+l'extérieur ni de lui injecter un faux événement `windowActivated` : la seule
+façon de l'exercer pour de vrai est de créer un **vrai client Wayland**, avec
+le titre et le `resourceClass` que le code cherche
+(`QApplication.setDesktopFileName("s-constellation")` + titre `"S - barre"`),
+et de regarder si le gestionnaire résident réagit comme prévu — même patron
+D-Bus témoin que `grimoire/kwin-capturer-la-coquille.sh` (un script kwin ne
+rend rien à l'appelant ; on se sert du bus comme témoin, capté par
+`dbus-monitor --session "eavesdrop=true,..."`, `eavesdrop=true` restant
+obligatoire).
+
+### Le piège trouvé en construisant le banc, pas en le lisant
+
+Sur cette machine, qui fait tourner Constellation pour de vrai, la **vraie**
+barre des tâches porte exactement le même titre et la même classe que la
+fenêtre jetable du test — les deux apparaissent côte à côte sous
+`"S - barre"`, indistinguables par titre ou par `resourceClass`. Seul
+l'`internalId` les sépare, et celui de la vraie barre est stable d'un essai à
+l'autre tandis que celui du banc est neuf à chaque lancement. Le banc relève
+donc la liste des `internalId` de toutes les fenêtres `"S - barre"` **avant**
+de poser la sienne, puis cherche après celle qui n'y figure pas — jamais
+l'inverse, qui daterait mal le jour où une seconde vraie barre existerait
+(deux écrans, par exemple).
+
+**Une confusion de diagnostic en cours de route, qui a coûté du temps avant
+d'être comprise** : les tout premiers essais de fenêtres jetables, lancés
+avant la découverte que ce sandbox n'accepte le maintien d'un processus en
+vie entre deux appels d'outil qu'via son propre mécanisme de tâche de fond
+dédiée, ont laissé de vraies fenêtres orphelines sur le bureau. Un
+`pkill -f "temoin-fenetre.py"` de nettoyage a ensuite fauché sa propre ligne
+de commande (elle contient le motif recherché) et, avec elle, deux tâches de
+fond proprement suivies — la sixième fois que cette classe précise de bogue
+mord ce projet, chaque fois pour la même raison. Repris en tuant par PID
+exact, jamais par motif.
+
+### Le banc, rangé au Grimoire avec sa preuve
+
+`grimoire/fenetres-eprouver-les-regressions.sh` — recharge `fenetres.js`
+**depuis le dépôt** à chaud (donc éprouve ce qui est écrit, pas ce qui
+traînait déjà en mémoire), pose deux fenêtres jetables (une application
+normale, une chrome imitant la barre), puis rejoue exactement les deux
+régressions corrigées le 2026-09-05 :
+
+- **Scénario A** — le chrome ne doit jamais garder l'activation réelle :
+  activer la vraie fenêtre puis le chrome, vérifier que l'activation revient
+  d'elle-même à la vraie fenêtre.
+- **Scénario B** — cliquer sur la fenêtre déjà active la range, et le
+  rattrapage ne doit **jamais** la réactiver même si kwin transite par le
+  chrome au moment du rangement (la régression exacte que Fix #2 a corrigée
+  la veille, provoquée en simulant ce transit).
+
+**Éprouvé dans les deux sens, ce qui fait la valeur du banc** : contre le
+fichier réel du dépôt, les deux scénarios passent
+(`SCENARIO-A rattrape=true`, `SCENARIO-B minimisee=true pas_reactivee=true`).
+Une régression injectée à la main (la garde `.minimized` remplacée par une
+propriété inexistante, donc toujours vraie) a fait échouer le banc sur le
+scénario B exactement — `minimisee=false pas_reactivee=false` — avant que le
+fichier ne soit restauré par `git checkout`. **C'est la première fois que ce
+projet a un test qui sait dire non.**
+
+### Ce que cette passe ne prouve pas
+
+- **Le banc ne couvre que deux scénarios** parmi tous les défauts déjà
+  corrigés dans ce fichier au fil des semaines (plein écran, agrandissement
+  à la naissance, `raiseWindow`, veille…). Il est un point de départ, pas une
+  couverture complète.
+- **Rejoué deux fois de suite sur cette machine, jamais sur une autre.** Le
+  patron D-Bus témoin et la détection de la vraie barre par `internalId`
+  n'ont été mesurés que sur cette session Constellation précise.
+- **Le banc ne touche à aucune fenêtre de l'utilisateur** — vérifié par
+  construction (il ne cible que ses deux fenêtres jetables et nettoie par PID
+  exact) — mais un plantage à mi-chemin laisserait le script `fenetres.js`
+  rechargé sans repasser par celui déployé tant qu'un nouveau rechargement ou
+  un redémarrage de session n'a pas eu lieu. Sans conséquence ici puisque le
+  dépôt et le déployé sont identiques au moment d'écrire ces lignes.
+
+---
+
+## 2026-09-05, tard le soir — l'audit à quatre rôles, deux erreurs corrigées, une annonce de mise à jour construite
+
+Demande de l'utilisateur : « il manquerait quoi à S, sors tout les skills ».
+Wizard, Alchimiste, Contremaître et Peintre invoqués ensemble pour un audit
+honnête. Deux des constats du Peintre se sont révélés **faux dès qu'on les a
+vérifiés** — écrits ici pour que la leçon serve, pas seulement le correctif.
+
+### Deux erreurs d'audit, corrigées avant qu'elles ne s'installent
+
+- **« L'écran d'amorçage porte encore le nom de la base »** — faux.
+  `build_files/43-amorcage.sh` est branché dans le `Containerfile` **depuis
+  le 2026-08-24**, et son propre en-tête le dit : le paragraphe qui
+  affirmait le contraire datait du jour où le script a été écrit, jamais
+  relu après avoir été branché. Vérifié à l'instant : la ligne existe bien
+  dans `Containerfile`.
+- **« La Galerie a un seul tableau »** — faux. `galerie/` porte onze images
+  dans cinq catégories, vérifié par un simple `find`. L'erreur venait de
+  citer le carnet de mémoire plutôt que de regarder le disque.
+
+**La leçon, et elle vaut au-delà de ce soir** : un audit qui cite l'historique
+sans revérifier contre l'état réel commet exactement la faute que ce projet
+punit depuis le premier jour. Les deux ont été retrouvées en trente secondes
+de `grep`/`find` — le coût de ne pas vérifier était nul, l'erreur ne l'était
+pas.
+
+### Ce qui était réellement absent, et qui l'est maintenant
+
+**Un repli SSH par clé.** `~/.ssh/authorized_keys` était toujours absent
+(vérifié — la garantie manquante nommée le 2026-08-26 tenait encore). La clé
+`id_ed25519` de la machine, déjà générée le 2026-08-24 pour parler à
+GitHub, s'auto-autorise désormais — testé en direct,
+`ssh -i ~/.ssh/id_ed25519 RyuRex@localhost` réussit. C'est un réglage de
+machine, pas un fichier d'image : rien à construire, rien à pousser.
+
+**S annonce enfin ses propres mises à jour.** S se reconstruit et se signe
+chaque nuit depuis le 2026-08-26 ; rien à l'écran ne l'avait jamais dit.
+`build_files/44-nouveautes.sh` pose `/usr/share/s/version/resume.txt` à la
+construction — le sujet du dernier commit, lu sur le runner GitHub Actions
+**avant** le build (`.git` n'entre jamais dans le contexte « ctx », qui ne
+copie que `build_files/`), passé par un `ARG S_RESUME` assaini (guillemets,
+dollars, accents graves et barres inverses retirés — les quatre caractères
+qui casseraient la substitution textuelle d'un `ARG` dans un `RUN`).
+`s-nouveautes` (nouveau geste, tiré par `s-session.target`) compare la
+version réellement bootée (`rpm-ostree status --json`) à un marqueur dans
+`$S_ETAT` — pas un booléen « déjà vu une fois », une **version** : le geste
+reparle à chaque vraie nouvelle image, jamais seulement à la première
+session d'un compte.
+
+**Éprouvé en direct**, sur cette machine, sans toucher `/usr` (immuable ici,
+l'écriture réelle n'a lieu qu'à la construction) : une copie du script avec
+le seul chemin du résumé redirigé vers un fichier de test a montré la bulle
+au premier appel (`"S s'est mis à jour — <résumé>"`, code 0), écrit le bon
+marqueur (`44.20260905.8a5431e`, la version réellement bootée), et s'est
+tue au second appel. Les contrôles habituels de `40-coutures.sh` sont posés
+sur les trois nouveaux fichiers.
+
+### Une incohérence trouvée en passant, notée sans être corrigée
+
+**Deux dossiers d'état coexistent** : `~/.local/state/S` (majuscule — utilisé
+par `s-monde` et tout le monde shell : verrous, `accueil-fait`,
+`android-pret`…) et `~/.local/state/s` (minuscule — utilisé par le côté
+Python de Constellation : `reglages.json`, `placees.json`,
+`fenetres-vues.json`…). Vérifié qu'aucun fichier n'existe dans les deux à la
+fois — ce n'est donc pas une divergence de la même donnée (le défaut que ce
+carnet punit ailleurs), juste deux conventions de casse différentes qui
+coexistent sans se marcher dessus. Pas corrigé ce soir : renommer l'une des
+deux toucherait un grand nombre de fichiers pour un gain purement cosmétique.
+
+### Ce que cette passe ne prouve pas
+
+- **Rien n'est encore construit ni déployé.** `s-nouveautes` et le repère de
+  résumé tournent depuis le dépôt (testés par un script redirigé), pas
+  depuis une vraie image ; il faut une construction et un `bootc upgrade`.
+- **La bulle n'a pas été confirmée à l'écran** — l'appel a réussi sans
+  erreur et a écrit le bon marqueur, mais personne n'a regardé si elle
+  s'est bien affichée en haut à droite.
+- **Trois chantiers du même audit restent entiers, et ce ne sont pas des
+  correctifs d'un soir** : Quick Resume universel, le glisser-déposer
+  inter-mondes, et un harnais de tests automatisés. Les trois demandent une
+  vraie conception, pas une case à cocher.
+
+---
+
 ## 2026-09-05, soir — les fenêtres n'étaient pas fluides, et deux défauts distincts se cachaient sous une seule plainte
 
 Signalement de l'utilisateur, sans détail technique : *« réel problème avec les

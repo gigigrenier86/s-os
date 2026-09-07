@@ -59,6 +59,7 @@ preuve.** Pas la construction verte, pas le code écrit : la mesure.
 | [wayland-ou-se-pose-un-popup.sh](wayland-ou-se-pose-un-popup.sh) | Savoir si ce compositeur place un popup Qt là où on le lui demande | 2026-08-27 |
 | [android-piloter-sans-waydroid.sh](android-piloter-sans-waydroid.sh) | État et commande root (lxc-attach) dans l'Android LXC natif — et les quatre pièges qui s'y cachent | 2026-08-29 |
 | [android-iplatform-depuis-l-hote.py](android-iplatform-depuis-l-hote.py) | Lancer, installer et lister les applications Android SANS root, par le service binder que Waydroid utilisait déjà | 2026-08-29 |
+| [fenetres-eprouver-les-regressions.sh](fenetres-eprouver-les-regressions.sh) | Éprouver `fenetres.js` (kwin résident) contre de vraies fenêtres jetables, sans jamais toucher celles de l'utilisateur | 2026-09-06 |
 
 ---
 

@@ -467,6 +467,21 @@ test -L /etc/systemd/user/s-session.target.wants/s-accueil.service \
     || { echo "ECHEC : s-accueil.service n'est pas tire par s-session.target." >&2; exit 1; }
 echo "  s-accueil.service : premiere session, tire par s-session.target"
 
+# --- S ANNONCE SES PROPRES MISES A JOUR, TROUVE ABSENT PAR LE PEINTRE -------
+# Le fichier de resume doit exister (meme vide, sur une construction locale
+# sans --build-arg) : 44-nouveautes.sh le pose toujours, et s-nouveautes le
+# lit sans se plaindre s'il est vide.
+test -e /usr/share/s/version/resume.txt \
+    || { echo "ECHEC : /usr/share/s/version/resume.txt absent — 44-nouveautes.sh a-t-il tourne ?" >&2; exit 1; }
+test -x /usr/bin/s-nouveautes \
+    || { echo "ECHEC : s-nouveautes absent ou non executable — aucune annonce de mise a jour ne pourrait tourner." >&2; exit 1; }
+test -s /usr/lib/systemd/user/s-nouveautes.service \
+    || { echo "ECHEC : s-nouveautes.service absent." >&2; exit 1; }
+systemctl --global enable s-nouveautes.service
+test -L /etc/systemd/user/s-session.target.wants/s-nouveautes.service \
+    || { echo "ECHEC : s-nouveautes.service n'est pas tire par s-session.target." >&2; exit 1; }
+echo "  s-nouveautes.service : annonce de version, tire par s-session.target"
+
 test -s /usr/lib/systemd/user/s-pilotes.timer \
     || { echo "ECHEC : s-pilotes.timer absent." >&2; exit 1; }
 test -s /usr/lib/systemd/user/s-pilotes.service \

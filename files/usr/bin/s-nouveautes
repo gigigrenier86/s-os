@@ -1,0 +1,47 @@
+#!/usr/bin/bash
+# S annonce ses propres mises a jour — jamais avant ce soir.
+#
+# TROUVE PAR LE PEINTRE, 2026-09-05 : S se reconstruit et se met a jour
+# chaque nuit (signe, verifie — CLAUDE.md, 2026-08-26), et rien a l'ecran ne
+# l'avait jamais dit. L'utilisateur decouvrait un changement en tombant
+# dessus, jamais par une phrase qui l'annonce.
+#
+# LE MARQUEUR PORTE LA VERSION, PAS UN BOOLEEN — meme famille que le
+# marqueur « accueil-fait » empreinte par inode (CLAUDE.md, 2026-08-29) : on
+# compare a ce qui a deja ete VU, jamais a « est-ce deja arrive une fois ».
+# Une image reconstruite porte une version differente
+# (44.<jour>.<commit court>, voir build.yml, 2026-08-26) ; c'est elle qui
+# decide, jamais un simple fichier present/absent — ce qui veut dire que ce
+# geste parle a chaque VRAIE nouvelle version, pas seulement la premiere
+# fois sur un compte donne.
+set -uo pipefail
+source /usr/bin/s-monde
+
+MARQUE="$S_ETAT/derniere-version-vue"
+RESUME=/usr/share/s/version/resume.txt
+
+VERSION="$(rpm-ostree status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    for depl in d.get("deployments", []):
+        if depl.get("booted"):
+            print(depl.get("version") or "")
+            break
+except Exception:
+    pass
+' 2>/dev/null)"
+
+# SI ON NE SAIT PAS LIRE LA VERSION, ON NE DEVINE PAS : mieux vaut se taire
+# qu'annoncer une nouveaute qui n'existe peut-etre pas.
+[ -n "$VERSION" ] || exit 0
+
+VUE="$(cat "$MARQUE" 2>/dev/null || true)"
+[ "$VERSION" = "$VUE" ] && exit 0
+
+TEXTE="$(cat "$RESUME" 2>/dev/null || true)"
+[ -n "$TEXTE" ] || TEXTE="Version $VERSION"
+
+s_dire "S s'est mis à jour" "$TEXTE" phone
+
+printf '%s\n' "$VERSION" > "$MARQUE"

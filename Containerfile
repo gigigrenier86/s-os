@@ -203,6 +203,17 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/43-amorcage.sh
 
+# Le resume de cette construction, pour que s-nouveautes ait quelque chose a
+# dire au premier demarrage. « S_RESUME » vient de build.yml (le sujet du
+# dernier commit, lu AVANT le build — .git n'entre jamais dans le contexte
+# « ctx »). Une construction locale sans --build-arg laisse la valeur vide ;
+# 44-nouveautes.sh s'en accommode.
+ARG S_RESUME=""
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    S_RESUME="${S_RESUME}" bash /ctx/build_files/44-nouveautes.sh
+
 # Le telephone — Tailscale active, mosh pose
 #
 # Place juste avant les coutures, et pas ailleurs : « 40-coutures.sh » se
