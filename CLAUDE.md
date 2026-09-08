@@ -8,6 +8,197 @@ Interface en français.
 
 ---
 
+## 2026-09-08, nuit — libndk fait franchir a « Soul Land: New World » l'ecran qui le bloquait depuis le 2026-08-30
+
+Item 5 du triage du 2026-09-07 : basculer `ro.dalvik.vm.native.bridge` de
+`libhoudini.so` vers `libndk.so`, la seule variable jamais tournee depuis
+que le jeu ARM64 bloque sur son ecran de demarrage (`waydroid/waydroid#2383`,
+toujours sans reponse). L'ordre a d'abord ete demande explicitement a
+l'utilisateur avant d'y toucher — le risque nomme le 2026-08-30
+(`waydroid#2051`, les deux traducteurs ne cohabitent pas proprement) restait
+entier.
+
+### L'installation avait deja eu lieu, sans que ce carnet le sache
+
+`libndk` etait deja pose dans l'overlay systeme d'Android et la propriete
+deja basculee — **avant meme que la question ne soit posee ce soir**, avec
+une sauvegarde datee du 2026-09-07 12 h 19
+(`$S_ETAT/sauvegardes/overlay-system-avant-libndk-*.tar.gz`, 69 Mo). Aucune
+entree de ce carnet ne le documentait : le travail avait eu lieu dans une
+partie de la session anterieure a la compaction de son contexte, jamais
+ecrite. Relu directement depuis le conteneur vivant plutot que suppose :
+
+```
+sys.boot_completed             = 1
+ro.dalvik.vm.native.bridge     = libndk_translation.so
+```
+
+### Un vrai defaut trouve en verifiant avant de tester, distinct de libndk
+
+`persist.waydroid.multi_windows` valait **faux** — la regression deja
+nommee et laissee ouverte le 2026-08-27 (« sans effet observe sur ce
+lancement precis »), toujours pas resolue. Sans elle, aucune application
+n'ouvre sa propre fenetre : le premier essai de controle (KOHO, le meme
+point de controle qu'utilise le 2026-08-30) n'a produit **aucune fenetre du
+tout**, pas meme l'enveloppe generique — confirme par un relevé direct des
+fenetres reelles de kwin (aucune classe `waydroid.*` ni `Waydroid`).
+
+Remise a `true` — d'abord la propriete vive, puis le fichier de demarrage
+`waydroid.prop` (une seule elevation `pkexec`, patron `s_root` deja
+etabli), puis redemarrage du conteneur. KOHO relance ensuite : fenetre
+`waydroid.ca.koho` reelle, ecran de connexion rendu correctement, capture a
+l'appui. **Sans regression visible sur ce point de controle unique** —
+meme reserve que le 2026-08-30, un seul point de controle sur trente-deux
+applications ne prouve rien au-dela de lui-meme.
+
+### Un premier essai contamine, et la lecon qui va avec
+
+Le jeu lance, une capture prise 90 s plus tard ne trouve **aucune fenetre**,
+et le journal Android montre le processus mourir proprement
+(`Activity pause timeout` → `destroy timeout` → `Process ... has died`,
+aucune tombstone, aucune exception fatale). Une hypothese de defaut natif
+silencieux etait en cours d'ecriture quand **l'utilisateur a signale avoir
+lui-meme ferme l'application** pendant la fenetre de mesure — c'est lui qui
+avait la main sur l'ecran a cet instant, sans coordination avec la mesure en
+cours. *Une mesure prise sans savoir qui d'autre touche a la machine au
+meme moment est une mesure contaminee* — le carnet a failli consigner un
+faux verdict sur cette seule base.
+
+### Le second essai, non touché, tranche
+
+Relance identique, capture reprise 90 s plus tard, **personne d'autre sur la
+machine entre-temps** : une vraie fenetre, capturee. L'ecran-titre complet
+du jeu — logo « SoulLand : New World », illustration des quatre
+personnages, bouton **« Start Game »**, serveur **S3** (le meme identifiant
+que la telemetrie du jeu rapportait deja lors de l'essai contamine),
+version `v0.16.125`, une barre de telechargement a 11,42 %.
+
+**C'est bien plus loin que le point de blocage du 2026-08-30** : sous
+`libhoudini`, le jeu restait figé sur son tout premier écran, deux ANR
+d'input consécutifs, pile entièrement dans `libhoudini.so`, jamais un pixel
+d'interface au-delà de l'écran de démarrage. Sous `libndk`, l'écran-titre
+complet se dessine, avec son bouton d'action et son état de téléchargement
+en cours.
+
+**Verdict, mesuré et non plus seulement cité** : l'hypothèse du 2026-08-30
+— « il resterait à essayer `libndk`, sans garantie » — est confirmée pour
+CE jeu précis, sur CETTE machine. `waydroid/waydroid#2383` prévenait que
+changer de traducteur *change* le symptôme sans le *résoudre* forcément ;
+ici, le changement de symptôme est allé dans le bon sens.
+
+### Ce que cette passe ne prouve pas
+
+- **Le bouton « Start Game » n'a jamais été cliqué.** L'écran-titre rendu
+  est la preuve que le blocage précis du 2026-08-30 est franchi — pas que
+  le jeu est jouable de bout en bout. La barre de téléchargement à 11,42 %
+  suggère qu'il reste des ressources à récupérer avant une vraie partie.
+- **Un seul point de contrôle de non-régression** (KOHO) sur trente-deux
+  applications installées — inchangé depuis la réserve du 2026-08-30, le
+  risque `waydroid#2051` n'est pas exclu pour le reste du catalogue.
+- **La régression `multi_windows` est corrigée sur cette machine, pas dans
+  l'image.** Le correctif vit dans `waydroid.prop` et l'état vivant du
+  conteneur ; rien dans `build_files/` ne le pose pour une machine neuve —
+  cette régression garde son statut de chantier à part, non commencé.
+- **`libhoudini.so` reste physiquement dans l'overlay**, seule la propriété
+  qui le sélectionne a changé — même état que le 2026-08-30, la sauvegarde
+  d'avant-geste reste le seul chemin de retour.
+
+---
+
+## 2026-09-08, nuit — le défaut ICU n'est pas générique, et une fausse piste est écartée avant d'être tentée
+
+Reprise du chantier ICU/Chocolatey-for-wine (item 4 du triage du 2026-09-07).
+Rôle Wizard invoqué en premier : l'hypothèse du soir précédent — un lien
+symbolique `u_charsToUChars -> u_charsToUChars_77` — a été **repérée comme
+mal posée avant d'être tentée**, pas après un échec. ICU embarque le numéro
+de version dans le **nom du symbole C exporté** ; `u_charsToUChars` et
+`u_charsToUChars_77` sont deux symboles distincts dans la table d'export de
+la bibliothèque, jamais deux fichiers. Un `ln -s` entre deux chemins ne peut
+faire apparaître aucun symbole absent d'un binaire déjà compilé — la
+recherche web (Arch Linux packaging, ILSpy, MelonLoader, plusieurs jeux)
+confirme que c'est un défaut connu et documenté ailleurs, jamais réglé par
+cette voie.
+
+### Une hypothèse plus prometteuse, testée en direct plutôt que devinée
+
+`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` — la variable officielle .NET pour
+désactiver toute dépendance à ICU — a été nommée comme piste. Plutôt que de
+la tester à travers l'installateur complet (25-30 minutes par essai, un
+détour déjà connu), une application .NET 8 minimale, autonome, publiée
+`win-x64`, a été compilée sur cette machine (`dotnet` 10.0.400, posé par
+Homebrew) et exercée dans un préfixe Wine **jetable**, jamais le vrai
+préfixe de S — même prudence que le 2026-08-30. Elle écrit son résultat dans
+un fichier (`C:\icu-test-out.txt`), jamais sur la sortie standard : le
+silence de `pwsh.exe` sous Wine, déjà mesuré ce mois-là, est un défaut
+distinct et connu de la console Wine pour les applications .NET Core, qui
+aurait rendu toute mesure par stdout illisible sans le dire.
+
+**Résultat, mesuré deux fois, sur les deux Proton présents sur la machine :**
+
+```
+GE-Proton11-6-x86_64 (celui que S utilise)  -> ICU-TEST-DEBUT / mardi 8
+                                                septembre 2026 / BONJOUR,
+                                                ETE ACCENTUE / ICU-TEST-FIN
+UMU-Proton-10.0-4 (l'ancien, encore installe) -> identique, aucune erreur
+```
+
+**L'hypothèse « tout code .NET 8 sensible à la culture plante sous Wine sur
+ICU » est réfutée, sur les deux versions de Proton présentes ici.** Aucune
+des deux n'a touché la bibliothèque hôte : le `runtimeconfig.json` de
+l'application ne porte aucune clé `System.Globalization.UseNls`, donc elle
+prend le défaut d'un binaire `win-x64` — **la National Language Support de
+Windows, pas ICU**. C'est ce que Wine réimplémente nativement (les fonctions
+NLS de `kernel32`), sans jamais toucher `icuuc.dll` ni `libicuuc.so` de
+l'hôte. Le défaut du 2026-08-30 n'est donc pas un problème générique de
+« .NET sous Wine » — c'est propre à quelque chose que porte le paiement
+Chocolatey lui-même.
+
+**Hypothèse resserrée, non encore mesurée** : l'archive officielle de
+PowerShell 7 que Microsoft publie est un **même build partagé entre
+Windows, Linux et macOS** — contrairement à un `dotnet publish` ordinaire
+pour `win-x64`, elle a de bonnes raisons de forcer le mode ICU
+(`System.Globalization.UseNls=false`) pour un comportement identique sur les
+trois systèmes, plutôt que de dépendre de la NLS de Windows sur cette seule
+plateforme. Si c'est le cas, c'est `pwsh.exe` lui-même, pas ChoCinstaller,
+qui déclenche la recherche du symbole absent. **La mesure qui trancherait**,
+non faite ce soir faute de justifier un nouveau cycle de 25-30 minutes pour
+un chantier déjà jugé périphérique : lancer le vrai `pwsh.exe` téléchargé
+(déjà vérifié le 2026-08-30) dans un préfixe jetable, une fois sans rien,
+une fois avec `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` posé dans
+l'environnement avant `umu-run`.
+
+### Deux leviers documentés, la mauvaise piste écartée pour de bon
+
+- **`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`** — si l'hypothèse resserrée
+  ci-dessus se confirme, cette variable court-circuite tout chargement ICU
+  dans le processus .NET lui-même, avant même que Wine n'ait à choisir quel
+  `icuuc.dll` servir.
+- **`WINEDLLOVERRIDES=icuin,icuuc=n`** — déjà trouvé et documenté le
+  2026-09-07, jamais mesuré contre le vrai défaut (un autre blocage,
+  `ntsync_schedule`, est apparu avant). Force les DLL PE autonomes de
+  GE-Proton (`icuuc68.dll`, 2,1 Mo, sans dépendance hôte) plutôt que le pont
+  Wine par défaut vers `libicuuc.so`.
+- **Le lien symbolique reste écarté**, définitivement : ce n'est pas une
+  rustine fragile, c'est un mécanisme qui ne peut techniquement pas
+  fonctionner — ICU ne fournit aucun alias ELF non versionné.
+
+### Ce que cette passe ne prouve pas
+
+- **Le vrai défaut du 2026-08-30 (dans le flux Chocolatey complet) n'a pas
+  été rejoué.** Seule une hypothèse alternative — un simple .NET 8 sous
+  Wine — a été mesurée, et elle est fausse : ça ne plante pas. La cause
+  réelle reste à isoler à l'intérieur du paiement Chocolatey lui-même.
+- **Ni `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT` ni `WINEDLLOVERRIDES=icuin,
+  icuuc=n` n'ont été mesurés contre le vrai `pwsh.exe` téléchargé.** Les
+  deux restent des leviers documentés, pas des correctifs vérifiés.
+- **Ce chantier reste hors de l'image**, quel que soit son issue — jugement
+  déjà rendu par l'Alchimiste dans le triage du 2026-09-07 : même une
+  solution qui marche resterait une rustine propre à cette configuration
+  précise, pas quelque chose à poser dans une image publique sans le
+  comprendre mieux.
+
+---
+
 ## 2026-09-07, soirée — S Web se fait enfin reconnaître, et un incident de session éclaire un mur
 
 Trois demandes de l'utilisateur enchaînées dans la soirée : « où est S Web ? »,
