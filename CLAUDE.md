@@ -8,6 +8,280 @@ Interface en français.
 
 ---
 
+## 2026-09-08, très tard le soir — les six chantiers du plan, mesurés un par un
+
+Demande de l'utilisateur : « fais les 6 dans l'ordre » — le plan bâti plus tôt
+ce soir (multi_windows, glisser-déposer, presse-papiers Windows↔Android,
+panneau matériel natif, Quick Resume étendu, sauvegarde/restauration). Fait
+en direct, sur cette machine, dans l'ordre annoncé.
+
+### Item 1 — la régression `multi_windows` : rien à corriger, elle l'était déjà
+
+Mesuré avant de toucher quoi que ce soit : `s-android-demarrer.service` avait
+tourné avec succès au démarrage de session de ce soir (code 0), et
+`waydroid.prop` porte `multi_windows=false` — l'état voulu depuis le
+2026-08-25 soir (celui qui règle le trou vidéo). Relecture de `s-android` :
+le script **vérifie et corrige déjà** cette propriété à chaque invocation
+(bloc « TOUTES LES PROPRIETES DE DEMARRAGE SE LISENT DANS LE MEME FICHIER »),
+avec élévation `pkexec` si besoin. Le `true` posé la nuit précédente pour le
+test KOHO/ARM était une bascule de diagnostic **temporaire** ; le mécanisme
+normal l'a re-corrigé tout seul, sans intervention, au prochain démarrage de
+session — exactement ce qu'on demande d'un correctif durable. **Ce n'était
+pas une régression non résolue : c'est le comportement voulu, déjà robuste.**
+Rien à construire ici.
+
+### Item 2 — glisser-déposer Windows↔Linux : instrumenté, en attente du geste réel
+
+Un Bloc-notes jetable a été ouvert (`s-ouvrir-exe`, jamais une fenêtre de
+l'utilisateur) avec `WINEDEBUG=+xdnd,+clipboard,+event` capturé dans un
+fichier. Un fichier de test a été posé sur `~/Bureau/glisser-test.txt`. **Ça
+ne peut pas se mesurer sans un vrai geste de souris** — la même limite déjà
+écrite dans ce carnet pour la sélection au glissement du bureau
+(2026-08-28) : aucun événement synthétique ne simule fidèlement un
+glisser-déposer. En attente que l'utilisateur fasse le geste ; le journal est
+prêt à être relu ensuite.
+
+### Item 3 — presse-papiers Windows↔Android : déjà acquis, mesuré dans les deux sens
+
+Hypothèse posée avant de coder : Linux↔Windows (Wine, gratuit) et
+Linux↔Android (`android-presse-papiers.py`, le service binder
+`waydroidclipboard`) partagent tous les deux **le même presse-papiers
+Wayland/X11** — donc Windows↔Android devrait déjà fonctionner par
+composition, sans une ligne neuve.
+
+**Mesuré de bout en bout, avec le vrai mécanisme, pas une approximation.**
+Un texte tapé et copié (Ctrl+A/Ctrl+C) dans un Bloc-notes Windows réel
+(`s-ouvrir-exe`, fenêtre jetable) — après un premier essai raté par un
+problème de synchronisation du focus (`xdotool windowactivate --sync` et un
+délai plus généreux ont réglé ça, refait proprement) — atterrit correctement
+sur `wl-paste` **et** sur `pyclip.paste(text=True)`, exactement l'appel que
+fait le pont Android à la réception d'une lecture. Dans l'autre sens :
+`pyclip.copy(...)` (exactement ce que fait le pont à la réception d'une
+écriture Android) a été collé (Ctrl+V) dans le même Bloc-notes et s'y est
+affiché intact, capture à l'appui.
+
+**Verdict : les deux sens marchent déjà, par la seule composition des deux
+ponts existants.** Rien à construire — la seule réserve honnête est qu'aucun
+geste de paste n'a été déclenché depuis une **vraie** application Android
+(l'UI tactile de collage n'a pas été automatisée, jugée trop fragile à
+simuler sans risque) ; le mécanisme binder lui-même est content-agnostique
+et n'a aucune raison de traiter différemment un contenu d'origine Windows.
+
+### Item 4 — panneau « Matériel » natif dans la barre latérale : construit et vérifié
+
+`_materiel()` et `_appliquer_materiel()` ajoutés à
+`files/usr/lib/s/reglages.py`, sur le patron exact déjà en place (`_energie`,
+`_capturer`) : lit `fwupdmgr get-devices --json` / `get-updates --json` (30
+à 50 ms, mesuré, sans réseau — pas de `refresh` forcé, déjà fait par
+`s-pilotes.timer`), et l'action détachée appelle `s-pilotes --appliquer` en
+arrière-plan, jamais bloquante — `s-pilotes` prévient déjà par sa propre
+bulle une fois fini. Type `"action"`, déjà générique côté QML
+(`BarreLaterale.qml` ne teste que `modelData.type === "action"`, jamais une
+clé précise) : **aucune ligne QML à toucher**. Icône : `i-disque`, le glyphe
+existant le plus proche du matériel.
+
+Éprouvé sur cette machine, par import direct du module du dépôt :
+`_materiel()` rend `{'appareils': 11, 'maj': 0}` (identique au relevé manuel
+`fwupdmgr` de la même minute), et l'action complète a réellement tourné
+(`s-pilotes --appliquer`, terminé proprement, 0 mise à jour à appliquer donc
+sans écriture de firmware). Contrôle de construction
+(`verifier-constellation.py`) repassé après coup : « aucun avertissement ».
+
+### Item 5 — Quick Resume étendu à Windows : conçu et mesuré, PAS déployé
+
+**Une vraie découverte, faite en creusant plutôt qu'en supposant.** L'idée du
+plan du soir (« faire naître chaque lancement Windows dans sa propre portée
+`systemd-run --scope` ») a été vérifiée contre la mécanique réelle de
+lancement de S — `noyau.lancer()` appelle `gio launch`, qui exec un
+`.desktop` via `subprocess.Popen(cmd, start_new_session=True)`.
+
+Mesuré, avec trois programmes de test jetables (jamais une fenêtre de
+l'utilisateur), qu'un lancement par ce chemin **hérite du cgroup de
+l'appelant** — `gio launch` ne crée PAS de portée systemd propre à lui
+tout seul. Confirmé par contraste : un vrai Vivaldi de l'utilisateur, sur
+cette machine, possède bien sa propre portée
+(`app-com.vivaldi.Vivaldi-13565.scope`, vue dans `systemctl --user list-units
+"app-*.scope"`) — mais ce n'est pas `gio launch` qui la crée seule ; ça tient
+à autre chose (activation D-Bus de l'application, probablement) que le
+lancement Wine actuel n'a pas.
+
+**Conséquence directe, et elle corrige une phrase de ce carnet** : la
+limite « aucune granularité par-programme pour Windows » n'est pas due au
+wineserver partagé — le partage du wineserver n'empêche RIEN, un programme
+Windows lancé peut vivre dans sa PROPRE portée sans jamais toucher au
+wineserver résident (qui reste dans `s-windows.service`, séparé). La vraie
+cause est que rien, aujourd'hui, ne pose cette portée au lancement.
+
+**Le mécanisme proposé est mesuré, pas seulement pensé.** Un Bloc-notes
+lancé via `systemd-run --user --scope --collect --unit=... /usr/bin/s-ouvrir-exe
+...` atterrit dans sa propre portée (`cgroup.procs` : deux PID, le script et
+le vrai `notepad.exe` — **jamais** le wineserver). Geler cette portée
+(`echo 1 > cgroup.freeze`, **sans `sudo`**, la délégation cgroup utilisateur
+suffit exactement comme pour la veille Linux) donne `frozen 1` et
+`cpu.stat/usage_usec` figé à l'octet près sur deux secondes ; dégeler
+(`echo 0`) rend `frozen 0` et le programme repart. Le wineserver partagé
+(PID relevé) n'a jamais bougé pendant tout l'essai.
+
+**Verdict : le chantier « Windows » n'est plus un mur, c'est une couture
+d'une ligne** — envelopper l'appel de `noyau.lancer()` (et son pendant
+`s-menu-windows`/`.desktop` si le point d'entrée doit changer) dans
+`systemd-run --user --scope --collect`. Delibérément **pas fait** ce soir :
+`noyau.lancer()` est le chemin qu'emprunte **chaque** lancement d'application
+sur cette machine, Linux et Windows confondus — une erreur ici casserait tout,
+pas seulement Windows. Une modification de cette ampleur mérite d'être vue
+tourner par l'utilisateur, pas poussée seule à cette heure. Le côté Android
+(geler le conteneur entier via `s-android.service`, cgroup **root:root**,
+donc `pkexec`) n'a pas été retesté ce soir — le mécanisme est identique à
+celui déjà validé pour Linux, seul le chemin d'élévation change, et rien
+n'indiquait de raison d'en douter.
+
+### Item 6 — sauvegarde/restauration : construit, éprouvé dans les deux sens
+
+`files/usr/bin/s-sauvegarder` (nouveau) — un filet pour ce que `bootc
+rollback` ne couvre pas : reglages, disposition du ciel (`placees.json`,
+`epingles.json`), et les lanceurs `s-*.desktop` moissonnés à la main dans
+`~/.local/share/applications`. **Délibérément hors périmètre** : le préfixe
+Windows (6,7 Go, mesuré ce soir) et le profil S Web (301 Mo) — trop lourds
+pour « un filet simple », et de toute façon un logiciel Windows perdu se
+réinstalle par un double-clic (jalon 5).
+
+**Destination vérifiée, jamais supposée.** Le grand disque (`~/Disque`) est
+la vraie protection — un second disque physique — mais mesuré **absent**
+des montages actifs de cette session (`/proc/mounts` ne le porte pas) :
+le script bascule alors sur une destination locale et **le dit** dans sa
+propre notification (« EN LOCAL, le grand disque n'est pas branché »)
+plutôt que de laisser croire à une protection qu'il n'a pas.
+
+**Un vrai bogue trouvé en testant, corrigé avant de committer.** La première
+version posait le repli local à l'intérieur même du dossier qu'elle
+sauvegarde (`$S_ETAT/sauvegardes-config`) — la première archive réelle,
+relue avec `tar -tzf`, s'incluait déjà elle-même. Exactement les « poupées
+russes » que le commentaire du script prévenait sans les éviter. Déplacé
+vers un dossier frère (`s-sauvegardes-config`, hors de `S/` et `s/`),
+retesté : plus aucune auto-inclusion.
+
+**Éprouvé de bout en bout, dans un bac à sable isolé** (`HOME`/`XDG_STATE_HOME`/
+`XDG_DATA_HOME` redirigés, jamais les vrais fichiers de cette machine) :
+sauvegarde d'un état jetable, modification de l'état « vivant », restauration
+**sans** `--confirmer` (rend le nom de l'archive, ne touche à rien — vérifié,
+le contenu modifié reste intact), puis **avec** `--confirmer` (l'état
+d'avant la modification revient exactement). Et une vraie sauvegarde a été
+faite pour de vrai sur cette machine, sur les données réelles — 28 Ko, six
+fichiers d'état, aucune modification en écriture puisque le sens
+« sauvegarder » ne fait que lire.
+
+Un lanceur `s-sauvegarder.desktop` (validé par `desktop-file-validate`) rend
+le geste « Sauvegarder » accessible d'un clic ; **la restauration reste
+volontairement en ligne de commande**, jamais un clic — exiger
+`--confirmer` en argument est le même principe que `s-pilotes --appliquer`
+pour un firmware : un geste qui écrase un état vivant ne doit jamais être à
+portée d'un double-clic malheureux.
+
+Contrôle de construction ajouté (`40-coutures.sh`, garde sur `--confirmer`
+présent), rejoué par `grimoire/construction-eprouver-les-motifs.sh` contre
+les 24 motifs du dépôt — **tous verts**, le nouveau compris.
+
+### Item 2, repris avec l'utilisateur — un tout autre bogue trouvé, le vrai test toujours pas fait
+
+L'utilisateur a tenté le geste lui-même, en direct, plusieurs fois. **Aucune
+tentative n'a jamais atteint la question posée par l'item 2** (le fichier
+livre-t-il à Wine) — un bogue plus fondamental bloque avant, trouvé
+seulement parce que l'utilisateur a insisté que le problème n'était ni
+l'emplacement du fichier ni la barre du bas cliquée par erreur.
+
+**Le symptôme, isolé étape par étape :** cliquer n'importe où sur le bureau
+de Constellation fait ranger la fenêtre actuellement active — Bloc-notes une
+fois, **VS Code une autre fois**, la même signature dans les deux cas.
+Confirmé indépendant de l'emplacement du fichier (déplacé de y≈759px à
+y≈94px sur l'écran, aucun changement) et indépendant du mode de veille —
+**vérifié par l'utilisateur lui-même dans le menu du clic droit : « Aucune »
+est bien coché**, écartant l'hypothèse initiale (`self._mode` resté sur
+`"geler"`, le défaut silencieux de `_lire_mode()` en cas d'exception — une
+vraie piste, fausse ici, mais qui reste un défaut de conception à corriger :
+`MODE_DEFAUT = "geler"` avec un `except Exception:` muet est le genre de
+succès silencieux que ce projet punit partout ailleurs).
+
+**Ce qui est mesuré, précisément, par un témoin kwin en direct** (le même
+patron D-Bus que `kwin-capturer-la-coquille.sh`, un script résident écoutant
+`windowActivated`/`minimizedChanged` sur toutes les fenêtres) : juste avant
+chaque minimisation, `S - barre` (la classe `s-constellation`) reçoit
+`windowActivated` — et deux fois, avec un écart de **13 microsecondes**
+entre les deux appels dans un cas précis. Un tel écart est incompatible avec
+deux clics humains séparés : c'est un seul chemin de code qui active deux
+fenêtres coup sur coup, ou c'est kwin qui, en réasseyant sa pile pour une
+fenêtre toujours-au-dessus, génère deux notifications pour un seul
+événement.
+
+**Ce que la lecture du code établit, et ce qu'elle ne peut pas établir.**
+Seuls trois endroits de tout le dépôt (`fenetres.js`/`fenetres.py`) écrivent
+`.minimized = true` : `cacherAndroidSysteme` (classe `Waydroid` seule,
+écarté), `_ranger()` (la veille, écartée par la vérification de
+l'utilisateur), et le JS généré par `activer(ident, deja_active=True)` — le
+seul code capable de ranger une fenêtre qui n'est ni Android ni gérée par la
+veille. Le seul appelant QML de `fenetres.activer()` est
+`Constellation.qml:660`, relayant le signal `barre.activation(...)` émis
+depuis **deux** points dans `Barre.qml` : un `TapHandler` sur chaque tuile
+de fenêtre (ligne 426) et un article du menu contextuel (ligne 555). Une
+fenêtre native de KWin (`fenetres.js`, commentaire déjà présent depuis le
+2026-09-03) confirme que **kwin active nativement les fenêtres
+toujours-au-dessus de S en réasseyant sa pile**, indépendamment de tout code
+de S — un comportement déjà documenté pour un déclencheur différent (sortie
+de plein écran) et jamais rencontré pour celui-ci (interaction avec le
+bureau). **Sans outil de traçage sur cette machine** (`py-spy` et `strace`
+absents, vérifié) et sans pouvoir patcher `/usr/lib/s/fenetres.py` en
+direct sans un geste plus lourd (`bootc usr-overlay`), impossible de
+confirmer si `activer()` est réellement appelée pendant cette séquence, ou
+si le mécanisme est entièrement natif à kwin et échappe à S.
+
+**Une hypothèse plus radicale, et vérifiée par lecture du code, pas
+supposée : le glisser-déposer depuis le bureau de S n'a jamais été un vrai
+glisser-déposer.** `Astre.qml` ne porte **aucune** trace de l'API `Drag` de
+Qt Quick (`Drag.active`, `Drag.mimeData`, `Drag.start()`) — seulement un
+`DragHandler { target: astre }` ordinaire, qui déplace l'icône **dans la
+scène QML elle-même**, exactement comme repositionner une icône sur
+n'importe quel bureau. **Aucune session Wayland `wl_data_device.start_drag`
+n'est donc jamais initiée** par un « glisser » d'astre sur le ciel de
+Constellation — ce que l'utilisateur pouvait faire tout du long n'était
+qu'un déplacement d'icône interne, jamais un vrai transfert vers une
+application externe. `QWaylandDataOffer: timeout reading from pipe`,
+repéré dans `coquille.log`, a semblé prometteur mais **n'a rien à voir** :
+rejoué avec un marqueur de ligne avant/après un geste réel de l'utilisateur,
+aucune nouvelle ligne n'est apparue — l'erreur est ancienne, sans rapport
+avec ce test.
+
+**Conséquence directe pour la suite** : la vraie mesure de l'item 2 — faire
+glisser un fichier vers un programme Windows — doit partir d'un **vrai**
+gestionnaire de fichiers (Dolphin), jamais du bureau de Constellation, qui
+n'implémente aucun glisser-déposer réel vers l'extérieur. Ça reste à faire.
+
+### Ce que cette passe ne prouve pas
+
+- **Rien de l'item 4 ni de l'item 6 n'est dans l'image.** Le fichier est modifié dans le
+  dépôt ; il faut une construction et un `bootc upgrade` pour qu'il
+  apparaisse dans la vraie barre latérale. Aucun clic réel sur l'étoile
+  « Materiel » n'a eu lieu — seul l'appel Python direct est vérifié.
+- **L'item 2 attend un geste de l'utilisateur.** Le Bloc-notes de test et le
+  traçage restent armés ; rien n'a encore été glissé dessus.
+- **Le presse-papiers Windows→Android n'a pas été confirmé par un vrai
+  collage dans une application Android réelle** — seul le mécanisme binder
+  a été exercé directement, avec la même fonction qu'Android appellerait.
+- **Rien de l'item 5 n'est écrit dans `noyau.lancer()`.** C'est un plan
+  mesuré et validé au banc, pas un correctif pris. Le geler-tout côté
+  Android n'a pas été réessayé ce soir, seulement raisonné par analogie avec
+  ce qui est déjà prouvé pour Linux.
+- **Le bogue « clic sur le bureau range la fenêtre active » n'est pas
+  corrigé, et sa cause exacte n'est pas confirmée** — seul le code capable
+  de la produire est identifié (`activer()`), pas la preuve que c'est bien
+  lui qui tourne pendant cette séquence précise. Un vrai chantier de
+  diagnostic à part, qui mériterait `WAYLAND_DEBUG` ou un traceur Python
+  posé sur `/usr/lib/s/fenetres.py` via `bootc usr-overlay` — aucun des deux
+  fait ce soir.
+- **L'item 2 reste entièrement ouvert.** Aucun vrai glisser-déposer vers
+  Wine n'a été tenté cette nuit — celui du 2026-09-07 (refuté) reste la
+  seule vraie mesure sur ce sujet.
+
+---
+
 ## 2026-09-08, nuit — libndk fait franchir a « Soul Land: New World » l'ecran qui le bloquait depuis le 2026-08-30
 
 Item 5 du triage du 2026-09-07 : basculer `ro.dalvik.vm.native.bridge` de

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=S — Sauvegarder
+Comment=Sauvegarde l'etat de S — reglages, ciel, lanceurs — sur le grand disque si branche
+Exec=/usr/bin/s-sauvegarder
+Icon=drive-harddisk
+Categories=System;
+Terminal=false

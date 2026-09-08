@@ -1,0 +1,142 @@
+#!/usr/bin/bash
+# S - un filet pour l'etat de la machine, pas un instantane complet.
+#
+# CE QUE « bootc rollback » NE COUVRE PAS. Il gouverne le systeme de
+# fichiers de l'IMAGE — jamais les reglages, les positions du ciel, les
+# etoiles epinglees, ni les lanceurs Windows/Android moissonnes a la main
+# dans le dossier personnel. Un rollback d'image apres une betise laisse
+# tout ca intact ; rien dans S ne protegeait CA jusqu'ici.
+#
+# CE QUI EST DELIBEREMENT HORS PERIMETRE, ET POURQUOI. Le prefixe Windows
+# (~/.local/share/S/windows, 6,7 Go mesures le 2026-09-08) et le profil S Web
+# (~/.local/share/S/web, 301 Mo) sont de vrais donnees personnelles — mais
+# « un filet simple » qui pese des gigaoctets a chaque geste n'en est plus
+# un. Ce que ce script sauvegarde est ce qui est PETIT ET DUR A REFAIRE : la
+# disposition du ciel, les reglages, les lanceurs. Un logiciel Windows perdu
+# se reinstalle par un double-clic (jalon 5) ; une disposition de bureau
+# construite a la main ne se refait pas.
+#
+# LE DOSSIER « sauvegardes/ » DE $S_ETAT N'EST JAMAIS EMBARQUE — c'est deja
+# une archive de sauvegardes ponctuelles (voir l'overlay Android avant
+# libndk, 2026-09-07) ; l'embarquer creerait des poupees russes qui
+# grossissent a chaque passage.
+set -uo pipefail
+source /usr/bin/s-monde
+
+S_SAUVE_ETAT_MAJ="${XDG_STATE_HOME:-$HOME/.local/state}/S"
+S_SAUVE_ETAT_MIN="${XDG_STATE_HOME:-$HOME/.local/state}/s"
+S_SAUVE_APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+
+# LA DESTINATION SE VERIFIE, JAMAIS NE SE SUPPOSE. Le grand disque
+# (S-DISQUE, ~/Disque -> /var/mnt/disque) est un VRAI second disque physique
+# — la seule destination qui protege d'une panne du NVMe. Mais rien ne
+# garantit qu'il soit branche sur cette machine a cet instant precis
+# (mesure du 2026-09-08 : absent de /proc/mounts sur cette session). Sans
+# lui, on retombe sur le disque local et on le DIT — un filet qui ne protege
+# que d'un « rm -rf » et pas d'une panne de disque reste un filet utile,
+# mais ce n'est pas la meme garantie, et pretendre le contraire mentirait.
+if mountpoint -q "$HOME/Disque" 2>/dev/null; then
+    S_SAUVE_DEST="$HOME/Disque/S-etat"
+    S_SAUVE_SUR_DISQUE_SEPARE=1
+else
+    # JAMAIS a l'interieur de ce qu'on sauvegarde — un dossier frere de
+    # « S » et « s », pas un enfant de l'un des deux. Un « sauvegardes-config »
+    # pose SOUS $S_SAUVE_ETAT_MAJ se sauvegarderait lui-meme a chaque passage,
+    # exactement les poupees russes que ce script existe pour eviter.
+    S_SAUVE_DEST="${XDG_STATE_HOME:-$HOME/.local/state}/s-sauvegardes-config"
+    S_SAUVE_SUR_DISQUE_SEPARE=0
+fi
+
+s_sauve_lister() {
+    find "$S_SAUVE_DEST" -maxdepth 1 -iname "S-etat-*.tar.gz" 2>/dev/null | sort
+}
+
+s_sauve_faire() {
+    mkdir -p "$S_SAUVE_DEST"
+    local horodatage="$(date +%Y-%m-%d-%Hh%M)"
+    local cible="$S_SAUVE_DEST/S-etat-$horodatage.tar.gz"
+    local temp="$(mktemp -d)"
+    trap 'rm -rf "$temp"' RETURN
+
+    # Un dossier de montage a part, jamais les vrais chemins : tar sur des
+    # chemins absolus recopie l'arborescence complete depuis la racine dans
+    # l'archive, ce qu'on ne veut pas — et une extraction future doit pouvoir
+    # rejouer telle quelle sans ecraser autre chose au passage.
+    mkdir -p "$temp/etat-maj" "$temp/etat-min" "$temp/applications"
+    if [ -d "$S_SAUVE_ETAT_MAJ" ]; then
+        find "$S_SAUVE_ETAT_MAJ" -maxdepth 1 -mindepth 1 ! -name "sauvegardes" \
+            -exec cp -a {} "$temp/etat-maj/" \; 2>/dev/null
+    fi
+    [ -d "$S_SAUVE_ETAT_MIN" ] && cp -a "$S_SAUVE_ETAT_MIN/." "$temp/etat-min/" 2>/dev/null
+    if [ -d "$S_SAUVE_APPS" ]; then
+        find "$S_SAUVE_APPS" -maxdepth 1 -iname "s-*.desktop" \
+            -exec cp -a {} "$temp/applications/" \; 2>/dev/null
+    fi
+
+    if ! tar -czf "$cible" -C "$temp" etat-maj etat-min applications 2>/dev/null; then
+        s_echec "Sauvegarde de S echouee" "L'archive n'a pas pu etre ecrite dans $S_SAUVE_DEST."
+        return 1
+    fi
+
+    local poids="$(du -h "$cible" 2>/dev/null | cut -f1)"
+    if [ "$S_SAUVE_SUR_DISQUE_SEPARE" = 1 ]; then
+        s_dire "Sauvegarde de S" \
+            "$poids, sur le grand disque : $(basename "$cible")." "drive-harddisk"
+    else
+        s_dire "Sauvegarde de S" \
+            "$poids, EN LOCAL (le grand disque n'est pas branche) : $(basename "$cible")." \
+            "dialog-warning"
+    fi
+
+    # On ne garde que les dix dernieres — un filet qui grossit sans fin finit
+    # par remplir le disque qu'il est cense proteger.
+    s_sauve_lister | head -n -10 | while IFS= read -r vieille; do
+        rm -f "$vieille"
+    done
+    return 0
+}
+
+s_sauve_restaurer() {
+    local archive="${1:-}"
+    if [ -z "$archive" ]; then
+        archive="$(s_sauve_lister | tail -1)"
+    fi
+    if [ -z "$archive" ] || [ ! -f "$archive" ]; then
+        s_echec "Rien a restaurer" "Aucune sauvegarde trouvee dans $S_SAUVE_DEST."
+        return 1
+    fi
+
+    # LA RESTAURATION ECRASE DES REGLAGES VIVANTS — elle n'est jamais
+    # silencieuse ni automatique. Un « --confirmer » explicite est requis,
+    # sur le meme principe que tout geste destructif de ce depot : mieux
+    # vaut un second appel qu'un ecrasement accidentel d'un ciel qu'on vient
+    # justement de reamenager.
+    if [ "${2:-}" != "--confirmer" ]; then
+        echo "Restaurerait : $archive"
+        echo "Relancer avec --confirmer pour appliquer pour de vrai."
+        return 2
+    fi
+
+    local temp="$(mktemp -d)"
+    trap 'rm -rf "$temp"' RETURN
+    if ! tar -xzf "$archive" -C "$temp" 2>/dev/null; then
+        s_echec "Restauration echouee" "L'archive $archive est illisible ou corrompue."
+        return 1
+    fi
+
+    [ -d "$temp/etat-maj" ] && cp -a "$temp/etat-maj/." "$S_SAUVE_ETAT_MAJ/" 2>/dev/null
+    [ -d "$temp/etat-min" ] && mkdir -p "$S_SAUVE_ETAT_MIN" \
+        && cp -a "$temp/etat-min/." "$S_SAUVE_ETAT_MIN/" 2>/dev/null
+    [ -d "$temp/applications" ] && cp -a "$temp/applications/." "$S_SAUVE_APPS/" 2>/dev/null
+
+    s_dire "Restauration de S" \
+        "Etat restaure depuis $(basename "$archive"). Redemarre Constellation pour tout voir." \
+        "view-refresh"
+    return 0
+}
+
+case "${1:-}" in
+    --restaurer) shift; s_sauve_restaurer "${1:-}" "${2:-}" ;;
+    --lister)    s_sauve_lister ;;
+    *)           s_sauve_faire ;;
+esac

@@ -615,6 +615,58 @@ def _basculer_bluetooth(actif):
 
 
 # --------------------------------------------------------------------------
+# Le materiel — fwupd, jamais reimplemente (voir s-pilotes)
+# --------------------------------------------------------------------------
+#
+# CE RELEVE NE FORCE JAMAIS UN RAFRAICHISSEMENT RESEAU. « fwupdmgr refresh »
+# est deja fait, periodiquement, par s-pilotes.timer — le relire ici a chaque
+# ouverture du panneau ferait dependre l'affichage d'un reseau qui peut etre
+# absent ou lent. « get-devices »/« get-updates » lisent l'etat DEJA connu de
+# fwupd, en local : mesure sur cette machine, 30-50 ms les deux, sans reseau.
+#
+# L'ACTION NE FAIT JAMAIS D'ECRITURE ELLE-MEME. Elle appelle « s-pilotes
+# --appliquer », le seul endroit du depot qui sait ecrire un firmware — meme
+# raison que partout ailleurs : un flash rate ne se defait pas par un
+# « bootc rollback ». Voir s-pilotes pour le detail du geste et son cout.
+
+def _materiel():
+    if not _outil("fwupdmgr"):
+        return None
+    code, sortie = _lire(["fwupdmgr", "get-devices", "--json"], delai=10)
+    if code != 0:
+        return None
+    try:
+        appareils = len(json.loads(sortie).get("Devices", []))
+    except (ValueError, TypeError):
+        return None
+    maj = 0
+    code, sortie = _lire(["fwupdmgr", "get-updates", "--json"], delai=10)
+    if code == 0:
+        try:
+            maj = len(json.loads(sortie).get("Devices", []))
+        except (ValueError, TypeError):
+            maj = 0
+    return {"appareils": appareils, "maj": maj}
+
+
+def _appliquer_materiel():
+    outil = shutil.which("s-pilotes") or "/usr/bin/s-pilotes"
+    if not os.path.isfile(outil) and not shutil.which("s-pilotes"):
+        return False, "s-pilotes absent"
+    try:
+        # Detache et sans attente : « fwupdmgr update » peut prendre plusieurs
+        # minutes (telechargement d'un firmware), et s-pilotes previent deja
+        # par sa propre notification (s_dire) une fois termine — bloquer le
+        # panneau jusque-la referait ce que la bulle fait deja mieux.
+        subprocess.Popen([outil, "--appliquer"], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as err:
+        return False, str(err)
+    _oublier("materiel")
+    return True, "mise a jour lancee en arriere-plan"
+
+
+# --------------------------------------------------------------------------
 # L'energie — tuned, et non power-profiles-daemon
 # --------------------------------------------------------------------------
 #
@@ -1063,6 +1115,15 @@ def rapides():
                        "type": "bascule", "actif": ts["actif"],
                        "detail": ts["adresse"] or ts["etat"]})
 
+    mat = _cache("materiel", _materiel)
+    if mat is not None:
+        if mat["maj"] > 0:
+            detail = "%d appareil(s), %d mise(s) a jour" % (mat["appareils"], mat["maj"])
+        else:
+            detail = "%d appareil(s), a jour" % mat["appareils"]
+        sortie.append({"cle": "materiel", "nom": "Materiel", "ico": "i-disque",
+                       "type": "action", "actif": True, "detail": detail})
+
     en = _cache("energie", _energie)
     if en is not None:
         sortie.append({"cle": "energie", "nom": "Energie", "ico": "i-alim",
@@ -1132,6 +1193,8 @@ def regler(cle, valeur):
         return _basculer_bluetooth(bool(valeur))
     if cle == "tailscale":
         return _basculer_tailscale(bool(valeur))
+    if cle == "materiel":
+        return _appliquer_materiel()
     if cle == "energie":
         return _regler_energie(str(valeur))
     if cle == "mode":

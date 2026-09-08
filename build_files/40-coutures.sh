@@ -540,4 +540,18 @@ test -s /usr/share/applications/s-pilotes.desktop \
     || { echo "ECHEC : le lanceur « S — Pilotes » a disparu." >&2; exit 1; }
 echo "  s-pilotes.desktop : lanceur present, applique les mises a jour a la demande"
 
+# --- LE FILET POUR L'ETAT DE LA MACHINE — 2026-09-08 ------------------------
+# « bootc rollback » gouverne l'image, jamais les reglages/le ciel/les
+# lanceurs poses dans le dossier personnel. s-sauvegarder capture ce qui est
+# petit et dur a refaire (jamais le prefixe Windows ni le profil S Web, trop
+# lourds pour un filet simple) ; la restauration exige --confirmer, jamais
+# silencieuse.
+test -x /usr/bin/s-sauvegarder \
+    || { echo "ECHEC : s-sauvegarder absent ou non executable." >&2; exit 1; }
+grep -q -- '--confirmer' /usr/bin/s-sauvegarder \
+    || { echo "ECHEC : s-sauvegarder n'a plus de garde --confirmer — une restauration pourrait ecraser l'etat vivant sans geste voulu." >&2; exit 1; }
+test -s /usr/share/applications/s-sauvegarder.desktop \
+    || { echo "ECHEC : le lanceur « S — Sauvegarder » a disparu." >&2; exit 1; }
+echo "  s-sauvegarder : filet pour reglages/ciel/lanceurs, sur le grand disque si branche"
+
 echo "=== 40-coutures : fait ==="
