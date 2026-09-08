@@ -1,0 +1,6 @@
+{
+    "RestoreOnStartup": 4,
+    "RestoreOnStartupURLs": ["file:///usr/share/s/web/demarrage.html"],
+    "HomepageLocation": "file:///usr/share/s/web/demarrage.html",
+    "HomepageIsNewTabPage": false
+}

@@ -393,6 +393,15 @@ def inventaire():
                 "icone": champs.get("Icon", ""),
                 "txt": commentaire(champs) or ligne_exec,
                 "fichier": os.path.join(dossier, nom_fichier),
+                # LA CLASSE REELLE DE LA FENETRE, PAS SEULEMENT SON IDENTIFIANT
+                # DE MENU. Deux lanceurs peuvent partager le meme moteur — S Web
+                # et Vivaldi partagent tous deux « vivaldi-stable » comme
+                # StartupWMClass, puisque c'est le meme binaire. Sans ce champ,
+                # une fenetre ouverte de S Web ne se retrouve jamais dans le
+                # ciel par « appParId(classe) », qui ne cherchait jusqu'ici que
+                # par « id ». Trouve le 2026-09-07 : le lanceur affichait la
+                # bonne icone, la fenetre OUVERTE, elle, retombait sans nom.
+                "wmclass": champs.get("StartupWMClass", ""),
             }
     return trouves
 
@@ -1404,6 +1413,7 @@ def composer_etoiles():
             "txt": a["txt"],
             "compte": usage.get(a["id"], 0),
             "badge": badges.get(a["id"], 0),
+            "wmclass": a.get("wmclass", ""),
         })
 
     # Catalogue unifie : applications recommandees par moteur optimal

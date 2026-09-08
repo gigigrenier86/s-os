@@ -502,6 +502,31 @@ grep -q '^Icon=s-web$' /usr/share/applications/s-web.desktop \
     || { echo "ECHEC : s-web.desktop ne vise plus sa propre icone." >&2; exit 1; }
 echo "  s-web : navigateur S, profil separe sous \$S_DATA/web, icone propre"
 
+# --- S WEB — page de demarrage propre, jamais le speed-dial de Vivaldi -----
+# 2026-09-07 : « vivaldi ne devrait plus s'afficher ». Le moteur ne peut pas
+# etre invisible (c'est Vivaldi), mais son ecran d'accueil, lui, l'est —
+# remplace par strategie geree, jamais par un Preferences.json trafique : ces
+# cles sont protegees par une signature MAC que Chromium verifie a chaque
+# lancement.
+#
+# NewTabPageLocation a ete essayee en premier et refutee par la mesure : elle
+# se declare « OK » dans vivaldi://policy mais le Speed Dial de Vivaldi ne la
+# consulte pas — un defaut de Vivaldi, pas de configuration. La strategie
+# retenue est RestoreOnStartup=4 + RestoreOnStartupURLs, le mecanisme
+# Chromium le plus ancien pour « quoi ouvrir au demarrage » — vu fonctionner
+# a l'ecran. Elle ne couvre que le tout premier onglet ; Ctrl+T dans une
+# session deja ouverte retombe sur le Speed Dial, limite connue et non
+# corrigee.
+test -s /usr/share/s/web/demarrage.html \
+    || { echo "ECHEC : demarrage.html absent — S Web ouvrirait le speed-dial de Vivaldi." >&2; exit 1; }
+test -s /etc/vivaldi/policies/managed/s-web.json \
+    || { echo "ECHEC : la strategie de demarrage de S Web est absente." >&2; exit 1; }
+python3 -c "import json,sys; json.load(open('/etc/vivaldi/policies/managed/s-web.json'))" \
+    || { echo "ECHEC : s-web.json (strategie) n'est pas un JSON valide." >&2; exit 1; }
+grep -q '"RestoreOnStartupURLs"' /etc/vivaldi/policies/managed/s-web.json \
+    || { echo "ECHEC : RestoreOnStartupURLs absente de la strategie — le premier onglet resterait sur Vivaldi." >&2; exit 1; }
+echo "  s-web : page de demarrage posee, strategie geree vers demarrage.html"
+
 test -s /usr/lib/systemd/user/s-pilotes.timer \
     || { echo "ECHEC : s-pilotes.timer absent." >&2; exit 1; }
 test -s /usr/lib/systemd/user/s-pilotes.service \

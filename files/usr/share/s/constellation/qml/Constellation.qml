@@ -112,6 +112,33 @@ ApplicationWindow {
         return null;
     }
 
+    // LA CLASSE REELLE D'UNE FENETRE OUVERTE, DISTINCTE DE SON IDENTIFIANT DE
+    // MENU. Reservee a « ouvertures » dans Barre.qml — jamais a appParId,
+    // qui sert aussi le ciel et les notifications, ou un « ident » designe
+    // toujours un vrai identifiant de .desktop, jamais une classe de fenetre.
+    //
+    // TROUVE LE 2026-09-07. S Web et le lanceur Vivaldi masque partagent la
+    // meme StartupWMClass, « vivaldi-stable » — c'est le meme binaire, donc
+    // la meme classe, quel que soit le lanceur qui l'a ouvert. Le lanceur
+    // epingle portait deja la bonne icone ; la fenetre OUVERTE, elle,
+    // retombait sans correspondance et s'affichait comme un Vivaldi
+    // generique — exactement ce que la demande du soir voulait faire
+    // disparaitre.
+    //
+    // Une classe portee par PLUSIEURS etoiles visibles ne choisit pas :
+    // absent plutot que faux, meme regle qu'appParNotification plus haut.
+    function appParClasse(classe) {
+        if (!classe) return null;
+        var trouve = null;
+        for (var i = 0; i < donnees.etoiles.length; i++) {
+            if (donnees.etoiles[i].wmclass && donnees.etoiles[i].wmclass === classe) {
+                if (trouve) return null;
+                trouve = donnees.etoiles[i];
+            }
+        }
+        return trouve;
+    }
+
     // CONSTELLATION VIVANTE — badge de notification. « appId » est
     // l'identifiant EXACT quand la source le fournit (aujourd'hui : Android
     // seul, via le hint x-s-app-id, deja dans la meme forme que l'id de

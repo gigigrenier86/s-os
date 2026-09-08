@@ -8,6 +8,149 @@ Interface en français.
 
 ---
 
+## 2026-09-07, soirée — S Web se fait enfin reconnaître, et un incident de session éclaire un mur
+
+Trois demandes de l'utilisateur enchaînées dans la soirée : « où est S Web ? »,
+puis « oui mais S Web est Vivaldi, c'est pas ce que je veux », puis « oublie
+Vivaldi, importe ce que tu peux pour S Web, mais Vivaldi ne devrait plus
+s'afficher ».
+
+### La fenêtre ouverte ne se reconnaissait pas elle-même
+
+Le lanceur épinglé de S Web (l'icône de verre brisé, posée l'après-midi même)
+affichait bien la bonne icône. Mais **la fenêtre OUVERTE**, une fois cliquée,
+retombait sans nom dans la barre — parce que `appParId()` (Constellation.qml)
+ne cherchait une fenêtre que par l'identifiant de son `.desktop` (`s-web`),
+jamais par sa **classe technique** (`vivaldi-stable`, la même que le
+lanceur générique masqué — c'est le même binaire). Deux étoiles visibles ne
+partagent jamais le même identifiant, mais elles PEUVENT partager la même
+classe : c'était exactement le cas ici, et rien ne le cherchait.
+
+**Corrigé en ajoutant le champ `wmclass`** (la valeur de `StartupWMClass` du
+`.desktop`) à l'inventaire (`noyau.py::inventaire()` et
+`composer_etoiles()`), et une fonction dédiée côté QML,
+`appParClasse(classe)`, qui ne matche que si **une seule** étoile visible
+porte cette classe — jamais une correspondance ambiguë, même principe que
+`appParNotification` déjà en place. `Barre.qml` essaie `appParId` d'abord
+(le cas courant, où classe et id coïncident), puis `appParClasse` en repli.
+**Vérifié à l'écran, par capture réelle** : l'onglet YouTube ouvert dans
+S Web porte désormais le vrai « S » rouge du logo composé, plus la même
+icône générique Vivaldi.
+
+### Un incident en l'appliquant, et sa cause reste partiellement inconnue
+
+Pour charger ce correctif QML dans la session réelle, `s-constellation` a
+été redémarré par `kill -TERM` sur son PID exact — en théorie sans risque,
+`s-coquille` étant censée le relancer seule sans toucher au reste. **La
+session entière est tombée avec** : `kwin_wayland` a fermé, une session
+neuve s'est rouverte automatiquement sur un autre tty, et tout ce qui
+tournait dans l'ancienne (dont la fenêtre S Web de l'utilisateur, qui
+jouait une vidéo) a été perdu — Vivaldi l'a restaurée seule au relancement
+suivant, sans perte de données au-delà de la lecture repartie à zéro.
+
+**Le journal système, relu après coup, pointe ailleurs que vers le
+`kill`** : à la même seconde (18:39:51), `android.hardware.
+graphics.composer@2.1-service` (le compositeur graphique de **Waydroid**,
+un sous-système sans rapport avec Constellation) s'est terminé par
+`SIGABRT`, et `s-session.target` s'est arrêtée. La cause exacte —
+coïncidence, ou un effet de bord du `bootc usr-overlay` lancé juste avant
+par la même élévation — **n'est pas tranchée**. Ce qui est sûr : ce n'était
+sans doute pas le simple `SIGTERM` sur `s-constellation`, puisque ce dernier
+a été envoyé dans un appel d'outil séparé, après le retour réussi du script
+d'élévation. **Noté ici en hypothèse ouverte, pas en cause établie** — la
+prudence qui en découle : plus aucun redémarrage de session pour tester un
+correctif QML tant que la vraie cause n'est pas identifiée. Les fichiers
+suivants ont donc été posés dans `/usr` (déjà réinscriptible pour ce
+démarrage) sans toucher à `s-constellation`, en attendant le prochain
+redémarrage naturel.
+
+### Le titre de fenêtre porte « - Vivaldi », gravé dans le binaire
+
+Mesuré par le témoin D-Bus kwin déjà éprouvé (`fenetres.py::_script`,
+`signature="ss"` impérative — le piège du double `loadScript` documenté
+plus bas dans ce carnet mord encore) : le titre réel d'une fenêtre S Web est
+littéralement `"<page> - Vivaldi"`. **Ce n'est pas configurable par un
+réglage de profil** — c'est le format que Chromium/Vivaldi composent en
+interne. Corrigé côté affichage plutôt que côté moteur, dans `Barre.qml` :
+une fonction `titreAffiche(brut)` retire le suffixe `" - Vivaldi"` en fin de
+chaîne, branchée sur le libellé de la tuile ET l'infobulle. **Pas encore
+visible à l'écran** — la même prudence que ci-dessus s'applique, le fichier
+est posé dans `/usr`, en attente du prochain redémarrage de Constellation.
+
+### La page de démarrage : deux stratégies essayées, une seule fonctionne
+
+Éditer directement `Preferences` (le profil de S Web) pour changer
+`session.startup_urls`/`homepage` est **impossible proprement** : Chromium
+protège ces clés par une signature MAC vérifiée à chaque lancement — un
+JSON trafiqué à la main déclenche soit une réinitialisation silencieuse,
+soit un avertissement de sécurité. La bonne voie, déjà prévue par l'amont
+et jamais réimplémentée ici : une **stratégie gérée** (Chromium Enterprise
+Policy), lue par Vivaldi lui-même dans `/etc/vivaldi/policies/managed/`
+(chemin confirmé par `strings` sur le binaire), qui passe devant cette
+protection — c'est exactement sa fonction.
+
+**Une première hypothèse a échoué, mesurée et non supposée.**
+`RestoreOnStartup=5` (« nouvel onglet au démarrage ») + `NewTabPageLocation`
+pointant vers notre page : les deux se déclarent **« OK »** dans
+`vivaldi://policy` — reconnues, appliquées, aucune erreur — et pourtant le
+Speed Dial de Vivaldi continuait de s'afficher, aussi bien au premier
+lancement qu'après avoir forcé `profile.exit_type` à `"Normal"` (écartant
+l'hypothèse d'un faux « mode récupération après plantage », elle-même
+provoquée par mes propres `kill -TERM` répétés pendant les essais). **Verdict :
+`NewTabPageLocation` est reconnue par l'infrastructure de stratégies de
+Vivaldi, mais son propre Speed Dial ne la consulte pas** — un défaut ou une
+limite côté Vivaldi, pas une erreur de configuration. Piste fermée.
+
+**La seconde tient, et elle est plus universelle.**
+`RestoreOnStartup=4` + `RestoreOnStartupURLs=["file:///usr/share/s/web/
+demarrage.html"]` — le mécanisme Chromium le plus ancien et le mieux éprouvé
+pour « quoi ouvrir au démarrage », distinct du Speed Dial. **Vu à l'écran,
+capture à l'appui** : un vrai onglet titré « S Web », adresse
+`file:///usr/share/s/web/demarrage.html`, logo composé, sous-titre, barre
+de recherche, trois indicateurs de blocage. `HomepageLocation` pointe sur la
+même page en filet.
+
+La page elle-même (`files/usr/share/s/web/demarrage.html`) est autonome —
+aucune ressource distante, seule l'icône déjà posée sur le disque
+(`file:///usr/share/icons/hicolor/256x256/apps/s-web.png`) est référencée.
+**Un premier rendu portait un défaut visuel** — un `margin-top: -22px`
+censé rapprocher le sous-titre du titre le faisait carrément chevaucher,
+visible sur la capture, corrigé en un `.bloc-nom` flex avec un espacement
+positif de 6px plutôt qu'une marge négative devinée à l'œil.
+
+**Ce que la nouvelle page de démarrage ne couvre pas, et il faut le dire** :
+seul le tout premier onglet, à l'ouverture de S Web, montre cette page.
+`Ctrl+T` (nouvel onglet dans une session déjà ouverte) retombe sur le Speed
+Dial de Vivaldi — exactement la limite que l'échec de `NewTabPageLocation`
+laisse ouverte, et rien ne la contourne proprement sans une extension ou un
+composant que ce dépôt ne maintient pas encore.
+
+### Ce que cette passe ne prouve pas
+
+- **Aucun de ces trois correctifs n'a survécu à un cycle complet
+  construction → `bootc upgrade` → redémarrage.** Tous ont été posés en
+  direct sur cette machine via `bootc usr-overlay` (temporaire, perdu au
+  prochain redémarrage) et via des copies `pkexec` ciblées dans `/etc`
+  (celles-là survivent, `/etc` n'étant pas dans l'overlay temporaire — mais
+  rien ne les a encore fait entrer dans une image publiée).
+- **Le correctif d'icône (`appParClasse`) est le seul vu fonctionner dans
+  la vraie session, à l'écran.** Le retrait du suffixe « - Vivaldi » dans
+  la barre n'a jamais été vu affiché — seul le fichier est posé.
+- **La cause exacte de la chute de session reste une hypothèse, pas un
+  fait établi.** Le compositeur graphique de Waydroid a planté à la même
+  seconde ; rien ne prouve qu'il en soit la cause plutôt qu'une
+  coïncidence, et rien n'exclut non plus une conséquence du `bootc
+  usr-overlay` lui-même. Un futur redémarrage de Constellation, fait avec
+  prudence (une seule variable à la fois, journal système ouvert en
+  parallèle), devrait trancher.
+- **`Ctrl+T` sur une session déjà ouverte continue de montrer le Speed
+  Dial de Vivaldi** — seul le premier onglet est habillé.
+- **Contrôles de construction ajoutés** (`build_files/40-coutures.sh`) pour
+  la page et la stratégie, jamais rejoués contre une vraie construction
+  complète.
+
+---
+
 ## 2026-09-07, fin d'après-midi — S Web : un navigateur avec son identité propre, et le blocage était déjà là
 
 Demande de l'utilisateur : « on créé un navigateur web exprès pour S, bloque

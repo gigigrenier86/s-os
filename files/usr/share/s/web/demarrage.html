@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<!--
+    La page de demarrage de S Web — jamais le speed-dial de Vivaldi.
+
+    Pourquoi cette page existe : Vivaldi est le moteur de S Web (aucune
+    raison de reimplementer un bloqueur de pubs/traqueurs qui existe deja,
+    voir s-web dans le depot), mais son propre ecran d'accueil porte sa
+    marque partout — speed-dial, raccourcis « Decouvrir Vivaldi », logo V.
+    Cette page prend sa place, par les strategies (policies) Chromium que
+    Vivaldi honore deja nativement : RestoreOnStartup=5 (« nouvel onglet »
+    au demarrage) + NewTabPageLocation pointent tous les deux ici. Rien de
+    reimplemente cote navigateur — seule la destination change.
+
+    Posee par /etc/vivaldi/policies/managed/s-web.json, jamais par un
+    reglage de profil : les prefs de demarrage (session.restore_on_startup,
+    session.startup_urls) sont protegees par une signature MAC que Chromium
+    verifie a chaque lancement — un simple JSON edite a la main declenche
+    soit une reinitialisation silencieuse, soit un avertissement de
+    securite. Une strategie geree contourne cette protection proprement,
+    parce que c'est exactement ce a quoi elle sert.
+-->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>S Web</title>
+<style>
+    :root {
+        color-scheme: dark;
+        --fond: #050510;
+        --texte: #eef0f6;
+        --texte2: rgba(238, 240, 246, .62);
+        --verre: rgba(255, 255, 255, .045);
+        --bord: rgba(255, 255, 255, .09);
+        --bordVif: rgba(255, 255, 255, .22);
+        --rouge: #e63c46;
+        --vert: #46d282;
+        --bleu: #468cec;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+        margin: 0; height: 100%;
+        background: radial-gradient(120% 120% at 50% -10%, #0d0d1c 0%, var(--fond) 55%);
+        color: var(--texte);
+        font-family: -apple-system, "Segoe UI", "Cantarell", "Noto Sans", sans-serif;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .scene { display: flex; flex-direction: column; align-items: center; gap: 34px; padding: 24px; }
+    .logo { width: 108px; height: 108px; filter: drop-shadow(0 12px 40px rgba(70, 140, 235, .25)); }
+    .nom { font-size: 26px; font-weight: 600; letter-spacing: .01em; }
+    .nom span { background: linear-gradient(90deg, var(--rouge), var(--vert) 50%, var(--bleu));
+                -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .bloc-nom { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .sous-titre { color: var(--texte2); font-size: 13px; }
+    form { display: flex; width: min(560px, 86vw); }
+    input[type="search"] {
+        flex: 1; padding: 13px 18px; border-radius: 12px 0 0 12px;
+        border: 1px solid var(--bord); border-right: none;
+        background: var(--verre); color: var(--texte); font-size: 15px; outline: none;
+    }
+    input[type="search"]:focus { border-color: var(--bordVif); }
+    button {
+        padding: 0 20px; border-radius: 0 12px 12px 0; border: 1px solid var(--bord);
+        background: var(--verre); color: var(--texte2); cursor: pointer; font-size: 15px;
+    }
+    button:hover { color: var(--texte); border-color: var(--bordVif); }
+    .protections {
+        display: flex; gap: 22px; color: var(--texte2); font-size: 12.5px;
+    }
+    .protections span::before { content: "●  "; color: var(--vert); font-size: 9px; }
+</style>
+</head>
+<body>
+    <div class="scene">
+        <img class="logo" src="file:///usr/share/icons/hicolor/256x256/apps/s-web.png" alt="S Web">
+        <div class="bloc-nom">
+            <div class="nom"><span>S</span> Web</div>
+            <div class="sous-titre">le navigateur de S — profil distinct, rien de partage</div>
+        </div>
+        <form action="https://www.google.com/search" method="get" target="_self">
+            <input type="search" name="q" autofocus placeholder="Rechercher ou entrer une adresse">
+            <button type="submit">Aller</button>
+        </form>
+        <div class="protections">
+            <span>Pubs bloquees</span>
+            <span>Traqueurs bloques</span>
+            <span>Popups bloques</span>
+        </div>
+    </div>
+</body>
+</html>

@@ -139,6 +139,17 @@ Window {
     // « CloseOnPressOutside » ne se declenchait jamais, et le menu restait
     // ouvert jusqu'au changement de fenetre. Releve par l'utilisateur le
     // 2026-08-27 : « la fenetre ne disparait que si je change d'onglet ».
+    // LE MOTEUR NE DOIT JAMAIS PARAITRE. Vivaldi ecrit lui-meme son propre
+    // nom en fin de titre de fenetre — « <page> - Vivaldi » — a l'interieur
+    // du binaire, hors de portee d'un reglage de profil. Mesure le
+    // 2026-09-07 sur une fenetre S Web reelle : le titre brut porte
+    // exactement « ... - YouTube - Vivaldi ». On ne peut pas empecher
+    // Vivaldi de l'ecrire ; on peut l'empecher de s'afficher.
+    function titreAffiche(brut) {
+        var s = String(brut || "");
+        return s.replace(/ - Vivaldi$/, "");
+    }
+
     function borner() {
         if (typeof pont === "undefined" || !pont || !pont.bornerBarre)
             return;
@@ -329,7 +340,13 @@ Window {
                 model: barre.ouvertures
                 delegate: Rectangle {
                     required property var modelData
+                    // Par identifiant d'abord (le cas courant : la classe
+                    // d'une fenetre est presque toujours l'id de son
+                    // .desktop) — par classe partagee ensuite, pour les
+                    // lanceurs qui reutilisent le meme moteur qu'un autre
+                    // (S Web sur Vivaldi). Voir appParClasse.
                     readonly property var app: bureau.appParId(modelData.classe)
+                                                || bureau.appParClasse(modelData.classe)
 
                     // La largeur se partage, avec un plancher et un plafond :
                     // douze fenetres ouvertes ne doivent pas rendre les titres
@@ -388,7 +405,7 @@ Window {
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             width: parent.width - 17 - 7 - 18
-                            text: modelData.titre
+                            text: barre.titreAffiche(modelData.titre)
                             color: modelData.active ? Theme.texte : Theme.texte2
                             font.family: Theme.police
                             font.pixelSize: 12
@@ -402,7 +419,7 @@ Window {
 
                     HoverHandler { id: survolF; cursorShape: Qt.PointingHandCursor }
                     ToolTip.visible: survolF.hovered && width <= 90
-                    ToolTip.text: modelData.titre
+                    ToolTip.text: barre.titreAffiche(modelData.titre)
                     ToolTip.delay: 400
 
                     TapHandler {
