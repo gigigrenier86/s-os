@@ -200,6 +200,8 @@ class Fenetres(QObject):
         self._repli = None
         self._geles = set()
         self._toutes = []
+        # LE JETON DE « activerBureau() » — voir _corriger_bureau().
+        self._bureau_voulu = False
         self._vues = _charger_vues()
         self._ecrit = 0.0
         # LE RESTE D'UNE SESSION TUEE NET, ET RIEN D'AUTRE. Un plantage
@@ -487,7 +489,12 @@ class Fenetres(QObject):
         DERRIERE les autres — c'est ce qu'on attend d'un bureau. Ouvrir le menu
         depuis la barre sans remonter le bureau afficherait donc un menu
         invisible, et le bouton aurait l'air casse.
+
+        LE SEUL CAS OU LE BUREAU DOIT VRAIMENT PASSER DEVANT. Le jeton pose ici
+        protege ce geste-la de _corriger_bureau(), qui sinon remonterait la
+        vraie fenetre PAR-DESSUS le menu qu'on vient tout juste d'ouvrir.
         """
+        self._bureau_voulu = True
         self._script(
             'var l = workspace.windowList();\n'
             'for (var i = 0; i < l.length; i++) {\n'
@@ -615,6 +622,63 @@ class Fenetres(QObject):
             tous = [f.get("id") for f in liste if f.get("id") != ident]
             QTimer.singleShot(DELAI_GEL, lambda: self._geler(set(tous)))
 
+    def _corriger_bureau(self, dernier_actif):
+        """Le clic sur le bureau vide « rangeait » la fenetre active — et ce
+        n'etait NI activer() (seul appele par la barre et le menu contextuel,
+        jamais touches par ce geste), NI la veille (verifiee coupee, et de
+        toute facon aveugle au bureau : « estMontrable » l'exclut de
+        « self._liste », donc _veiller() ne le voit jamais actif).
+
+        LE VRAI MECANISME, TROUVE LE 2026-09-09 EN ELIMINANT LES DEUX AUTRES.
+        « ciel » (Constellation.qml) porte un TapHandler qui appelle
+        « forceActiveFocus() » sur un simple clic gauche dans le vide — rien
+        de plus, aucun appel a activer() ni a activerBureau(). Mais kwin
+        active nativement la fenetre cliquee, et « bureau » porte
+        « visibility: Window.FullScreen » : un plein ecran qui redevient
+        actif se remet devant, meme sans « raiseWindow » explicite — deja
+        etabli ailleurs dans ce fichier que « activeWindow » seul NE remonte
+        PAS une fenetre ordinaire (voir activer(), mesure le 2026-08-29), ce
+        qui designe le plein ecran comme la seule difference restante. La
+        vraie fenetre ne se minimise donc jamais — verifie, « .minimized » ne
+        bouge pas — elle est juste ENTIEREMENT COUVERTE, indiscernable d'une
+        minimisation a l'ecran.
+
+        « raiseWindow » SEUL NE SUFFIT PAS, ET C'EST MESURE EN DIRECT SUR
+        CETTE MACHINE LE 2026-09-09 — pas suppose. Tant que le bureau reste
+        « workspace.activeWindow », kwin REFUSE de remonter quoi que ce soit
+        au-dessus de lui : un « raiseWindow » demande sur la vraie fenetre,
+        immediatement apres l'activation du bureau, n'a change ni la pile ni
+        rien une seconde plus tard. Un plein ecran actif se defend en
+        continu, pas seulement au moment ou il le devient. Il faut donc
+        rendre le focus a la vraie fenetre, pas seulement sa place — le prix
+        est que taper juste apres un clic sur un bureau qui couvrait deja une
+        application n'ouvre plus le menu Demarrer par le clavier ; ce geste
+        reste entier sur un bureau reellement vide (« dernier_actif » y est
+        alors absent, voir plus bas).
+        """
+        voulu, self._bureau_voulu = self._bureau_voulu, False
+        if voulu or not dernier_actif:
+            return
+        bureau = next((f for f in self._toutes
+                        if f.get("classe") == "s-constellation"
+                        and f.get("titre") == "Constellation"), None)
+        if not bureau or not bureau.get("active"):
+            return
+        cible = next((f for f in self._liste if f.get("id") == dernier_actif),
+                      None)
+        if not cible or cible.get("reduite"):
+            return
+        self._script(
+            'var l = workspace.windowList();\n'
+            'for (var i = 0; i < l.length; i++) {\n'
+            '    if (String(l[i].internalId) === "%s") {\n'
+            '        workspace.activeWindow = l[i];\n'
+            '        workspace.raiseWindow(l[i]);\n'
+            '        break;\n'
+            '    }\n'
+            '}\n' % dernier_actif,
+            "corriger-bureau")
+
     # ---- Ce que kwin raconte ---------------------------------------------
     def _noter(self, liste):
         """Retient quand chaque fenetre a ete vue et activee pour la derniere fois.
@@ -680,7 +744,15 @@ class Fenetres(QObject):
         self._toutes = liste
         self._liste = [f for f in liste if f.get("montrable", True)]
         self._noter(self._liste)
+        # « dernier_actif » EST CAPTURE AVANT _veiller(), QUI L'ECRASE. Le
+        # bureau n'est jamais dans « self._liste » (voir _corriger_bureau) :
+        # des qu'il devient actif, _veiller() ne trouve plus personne
+        # d'actif parmi le montrable et remet « self._actif » a None sur ce
+        # meme appel — la valeur qu'il portait juste avant est donc la
+        # seule preuve qui reste de la vraie fenetre a corriger.
+        dernier_actif = self._actif
         self._veiller(self._liste)
+        self._corriger_bureau(dernier_actif)
         self.changees.emit(json.dumps(self._liste))
 
     def arreter(self):

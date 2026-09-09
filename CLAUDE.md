@@ -8,6 +8,166 @@ Interface en français.
 
 ---
 
+## 2026-09-09 — le redémarrage du 08 tient, et les items 4/6 sont bien dans l'image
+
+Vérification du redémarrage laissé en suspens à la fin de la nuit du
+2026-09-08 (« upgrade et redémarre »), faite au tout début de cette session.
+
+```
+rpm-ostree status
+● 44.20260908.6c924e2 — digest sha256:7868e60f…   <- exactement celui annoncé
+  0 unites en echec, systeme et session
+```
+
+**Les items 4 et 6 du triage des six chantiers sont vivants sur la machine**,
+pas seulement dans le dépôt : `/usr/bin/s-sauvegarder` et son
+`.desktop` présents et exécutables, `grep _materiel
+/usr/lib/s/reglages.py` en trouve les quatre occurrences attendues. C'est la
+première fois que ces deux gestes existent ailleurs que dans une copie du
+dépôt ou un import Python direct.
+
+`git status` confirme `HEAD` identique à `origin/main`
+(`6c924e24…`) — rien en attente de push.
+
+### Ce que cette vérification ne clôt pas
+
+- **Aucun clic réel** sur l'étoile « Materiel » ni sur le lanceur
+  « Sauvegarder » n'a eu lieu depuis ce redémarrage — seule leur présence sur
+  le disque est confirmée.
+- ~~`py-spy` et `strace` restent absents... n'a reçu aucun correctif~~ — vrai
+  au moment d'écrire cette ligne, **faux depuis l'addendum qui suit.**
+- **`/var` est à 91 %** (22 Go libres sur 233 Go) — pas critique, mais à
+  surveiller, plusieurs chantiers récents (préfixes Wine jetables, images
+  Android) ont mangé de l'espace sans qu'aucun ne soit encore nettoyé de
+  façon systématique.
+
+### Addendum — le bogue du clic sur le bureau, tracé jusqu'au bout par élimination du code, sans py-spy ni strace
+
+Demande de l'utilisateur, après une correction directe : « le fichier ne se
+perd pas, c'est le bloc-notes windows qui ne reste pas ouvert, faut le
+comprendre un jour ». Repris en excluant, un par un, les trois seuls
+endroits du dépôt qui écrivent `.minimized = true` — et aucun des trois
+n'était le coupable.
+
+**`activer()` est écarté par construction.** Son seul appelant QML est
+`Constellation.qml:658` (`onActivation`), lui-même relayé depuis
+`Barre.qml` — deux points d'entrée, la tuile de la barre et le menu
+contextuel. Un clic sur le bureau vide ne passe par aucun des deux.
+
+**La veille est écartée par le code, pas seulement par le menu.** Mesuré en
+relisant `_veiller()` : `estMontrable()` (fenetres.js) exclut explicitement
+`resourceClass === "s-constellation"` de tout ce qui est « montrable » —
+donc le bureau n'entre JAMAIS dans `self._liste`, et `_veiller()` ne peut
+jamais le voir « actif ». Sur un clic bureau, `_veiller()` calcule
+`ident = None`, écrit `self._actif = None`, puis retourne aussitôt puisque
+`self._mode == "non"` (confirmé de nouveau : `reglages.json` porte
+`"veille": "non"`). Aucune action.
+
+**Le vrai mécanisme, isolé par lecture complète de `Constellation.qml` et de
+`fenetres.js`.** `ciel` (le fond du bureau) porte un `TapHandler` sur clic
+gauche qui appelle uniquement `ciel.forceActiveFocus()` — rien d'autre,
+aucun appel à `activer()` ni `activerBureau()`. Mais **kwin active
+nativement la fenêtre cliquée**, et le bureau (`bureau`, dans
+`Constellation.qml`) porte `visibility: Window.FullScreen`. Ce fichier
+établit déjà, au 2026-08-29, que `workspace.activeWindow = X` seul **ne
+remonte pas** une fenêtre ordinaire (il faut `raiseWindow` en plus, mesuré
+sur Konsole/Kate) — ce qui désigne le plein écran comme la seule variable
+qui distingue le bureau d'une fenêtre normale. Un plein écran qui redevient
+actif se replace devant, par une politique de pile propre au compositeur,
+indépendante de tout code de S. La « vraie » fenêtre (Bloc-notes, VS Code)
+ne se minimise donc jamais — cohérent avec tout ce qui a déjà été observé —
+elle est simplement **entièrement recouverte** par le bureau qui vient de
+repasser devant, ce qui est visuellement indiscernable d'une minimisation.
+
+**Le correctif, dans `fenetres.py`, jamais dans `fenetres.js`.** Python
+reçoit déjà `self._toutes`, la liste COMPLÈTE (bureau compris, avec
+`montrable: false`) à chaque `windowActivated` — tout ce qu'il faut pour
+détecter « le bureau vient de devenir actif » est déjà là, sans toucher au
+script résident. `_corriger_bureau()` (nouveau) : si le bureau est actif et
+qu'une vraie fenêtre était active juste avant (capturée dans
+`dernier_actif`, pris AVANT que `_veiller()` n'écrase `self._actif`), on
+émet un `_script()` correctif. Un jeton (`self._bureau_voulu`, posé par
+`activerBureau()` avant son propre `_script()`) protège l'unique cas où le
+bureau doit réellement rester devant — le menu Démarrer, dessiné dedans.
+
+### Addendum, la même nuit — le premier correctif ne faisait RIEN, mesuré en direct, et le vrai correctif est éprouvé de bout en bout
+
+L'utilisateur : « fais ce qui doit être fait ». `bootc usr-overlay` posé,
+le correctif copié dans `/usr/lib/s/fenetres.py`, `s-constellation` redémarré
+par son PID exact (`kill -TERM`) — **la session a survécu intacte les deux
+fois** : `kwin_wayland` et `s-coquille` n'ont jamais bougé, aucune unité en
+échec, toutes les fenêtres réelles (Waydroid, la vidéo dans Vivaldi, VS Code)
+encore là après coup. L'hypothèse du 2026-09-07 (un redémarrage de
+`s-constellation` aurait, une fois, fait tomber tout `kwin_wayland`) **ne
+s'est pas reproduite ici, dans des conditions pourtant identiques**
+(Waydroid actif, `bootc usr-overlay` juste avant) — sans trancher la cause
+de l'époque, mais sans la revivre non plus.
+
+**Le premier correctif (`raiseWindow` seul, jamais `activeWindow`) a été
+posé, puis mesuré en direct — et il ne fait RIEN.** Reproduit à la main sur
+cette machine, à l'identique du vrai geste : VS Code actif et devant,
+`workspace.activeWindow = <bureau>` seul (exactement ce qu'un clic sur
+`ciel` déclenche), relevé de la pile —
+
+```
+AVANT   : [...][VS Code][Constellation]      VS Code devant
+APRES   : [...][Constellation][VS Code]      Constellation devant — LE BOGUE, reproduit
+```
+
+**Confirmé, et c'est la vraie découverte de la nuit : tant que le bureau
+reste `activeWindow`, kwin REFUSE tout `raiseWindow` sur autre chose.**
+Appelé directement, à froid, sur la vraie fenêtre : aucun effet, ni
+immédiatement ni une seconde plus tard. Un plein écran actif ne se contente
+pas de passer devant au moment où il s'active — **il se défend en continu**,
+tant qu'il reste actif. Le premier correctif, qui gardait délibérément le
+clavier sur le bureau en ne touchant jamais `activeWindow`, ne pouvait donc
+JAMAIS fonctionner — pas un défaut de timing, un choix structurellement
+inopérant.
+
+**Corrigé : `_corriger_bureau()` rend aussi `activeWindow` à la vraie
+fenêtre**, pas seulement sa place — le même geste à deux lignes déjà établi
+partout ailleurs dans ce fichier (`activeWindow = X; raiseWindow(X);`). Le
+prix, assumé : taper juste après un clic sur un bureau qui couvrait déjà une
+application n'ouvre plus le menu Démarrer par le clavier — ce geste reste
+entier sur un bureau réellement vide, le seul cas où `dernier_actif` est
+absent et où la correction ne se déclenche pas.
+
+**Éprouvé de bout en bout, sur cette machine, après un second redémarrage de
+`s-constellation` avec ce correctif :**
+
+```
+AVANT-CLIC             : [...][VS Code][Constellation]   VS Code devant, actif
+JUSTE-APRES-CLIC-BUREAU: [...][Constellation][VS Code]   le bogue, toujours reproduit ici
+PILE-APRES-CORRECTION  : [...][Constellation][VS Code]   VS Code REVENU DEVANT, actif=VS Code
+```
+
+Le fichier temporaire du geste correctif (`$XDG_RUNTIME_DIR/
+s-corriger-bureau.js`) confirme le bon internalId ciblé et les deux lignes
+attendues. **Le bogue rapporté par l'utilisateur — « le bloc-notes ne reste
+pas ouvert » — est reproduit, expliqué, corrigé et vu fonctionner, sur la
+session réelle, pas un banc.**
+
+### Ce que cette nuit ne prouve pas
+
+- **Le jeton de `activerBureau()` (protection du menu Démarrer) n'a pas été
+  éprouvé par un vrai clic.** Un essai a tenté de simuler ses actions
+  directement par script, en sautant le Slot Python réel — donc sans jamais
+  poser `self._bureau_voulu` — et la correction s'est logiquement déclenchée
+  comme sur un clic accidentel : preuve indirecte que le jeton est
+  nécessaire, pas preuve qu'il protège correctement le vrai bouton. La
+  logique est relue et cohérente (le jeton est posé en Python, de façon
+  synchrone, avant que `_script()` ne parte) mais un clic réel sur le menu
+  Démarrer, après ce correctif, reste à confirmer.
+- **`git status` n'a pas encore de commit pour ce correctif** — il vit dans
+  `/usr` en overlay transitoire (perdu au prochain redémarrage de la
+  machine, pas de `s-constellation`) et dans le dépôt. Il faut un commit,
+  un push et un `bootc upgrade` pour qu'il survive à un vrai redémarrage.
+- **La cause du plantage du 2026-09-07 reste non tranchée** — cette nuit ne
+  fait que constater qu'elle ne s'est pas reproduite dans des conditions
+  proches, deux fois de suite.
+
+---
+
 ## 2026-09-08, très tard le soir — les six chantiers du plan, mesurés un par un
 
 Demande de l'utilisateur : « fais les 6 dans l'ordre » — le plan bâti plus tôt
