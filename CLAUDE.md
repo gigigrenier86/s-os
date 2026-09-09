@@ -8,6 +8,56 @@ Interface en français.
 
 ---
 
+## 2026-09-09, suite — le correctif du clic sur le bureau survit à un vrai redémarrage complet
+
+Suite directe de l'addendum de la nuit précédente (« le premier correctif ne
+faisait RIEN… et le vrai correctif est éprouvé de bout en bout »). Ce
+correctif n'avait été vu tenir qu'à travers deux redémarrages de
+`s-constellation` seul, jamais un redémarrage complet de la machine — le seul
+qui compte pour dire qu'il est vraiment dans l'image. Demande de
+l'utilisateur : « oui » (committer et pousser), puis « bootc + restart ».
+
+**La chaîne complète, chacune vérifiée avant la suivante :** commit `e49d6c9`
+poussé sur `main`, CI verte (run `34413771628`, job « construire », zéro étape
+en échec), digest ghcr.io confirmé
+(`sha256:d7622e2ddd1494c5c1ce93b10b44d39f446d71b4b2e395967d8ba93d454de8a6`),
+`sudo bootc upgrade` a mis en file exactement ce digest
+(`44.20260909.e49d6c9`), puis `systemctl reboot`.
+
+**Après le redémarrage, relevé sur la machine :**
+
+```
+rpm-ostree status
+● 44.20260909.e49d6c9 — digest sha256:d7622e2dd…   <- exactement celui annonce
+
+systemctl --failed / systemctl --user --failed : 0 unite, dans les deux cas
+uptime : 25 min — un vrai demarrage a froid, pas un redemarrage de service seul
+grep -c "_corriger_bureau" /usr/lib/s/fenetres.py : 5
+diff files/usr/lib/s/fenetres.py /usr/lib/s/fenetres.py : IDENTIQUES
+kwin_wayland, s-coquille, s-constellation : tous vivants, session ouverte
+```
+
+**C'est la première fois que ce correctif est vu survivre à un vrai
+redémarrage complet de la machine** — les deux fois précédentes (la nuit
+même) n'avaient redémarré que le processus `s-constellation`, jamais
+`kwin_wayland` ni la session entière. Le fichier déployé dans `/usr` est
+désormais identique octet pour octet à celui du dépôt : le correctif n'est
+plus un état transitoire posé par `bootc usr-overlay`, il est dans l'image
+publiée et démarre avec elle.
+
+### Ce que cette vérification ne clôt toujours pas
+
+- **Le jeton de `activerBureau()` (protection du menu Démarrer) reste
+  non éprouvé par un vrai clic** — voir la réserve identique de la nuit
+  précédente, toujours vraie.
+- **`/var` est toujours à 91 %** (22 Go libres sur 233 Go) — inchangé depuis
+  la dernière mesure, pas aggravé par ce redémarrage, toujours à surveiller.
+- **Aucun geste réel n'a encore été posé sur cette session post-redémarrage**
+  au-delà de la vérification elle-même — pas de clic sur le bureau, pas
+  d'ouverture du menu Démarrer, pas de glisser-déposer.
+
+---
+
 ## 2026-09-09 — le redémarrage du 08 tient, et les items 4/6 sont bien dans l'image
 
 Vérification du redémarrage laissé en suspens à la fin de la nuit du
