@@ -66,13 +66,15 @@ echo "  polices       : $(fc-list 2>/dev/null | grep -ci 'IBM Plex' || true) fic
 # Le bit d'execution ne survit pas a un depot edite sous Windows ; on le repose
 # plutot que de dependre de ce que git a bien voulu enregistrer.
 chmod 0755 /usr/bin/s-session /usr/bin/s-coquille /usr/bin/s-constellation \
-    /usr/bin/s-salon-session
+    /usr/bin/s-salon-session /usr/bin/s-salon-rapide /usr/bin/s-retro-rapide
 
 # Une faute de syntaxe ne se verrait qu'au premier ouverture de session,
 # c'est-a-dire sur un ecran noir. Elle se voit ici en une seconde.
 bash -n /usr/bin/s-session
 bash -n /usr/bin/s-coquille
 bash -n /usr/bin/s-salon-session
+bash -n /usr/bin/s-salon-rapide
+bash -n /usr/bin/s-retro-rapide
 python3 -m py_compile /usr/bin/s-constellation /usr/lib/s/noyau.py
 rm -rf /usr/bin/__pycache__ /usr/lib/s/__pycache__ /root/.cache 2>/dev/null || true
 echo "  syntaxe       : session, coquille, coquille native et noyau analyses"

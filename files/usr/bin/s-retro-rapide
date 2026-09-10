@@ -1,0 +1,53 @@
+#!/usr/bin/bash
+# Retro rapide — l'acces express a RetroArch, depuis la barre laterale de
+# Constellation, SANS quitter la session. Meme patron exact que
+# s-salon-rapide (voir ce fichier pour le detail), applique a l'autre
+# chantier "salon/manette" eprouve le 2026-09-10 : gamescope --backend
+# wayland encapsulant RetroArch tient et se rend proprement en mode imbrique,
+# meme mecanisme d'arret par le seul PID de gamescope, meme symetrie
+# jeu/travail a l'entree et a la sortie.
+#
+# CE QUE CE SCRIPT NE PROMET PAS, ET C'EST ECRIT SANS DETOUR DANS CLAUDE.md :
+# au 2026-09-10, RetroArch n'a jamais tourne sur cette machine avant le test
+# de faisabilite, aucune ROM n'existe nulle part, et aucune manette n'a
+# jamais ete branchee. Ce raccourci ouvre le tableau de bord de RetroArch
+# (--menu) ; le rendre utile pour de vrai reste a l'utilisateur — deposer des
+# ROMs, brancher une manette, choisir un coeur.
+set -uo pipefail
+
+JOURNAL="${XDG_STATE_HOME:-$HOME/.local/state}/s"
+mkdir -p "$JOURNAL"
+
+if ! command -v gamescope >/dev/null 2>&1; then
+    echo "s-retro-rapide : gamescope introuvable." >&2
+    exit 1
+fi
+if ! command -v retroarch >/dev/null 2>&1; then
+    echo "s-retro-rapide : retroarch introuvable." >&2
+    exit 1
+fi
+
+_appliquer_mode() {
+    local cible="$1"
+    if python3 -c "
+import sys
+sys.path.insert(0, '/usr/lib/s')
+import reglages
+ok, detail = reglages.regler('mode', '$cible')
+sys.exit(0 if ok else 1)
+" 2>>"$JOURNAL/retro-rapide.log"; then
+        echo "s-retro-rapide : profil $cible applique." >> "$JOURNAL/retro-rapide.log"
+    else
+        echo "s-retro-rapide : profil $cible non applique, on continue quand meme." \
+            >> "$JOURNAL/retro-rapide.log"
+    fi
+}
+
+_appliquer_mode jeu
+
+gamescope --backend wayland -w 1920 -h 1080 -- retroarch --menu --fullscreen
+CODE=$?
+
+_appliquer_mode travail
+
+exit "$CODE"

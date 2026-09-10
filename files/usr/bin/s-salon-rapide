@@ -1,0 +1,55 @@
+#!/usr/bin/bash
+# Salon rapide — l'acces express a Steam Big Picture, depuis la barre laterale
+# de Constellation, SANS quitter la session.
+#
+# CE N'EST PAS s-salon-session. Celui-la est une session de greeter a part
+# entiere, en --backend drm (l'ecran pris directement, le vrai mode salon de
+# TV). Celui-ci tourne EN FENETRE IMBRIQUEE (--backend wayland) DANS la
+# session Linux courante — exactement le mode deja eprouve le 2026-09-10 :
+# gamescope + Steam Big Picture s'ouvrent comme n'importe quelle fenetre
+# normale, bornes automatiquement par fenetres.js (1920x1028, la place sous
+# la barre), sans aucun cas particulier a ecrire. Le clic "Salon rapide"
+# ouvre donc une fenetre ; il ne remplace jamais Constellation, et Windows/
+# Android restent joignables pendant que Steam tourne.
+#
+# LE MODE JEU S'APPLIQUE A L'ENTREE ET SE DEFAIT A LA SORTIE, MEME PATRON QUE
+# s-salon-session — jamais un "exec" : le script attend gamescope en avant-
+# plan pour pouvoir repasser en Travail APRES sa fermeture, meme s'il plante.
+set -uo pipefail
+
+JOURNAL="${XDG_STATE_HOME:-$HOME/.local/state}/s"
+mkdir -p "$JOURNAL"
+
+if ! command -v gamescope >/dev/null 2>&1; then
+    echo "s-salon-rapide : gamescope introuvable." >&2
+    exit 1
+fi
+if ! command -v steam >/dev/null 2>&1; then
+    echo "s-salon-rapide : steam introuvable." >&2
+    exit 1
+fi
+
+_appliquer_mode() {
+    local cible="$1"
+    if python3 -c "
+import sys
+sys.path.insert(0, '/usr/lib/s')
+import reglages
+ok, detail = reglages.regler('mode', '$cible')
+sys.exit(0 if ok else 1)
+" 2>>"$JOURNAL/salon-rapide.log"; then
+        echo "s-salon-rapide : profil $cible applique." >> "$JOURNAL/salon-rapide.log"
+    else
+        echo "s-salon-rapide : profil $cible non applique, on continue quand meme." \
+            >> "$JOURNAL/salon-rapide.log"
+    fi
+}
+
+_appliquer_mode jeu
+
+gamescope --backend wayland -w 1920 -h 1080 -- steam -tenfoot
+CODE=$?
+
+_appliquer_mode travail
+
+exit "$CODE"

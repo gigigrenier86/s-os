@@ -1031,6 +1031,57 @@ def _lancer_test_projet(nom_projet):
 
 
 # --------------------------------------------------------------------------
+# Acces rapide — Salon et Retro, sans quitter Constellation
+# --------------------------------------------------------------------------
+#
+# DEMANDE DE L'UTILISATEUR LE 2026-09-10, APRES LE CHANTIER MODE SALON.
+# Distinct de "s-salon-session"/"s-salon.desktop" (la vraie session de
+# greeter, --backend drm, ecran pris directement) : ceci est un GESTE DEPUIS
+# LA BARRE LATERALE, qui ouvre gamescope en mode IMBRIQUE (--backend wayland)
+# comme une fenetre normale de la session en cours — exactement le mode deja
+# eprouve, pour Steam ET pour RetroArch, le 2026-09-10 (voir CLAUDE.md). On
+# ne quitte jamais Constellation ; Windows et Android restent joignables
+# pendant que la fenetre est ouverte.
+#
+# CHAQUE ENTREE DISPARAIT SI L'OUTIL MANQUE — meme regle que le reste de ce
+# fichier. Le geste lui-meme vit dans un script a part (s-salon-rapide,
+# s-retro-rapide) plutot qu'ici : il doit tourner en avant-plan pour pouvoir
+# repasser en mode Travail apres la fermeture de la fenetre, ce qu'un appel
+# Python detache ne saurait pas attendre proprement.
+
+def _salon_rapide_disponible():
+    return bool(_outil("gamescope")) and bool(_outil("steam"))
+
+
+def _lancer_salon_rapide():
+    script = "/usr/bin/s-salon-rapide"
+    if not os.path.isfile(script):
+        return False, "s-salon-rapide absent de cette machine"
+    try:
+        subprocess.Popen([script], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as err:
+        return False, str(err)
+    return True, "Steam Big Picture en cours d'ouverture"
+
+
+def _retro_rapide_disponible():
+    return bool(_outil("gamescope")) and bool(_outil("retroarch"))
+
+
+def _lancer_retro_rapide():
+    script = "/usr/bin/s-retro-rapide"
+    if not os.path.isfile(script):
+        return False, "s-retro-rapide absent de cette machine"
+    try:
+        subprocess.Popen([script], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as err:
+        return False, str(err)
+    return True, "RetroArch en cours d'ouverture"
+
+
+# --------------------------------------------------------------------------
 # La composition — ce que la barre laterale affiche
 # --------------------------------------------------------------------------
 #
@@ -1167,6 +1218,16 @@ def rapides():
                        "detail": "%d projet(s)" % len(projets),
                        "choix": [{"cle": n, "nom": n} for n in projets]})
 
+    if _salon_rapide_disponible():
+        sortie.append({"cle": "salon-rapide", "nom": "Salon rapide",
+                       "ico": "i-manette", "type": "action", "actif": True,
+                       "detail": "Steam Big Picture, en fenetre"})
+
+    if _retro_rapide_disponible():
+        sortie.append({"cle": "retro-rapide", "nom": "Retro rapide",
+                       "ico": "i-manette", "type": "action", "actif": True,
+                       "detail": "RetroArch, en fenetre"})
+
     sortie.append({"cle": "verrouiller", "nom": "Verrouiller", "ico": "i-cadenas",
                    "type": "action", "actif": True, "detail": ""})
 
@@ -1207,4 +1268,8 @@ def regler(cle, valeur):
         return _capturer()
     if cle == "dev-pont":
         return _lancer_test_projet(str(valeur))
+    if cle == "salon-rapide":
+        return _lancer_salon_rapide()
+    if cle == "retro-rapide":
+        return _lancer_retro_rapide()
     return False, "reglage inconnu : %s" % cle

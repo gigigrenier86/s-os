@@ -8,6 +8,164 @@ Interface en français.
 
 ---
 
+## 2026-09-10, toujours — Salon et Rétro gagnent un accès rapide dans la barre latérale
+
+Demande de l'utilisateur, juste après le verdict sur RetroArch : construire
+les deux comme des **raccourcis dans la barre latérale de Constellation**,
+plutôt que (ou en plus de) des sessions de greeter séparées. C'est une
+architecture distincte de `s-salon-session` : au lieu de remplacer
+Constellation (comme l'utilisateur l'avait explicitement choisi pour Mode
+Salon le même soir), un clic depuis la barre latérale ouvre gamescope **en
+fenêtre imbriquée**, dans la session en cours — Windows et Android restent
+joignables pendant que Steam ou RetroArch tourne.
+
+**Deux scripts neufs, sur le patron exact de `s-salon-session`, mais
+`--backend wayland` au lieu de `--backend drm`** — exactement le mode déjà
+éprouvé deux fois ce soir (Steam Big Picture, puis RetroArch) :
+`s-salon-rapide` et `s-retro-rapide`. Même symétrie jeu/travail à
+l'entrée/sortie, jamais un `exec` pour la même raison déjà établie
+(repasser en Travail même si gamescope plante).
+
+**Aucune modification QML nécessaire** — la règle déjà posée tient :
+`BarreLaterale.qml` lit le type `"action"` génériquement, et les deux
+entrées entrent dans `reglages.py::rapides()` sur le patron exact de
+`_appliquer_materiel()`/`_capturer()` (fire-and-forget,
+`subprocess.Popen(..., start_new_session=True)`). Icône réutilisée,
+`i-manette` — déjà présente dans `Glyphes.js`, rien à composer.
+
+**Chaque entrée disparaît si son outil manque**, même règle que tout le
+reste du fichier : `_salon_rapide_disponible()`/`_retro_rapide_disponible()`
+vérifient `gamescope`+`steam` et `gamescope`+`retroarch` respectivement.
+
+**Éprouvé sur cette machine, sans reproduire l'erreur du soir même.** Le
+soir même, appliquer `reglages.regler("mode","jeu")` « pour vérifier » avait
+réellement basculé la session en cours (voir l'addendum Mode Salon plus
+haut) — les deux scripts neufs font exactement cet appel. Pour ne pas
+répéter l'erreur, le dispatch a été vérifié en interceptant
+`subprocess.Popen` (jamais en le laissant réellement tourner) :
+
+```
+sans les deux scripts déployés  -> regler() rend (False, "… absent de cette machine")
+scripts présents (simulés)       -> regler() rend (True, "… en cours d'ouverture"),
+                                     Popen appelé avec le bon chemin absolu,
+                                     start_new_session=True
+sans gamescope (simulé)          -> les deux entrées disparaissent de rapides()
+```
+
+Et `python3 build_files/verifier-constellation.py` repassé après coup :
+scène chargée, 35 slots au pont (inchangé), 10 articles de menu (inchangé,
+ces deux entrées ne touchent pas le menu Démarrer), aucun avertissement.
+
+### Ce que cette passe ne prouve pas
+
+- **Aucun clic réel depuis la vraie barre latérale.** Le dispatch Python est
+  vérifié par interception, pas par un geste souris sur l'icône.
+- **`s-salon-rapide` et `s-retro-rapide` n'ont jamais tourné pour de vrai** —
+  contrairement aux tests de faisabilité du soir (Steam et RetroArch
+  imbriqués), qui, eux, ont réellement ouvert une fenêtre. Ici, seul le
+  chemin de dispatch est prouvé ; le geste complet (mode jeu appliqué,
+  gamescope ouvert, mode travail repris à la fermeture) repose sur le même
+  mécanisme déjà éprouvé pour `s-salon-session`, pas sur une exécution
+  neuve de ces deux scripts précis.
+- **Rien n'est dans l'image.** Écrit dans le dépôt, pas construit, pas
+  redémarré dessus.
+
+---
+
+## 2026-09-10, encore — RetroArch éprouvé au même banc que Steam, et il tient au premier essai
+
+Demande de l'utilisateur, juste après le chantier Mode Salon : « est-ce
+possible de faire le même type de plan avec retroarch ? » — reprendre
+exactement la méthode qui a servi pour Steam Big Picture (relevé de ce qui
+est déjà sur la machine, test de faisabilité en mode imbriqué prudent,
+mesure avant toute promesse) mais pour RetroArch comme une session
+« salon/manette » d'un autre genre : l'émulation plutôt que Steam.
+
+**Relevé avant tout geste, comme pour Mode Salon.** `/usr/bin/retroarch`
+est déjà présent (1.22.0, Git c54db71), avec **quatorze cœurs libretro**
+installés (`stella2014`, `prosystem`, `pcsx-rearmed`, `nestopia`, `mgba`,
+`handy`, `gw`, `gambatte`, `desmume2015`, `bsnes-mercury`,
+`beetle-wswan`, `beetle-vb`, `beetle-pce-fast`, `beetle-ngp`) — le même
+chiffre que celui déjà noté le 2026-08-20 dans ce carnet, retrouvé
+identique un mois plus tard. `retroarch --help` confirme `--menu` (lance
+le tableau de bord sans exiger de contenu ni de cœur), `-f`/`--fullscreen`,
+`-L`/`--libretro=<cœur>`, `--appendconfig=<fichier>`.
+
+**Et une découverte qui change la donne pour ce chantier précis :**
+`~/.config/retroarch/` venait d'être créé **par cette session même**
+(horodatage du jour, squelette par défaut vide, aucun `retroarch.cfg`) —
+RetroArch n'avait, avant ce soir, **jamais tourné une seule fois** sur
+cette machine. Aucun ROM nulle part (`~/Roms`, `~/ROMs`, `~/Jeux` :
+tous absents), aucune manette branchée (`/dev/input/js*` : aucun). Ce
+chantier part donc d'une page plus blanche encore que Mode Salon, qui
+avait au moins Steam déjà connecté à un vrai compte.
+
+**Éprouvé en mode imbriqué, la même prudence que pour Steam** —
+`--backend wayland`, jamais `--backend drm` :
+
+```
+gamescope --backend wayland -w 1280 -h 800 -- retroarch --menu --fullscreen
+```
+
+**Premier essai de capture (témoin kwin, patron identique à celui qui a
+servi pour Steam) : échec, aucun fichier produit.** Le journal de
+gamescope montrait une initialisation parfaitement propre (Vulkan/Intel
+UHD 630 détecté, backend Wayland initialisé sur `gamescope-0`, Xwayland
+démarré, flux pipewire connecté, EDID adapté de 800x1280 à 1280x800,
+« Post-Initted Wayland backend ») mais **zéro ligne portant sur RetroArch
+lui-même** — rien ne confirmait qu'il avait déjà présenté une fenêtre au
+moment de la capture. `ps aux` montrait pourtant les trois processus
+vivants (`gamescope` 11171, `gamescopereaper` 11265, `retroarch` 11267),
+`retroarch` consommant du vrai temps CPU.
+
+**Second essai, une seconde plus tard : réussi du premier coup.**
+RetroArch avait simplement besoin d'un peu plus de temps que Steam Big
+Picture pour présenter sa toute première fenêtre — rien à voir avec un
+défaut de configuration, de vidéo ou de gamescope. Capturé, le menu
+principal de RetroArch, **rendu en entier et en français** (« Menu
+principal », « Réglages », « Historique », « Favoris », « Cœurs sans
+contenu »…), fenêtre gamescope 1280x800 propre, aucune trace de défaut
+d'affichage.
+
+**Refermé par `kill -TERM` sur le seul PID de `gamescope`** (11171) :
+toute la descendance (`gamescopereaper`, `retroarch`) s'est éteinte d'un
+coup en moins d'une seconde, vérifié par un second `ps aux` — exactement
+le même comportement d'arbre-de-processus-superviseur déjà mesuré pour
+Steam.
+
+### Verdict : le mécanisme est identique à Mode Salon, rien de neuf à forger
+
+**RetroArch se comporte sous gamescope exactement comme Steam Big
+Picture** — même backend, même patron de fenêtre, même arrêt propre par
+un seul PID. Le « même genre de plan » demandé par l'utilisateur est donc
+possible, et il n'y a **aucun nouveau mécanisme à inventer** : ce serait
+une variation directe de `s-salon-session`, avec `retroarch --menu
+--fullscreen` (ou un cœur/contenu précis) à la place de `steam -tenfoot`.
+
+**Ce qui distingue ce chantier de Mode Salon, et qui compte plus que la
+mécanique :** RetroArch n'a **aucun contenu à faire tourner**. Aucune ROM
+sur la machine, aucun `retroarch.cfg` déjà réglé, aucune manette
+branchée pour vérifier la navigation. Construire une session « S — Rétro »
+maintenant donnerait un menu RetroArch vide et non navigable au clavier
+seul — une session techniquement fonctionnelle mais sans aucun usage
+réel tant que l'utilisateur n'a pas déposé de ROM ni branché de manette.
+
+### Ce que cette passe ne prouve pas
+
+- **`--backend drm` n'a pas été essayé** — même réserve que pour Mode
+  Salon, mode imbriqué seulement.
+- **Aucune manette n'a été branchée** — la navigation dans le menu n'a
+  jamais été exercée par autre chose que l'apparence à l'écran.
+- **Aucun cœur ni aucune ROM n'a été chargé** — seul le tableau de bord
+  vide (`--menu`) a été vu tourner, jamais un vrai jeu.
+- **Aucun fichier de session (`s-retro.desktop`/`s-retro-session`) n'a été
+  écrit** — ce test ne visait qu'à répondre « RetroArch rend-il proprement
+  sous gamescope sur cet iGPU », pas à livrer une fonctionnalité. Ni
+  construit ni proposé tant qu'aucune ROM ni manette n'existe sur la
+  machine pour en faire un usage réel.
+
+---
+
 ## 2026-09-10, suite — sept vidéos passées au crible, et « Mode Salon » sort du lot, prouvé au banc
 
 Demande de l'utilisateur, après chargement des quatre rôles : analyser
