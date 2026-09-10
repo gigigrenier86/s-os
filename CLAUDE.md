@@ -8,6 +8,147 @@ Interface en français.
 
 ---
 
+## 2026-09-10, encore plus tard — Office 365 « gelait », et c'était App-V contre Wine
+
+Demande de l'utilisateur, en plein milieu d'une installation Microsoft Office
+365 : « ça gèle, peux-tu voir où est le bug et corriger ça ? ». Puis, une fois
+le diagnostic donné : « faut que ça marche, je veux que ce soit intégré dans
+S ».
+
+### Ce n'était pas un gel — c'était un échec caché derrière la fenêtre encore ouverte
+
+Mesuré avant de conclure, comme toujours : les processus d'installation
+(`OfficeClickToRun.exe`, `integrator.exe`) étaient réellement vivants,
+consommaient du CPU et écrivaient sur disque (jusqu'à 6 Mio/s en lecture,
+4,75 Mio/s en écriture pour `integrator.exe`, mesuré par `/proc/<pid>/io` à
+deux instants). Une capture de la vraie fenêtre — trouvée en pistant les
+pièges déjà documentés du Grimoire (`capturer_fenetre` attrape d'abord
+l'onglet Vivaldi dont le titre contient la même sous-chaîne que la fenêtre
+visée, puis a fallu cibler `steam_proton` + titre exact, puis `import
+-window <id>` en X11 direct pour contourner un vol de focus par une session
+parallèle) — a montré la barre de progression avancer réellement entre deux
+mesures (38 % → 62 % en une dizaine de minutes). **L'installation
+progressait bel et bien.**
+
+**`wmctrl -lxG` a révélé une TROISIÈME fenêtre**, jamais vue jusque-là :
+« Something went wrong », plein écran, à la position `0,0`, jamais remontée
+au premier plan par kwin au-dessus de la fenêtre de progression toujours
+affichée. Capturée directement : **Error Code: 30088-4**. Le journal de
+session d'Office lui-même (`AppData/Local/Temp/S-*.log`, format C2R
+standard) donne la cause au mot près :
+
+```
+ErrorMessage: "UnexpectedError (Orchestration::UpdateAppV:
+                TryRefreshMergedManifest failed)"
+Task: "CONFIGURE:{A42AC5D1-70F7-48E9-8A2D-0A9635A57862}"
+```
+
+**Deux défauts empilés, pas un seul** : un vrai bug de superposition de
+fenêtres (la fenêtre d'erreur d'un second processus Wine ne remonte jamais
+au-dessus de celle du premier — même famille que les défauts de z-order déjà
+documentés ailleurs dans ce carnet), qui a donné l'illusion d'un blocage
+éternel sur « We'll be done in just a moment » ; et un vrai échec, dont la
+cause est structurelle.
+
+### Le mur, nommé précisément plutôt que réessayé
+
+Microsoft 365 (l'abonnement, contrairement aux anciennes licences
+perpétuelles) s'installe **exclusivement** par Click-to-Run, qui virtualise
+ses fichiers et son registre via **App-V** — `TryRefreshMergedManifest` est
+justement la fonction qui fusionne les couches virtuelles. App-V dépend d'un
+service/filtre Windows profond, sans équivalent sous Wine. **C'est
+structurel** — proche de la limite déjà écrite dans ce carnet pour les
+pilotes noyau Windows (« Limites, connues d'avance », point 1) — pas une
+affaire de réseau ni de configuration à retenter.
+
+**Aucun contournement propre n'a été cherché ni tenté** : un installateur
+Office MSI classique (qui éviterait App-V) n'est plus distribué publiquement
+pour ce SKU — seule la Volume Licensing Service Center de Microsoft, hors de
+portée sans licence entreprise, en proposerait un. En chercher un ailleurs
+aurait été exactement le Code Noir que ce dépôt refuse : un binaire sans
+provenance vérifiable, posé dans une image publique.
+
+### Ce qui a été construit à la place, et pourquoi les deux pièces se complètent
+
+**Cinq lanceurs Microsoft 365 web** (`office-word.desktop`,
+`office-excel.desktop`, `office-powerpoint.desktop`, `office-outlook.desktop`,
+`office-onenote.desktop`), sur le patron exact déjà éprouvé de RapidO et
+Gemini — `vivaldi --app=<url>`, en fenêtre dédiée, sans barre d'adresse. **Le
+vrai Microsoft 365**, avec l'abonnement réel de l'utilisateur (déjà connecté
+dans le profil Vivaldi par défaut — « Personnel Ghislain » visible sans
+qu'aucun mot de passe n'ait été tapé), sans passer par Wine du tout.
+
+**Chaque URL et chaque classe de fenêtre ont été mesurées en direct sur cette
+machine, jamais devinées** — la règle déjà posée par le Grimoire
+(`vivaldi-classe-reelle-app.sh` : « --class= » n'a jamais eu le moindre
+effet, seule la mesure compte) :
+
+| App | URL mesurée | Classe mesurée |
+|---|---|---|
+| Word | `word.cloud.microsoft` | `vivaldi-word.cloud.microsoft__-Default` |
+| Excel | `excel.cloud.microsoft` | `vivaldi-excel.cloud.microsoft__-Default` |
+| PowerPoint | `powerpoint.cloud.microsoft` | `vivaldi-powerpoint.cloud.microsoft__-Default` |
+| Outlook | `outlook.office.com/mail/` | `vivaldi-outlook.office.com__mail_-Default` |
+| OneNote | `onenote.cloud.microsoft` | `vivaldi-onenote.cloud.microsoft__-Default` |
+
+**Trois échecs avant la bonne URL, et ils valent d'être écrits** :
+`office.com` et `microsoft365.com` redirigent désormais systématiquement
+vers Copilot (le chat), même en visant `/launch/word` — le portail classique
+à tuiles Word/Excel/PowerPoint a disparu de ces deux domaines. C'est le
+nouveau domaine `<app>.cloud.microsoft`, découvert en cherchant plutôt qu'en
+insistant sur l'ancien, qui ouvre directement chaque application. Word,
+Excel, PowerPoint et OneNote héritent de la session déjà connectée sans rien
+demander ; Outlook, lui, demande une connexion distincte — normal, capturé
+et vérifié à l'écran, pas une panne.
+
+**LibreOffice, natif, en complément — pas en repli de second choix.**
+`build_files/28-bureautique.sh` pose `libreoffice-writer`,
+`libreoffice-calc`, `libreoffice-impress` et `libreoffice-langpack-fr` —
+paquets Fedora officiels signés, patron exact de `27-applications.sh`. C'est
+ce qui **garantit** de marcher : hors ligne, sans dépendre d'un abonnement ni
+d'un service cloud, le jour où le réseau ou le compte Microsoft font défaut.
+Les deux pièces se complètent plutôt que de se remplacer.
+
+### Éprouvé avant de pousser
+
+Les cinq `.desktop` passent `desktop-file-validate` sans erreur (un
+avertissement sur `Categories` à deux catégories principales pour Outlook,
+corrigé). `noyau.py::choisir_monde()` les classe bien `linux` — aucun ne
+contient `s-ouvrir-exe`/`umu-run`/`wine`/`proton`, donc aucun risque de les
+voir portés à tort par l'anneau Windows.
+
+**`build_files/28-bureautique.sh` a été rejoué pour de vrai**, en conteneur
+jetable contre `registry.fedoraproject.org/fedora:44` — même méthode que
+celle déjà établie dans ce dépôt pour tester un script de construction sans
+attendre un cycle complet de CI : les quatre paquets s'installent
+(253 paquets au total avec leurs dépendances), **tout dans `/usr`** (le
+contrôle du script lui-même vérifié positif), les trois lanceurs
+(`libreoffice-writer.desktop` et consorts) sont bien posés par le paquet.
+Poids mesuré : **1,3 Gio** pour les composants Office de LibreOffice
+(Writer, Calc, Impress, langpack français, `core`, `ure`) — annoté au mot
+dans le `Containerfile`, pas deviné.
+
+### Ce que cette passe ne prouve pas
+
+- **Aucun clic réel n'a été donné sur les cinq nouvelles étoiles.** Les URL et
+  les classes sont mesurées par un lancement direct de Vivaldi depuis un
+  terminal, avec exactement la commande que chaque `.desktop` exécute — pas
+  par un geste souris depuis le ciel de Constellation.
+- **LibreOffice n'a été éprouvé que dans un conteneur Fedora nu**, jamais
+  dans l'image Bazzite complète ni sur cette machine : aucune fenêtre
+  Writer/Calc/Impress n'a été ouverte pour de vrai.
+- **Rien n'est dans l'image.** Écrit dans le dépôt, pas construit, pas
+  déployé. Il faut une construction, un `bootc upgrade` et un redémarrage.
+- **La session Outlook n'a pas été poussée jusqu'à la connexion** — l'écran
+  de connexion Microsoft standard a été capturé et confirmé sain, rien de
+  plus.
+- **L'installation Office 365 qui a échoué (Error Code 30088-4) n'a pas été
+  nettoyée** — les fichiers déjà écrits par Click-to-Run (2,6 Go dans le
+  préfixe Windows) restent en place, et la fenêtre d'erreur a été remontée au
+  premier plan pour l'utilisateur, jamais fermée à sa place.
+
+---
+
 ## 2026-09-10, toujours — Salon et Rétro gagnent un accès rapide dans la barre latérale
 
 Demande de l'utilisateur, juste après le verdict sur RetroArch : construire

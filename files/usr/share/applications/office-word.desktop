@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Word
+GenericName=Traitement de texte
+Comment=Microsoft Word sur le web, dans une fenêtre dédiée — le vrai Microsoft 365, sans Wine
+Exec=/usr/lib/opt/vivaldi/vivaldi --app=https://word.cloud.microsoft/
+Icon=x-office-document
+Terminal=false
+StartupNotify=true
+StartupWMClass=vivaldi-word.cloud.microsoft__-Default
+Categories=Office;WordProcessor;
+Keywords=word;microsoft;office;document;texte;

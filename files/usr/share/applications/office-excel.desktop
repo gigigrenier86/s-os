@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Excel
+GenericName=Tableur
+Comment=Microsoft Excel sur le web, dans une fenêtre dédiée — le vrai Microsoft 365, sans Wine
+Exec=/usr/lib/opt/vivaldi/vivaldi --app=https://excel.cloud.microsoft/
+Icon=x-office-spreadsheet
+Terminal=false
+StartupNotify=true
+StartupWMClass=vivaldi-excel.cloud.microsoft__-Default
+Categories=Office;Spreadsheet;
+Keywords=excel;microsoft;office;tableur;calcul;

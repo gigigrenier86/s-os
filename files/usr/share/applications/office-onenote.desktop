@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=OneNote
+GenericName=Bloc-notes
+Comment=Microsoft OneNote sur le web, dans une fenêtre dédiée — le vrai Microsoft 365, sans Wine
+Exec=/usr/lib/opt/vivaldi/vivaldi --app=https://onenote.cloud.microsoft/
+Icon=accessories-text-editor
+Terminal=false
+StartupNotify=true
+StartupWMClass=vivaldi-onenote.cloud.microsoft__-Default
+Categories=Office;
+Keywords=onenote;microsoft;office;notes;bloc-notes;

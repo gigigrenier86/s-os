@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Outlook
+GenericName=Courriel et calendrier
+Comment=Microsoft Outlook sur le web, dans une fenêtre dédiée — le vrai Microsoft 365, sans Wine
+Exec=/usr/lib/opt/vivaldi/vivaldi --app=https://outlook.office.com/mail/
+Icon=internet-mail
+Terminal=false
+StartupNotify=true
+StartupWMClass=vivaldi-outlook.office.com__mail_-Default
+Categories=Office;Email;
+Keywords=outlook;microsoft;office;courriel;email;calendrier;
