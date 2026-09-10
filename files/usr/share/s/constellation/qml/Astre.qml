@@ -33,10 +33,16 @@ Item {
     width: diametre
     height: diametre
 
-    // Le grossissement au survol, et la mise en avant quand l'etoile est
-    // choisie. Les durees sont celles de la page : 180 ms, meme courbe.
-    scale: choisi ? 1.22 : (survol.hovered ? 1.16 : 1.0)
-    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+    // Micro-interaction tactile à 0 ms : compression à l'enfoncement (0.92),
+    // éveil au survol (1.15), grossissement de sélection (1.20)
+    scale: (tapG.pressed || glisser.active) ? 0.92
+         : (choisi ? 1.20 : (survol.hovered ? 1.15 : 1.0))
+    Behavior on scale {
+        NumberAnimation {
+            duration: (tapG.pressed || glisser.active) ? Theme.dureePression : Theme.dureeRapide
+            easing.type: Easing.OutCubic
+        }
+    }
     Behavior on diametre { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
 
     HoverHandler { id: survol; cursorShape: Qt.PointingHandCursor }
@@ -80,14 +86,27 @@ Item {
             color: "transparent"
             border.color: astre.teinte
             border.width: astre.diametre * 0.16
-            // HIERARCHIE D'INTENSITE VOULUE : survol/choisi (0.28) > actif
-            // (0.16) > repos (0). Une etoile en cours d'execution se voit,
-            // mais jamais plus qu'une etoile qu'on regarde vraiment.
-            opacity: (survol.hovered || astre.choisi) ? 0.28
-                     : (astre.actif ? 0.16 : 0.0)
+            // HIERARCHIE D'INTENSITE : pressé (0.42) > survol/choisi (0.28) > actif (0.16) > repos (0)
+            opacity: (tapG.pressed || glisser.active) ? 0.42
+                   : ((survol.hovered || astre.choisi) ? 0.28
+                   : (astre.actif ? 0.16 : 0.0))
             visible: opacity > 0
             antialiasing: true
-            Behavior on opacity { NumberAnimation { duration: 180 } }
+            Behavior on opacity { NumberAnimation { duration: 140 } }
+        }
+
+        // Onde de lancement : pulsion lumineuse circulaire au double-clic
+        Rectangle {
+            id: haloLancement
+            anchors.centerIn: parent
+            width: astre.diametre
+            height: width
+            radius: width / 2
+            color: "transparent"
+            border.color: astre.teinte
+            border.width: 2.5
+            opacity: 0
+            antialiasing: true
         }
 
         // --- Le corps de la sphere -------------------------------------------
@@ -222,13 +241,28 @@ Item {
         NumberAnimation { to: 1.8; duration: (7200 + ((astre.dephasage + 2) % 5) * 1400) / astre.vitesseDerive; easing.type: Easing.InOutSine }
     }
 
+    // Animation de lancement élastique et onde lumineuse style macOS/Fluent
+    SequentialAnimation {
+        id: animLancement
+        ParallelAnimation {
+            NumberAnimation { target: contenuVisuel; property: "scale"; from: 1.0; to: 1.25; duration: 130; easing.type: Easing.OutQuad }
+            NumberAnimation { target: haloLancement; property: "opacity"; from: 0.85; to: 0.0; duration: 300; easing.type: Easing.OutQuad }
+            NumberAnimation { target: haloLancement; property: "scale"; from: 1.0; to: 2.2; duration: 300; easing.type: Easing.OutQuad }
+        }
+        NumberAnimation { target: contenuVisuel; property: "scale"; to: 1.0; duration: 180; easing.type: Easing.OutBounce }
+    }
+
     // --- Les gestes -------------------------------------------------------
     // UN DOUBLE-CLIC OUVRE, UN SIMPLE CLIC NE FAIT QUE CHOISIR. C'est la regle
     // de la page, et c'est ce qui permet de deplacer une etoile sans la lancer.
     TapHandler {
+        id: tapG
         acceptedButtons: Qt.LeftButton
         onTapped: astre.choisi = !astre.choisi
-        onDoubleTapped: astre.ouvrir()
+        onDoubleTapped: {
+            animLancement.restart();
+            astre.ouvrir();
+        }
     }
 
     TapHandler {

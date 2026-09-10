@@ -8,6 +8,7 @@
 .vscode/
 .idea/
 .sixth/
+.claude/settings.json
 *~
 
 # Les caches de Python : produits en essayant le noyau, jamais livres.

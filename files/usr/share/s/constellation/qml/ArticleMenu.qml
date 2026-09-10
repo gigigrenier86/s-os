@@ -19,12 +19,16 @@ MenuItem {
     // mettra « Desinstaller », la couleur soit deja la.
     property bool grave: false
 
+    scale: article.down ? 0.98 : 1.0
+    Behavior on scale { NumberAnimation { duration: 80; easing.type: Easing.OutCubic } }
+
     contentItem: Text {
         leftPadding: 13
         rightPadding: 13
         text: article.text
-        color: article.grave && article.hovered ? "#ffbfbf"
-             : (article.hovered ? Theme.texte : Theme.texte2)
+        color: article.down ? "#ffffff"
+             : (article.grave && article.hovered ? "#ffbfbf"
+             : (article.hovered ? Theme.texte : Theme.texte2))
         font.family: Theme.police
         font.pixelSize: 13
         verticalAlignment: Text.AlignVCenter
@@ -35,7 +39,11 @@ MenuItem {
         anchors.fill: parent
         anchors.margins: 4
         radius: 6
-        color: !article.hovered ? "transparent"
-             : (article.grave ? Qt.rgba(1, 0.30, 0.30, 0.14) : Theme.verre2)
+        color: article.down ? Theme.verre3
+             : (!article.hovered ? "transparent"
+                                 : (article.grave ? Qt.rgba(1, 0.30, 0.30, 0.14) : Theme.verre2))
+        border.color: article.down ? Theme.bordVif : "transparent"
+        border.width: 1
+        Behavior on color { ColorAnimation { duration: 80 } }
     }
 }

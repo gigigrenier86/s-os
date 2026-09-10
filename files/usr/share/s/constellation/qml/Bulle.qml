@@ -91,12 +91,18 @@ Window {
 
     // --- Le verre ---------------------------------------------------------
     Rectangle {
+        id: fondBulle
         anchors.fill: parent
         radius: Theme.rayon
-        color: Theme.verre
-        border.color: courante.urgence >= 2 ? Theme.linux : Theme.bord
+        color: zoneHover.hovered ? (zoneClic.pressed ? Theme.verre3 : Theme.verre2) : Theme.verre
+        border.color: zoneClic.pressed ? Theme.bordVif : (courante.urgence >= 2 ? Theme.linux : Theme.bord)
         border.width: 1
         antialiasing: true
+
+        scale: zoneClic.pressed ? 0.97 : (zoneHover.hovered ? 1.01 : 1.0)
+        Behavior on scale { NumberAnimation { duration: Theme.dureePression; easing.type: Easing.OutCubic } }
+        Behavior on color { ColorAnimation { duration: Theme.dureeRapide } }
+        Behavior on border.color { ColorAnimation { duration: Theme.dureeRapide } }
 
         // LE LISERE DE GAUCHE PORTE L'URGENCE. Une bordure rouge complete
         // crierait pour un simple « fichier copie » ; un trait de trois pixels
@@ -158,9 +164,14 @@ Window {
             }
         }
 
-        MouseArea {
-            anchors.fill: parent
-            onClicked: bulle.suivante()
+        HoverHandler {
+            id: zoneHover
+            cursorShape: Qt.PointingHandCursor
+        }
+
+        TapHandler {
+            id: zoneClic
+            onTapped: bulle.suivante()
         }
     }
 }

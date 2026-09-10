@@ -40,7 +40,7 @@ Window {
     // de passage. Fiable a cette largeur : le compositeur clampe deja le
     // curseur au bord de l'ecran, donc pousser la souris a droite l'y amene
     // toujours, sans viser un pixel precis a l'oeil.
-    readonly property int epaisseurLigne: 1
+    readonly property int epaisseurLigne: 0
 
     // LA POIGNEE NE COUVRE PLUS TOUTE LA HAUTEUR DE L'ECRAN — demande de
     // l'utilisateur le 2026-08-27, capture a l'appui : pousser la souris vers
@@ -133,31 +133,10 @@ Window {
     onHeightChanged: borner()
     Component.onCompleted: borner()
 
-    // ── La fine ligne, toujours la ────────────────────────────────────────
-    Rectangle {
-        id: ligne
-        anchors.right: parent.right
-        y: laterale.margeHaut
-        width: laterale.epaisseurLigne
-        height: parent.height - laterale.margeHaut - laterale.margeBas
-        opacity: laterale.deploye ? 0 : 1
-        Behavior on opacity { NumberAnimation { duration: 180 } }
-
-        // Un degrade plutot qu'un a-plat : une ligne uniforme sur mille pixels
-        // se lit comme un defaut d'affichage, pas comme une poignee.
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.05) }
-            GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0.28) }
-            GradientStop { position: 1.0; color: Qt.rgba(1, 1, 1, 0.05) }
-        }
-
-        HoverHandler {
-            id: survolLigne
-            onHoveredChanged: {
-                if (hovered) laterale.deploye = true;
-                else if (laterale.deploye) fermeture.restart();
-            }
-        }
+    Shortcut {
+        sequence: "Escape"
+        enabled: laterale.deploye
+        onActivated: laterale.deploye = false
     }
 
     // ── Le nom du reglage survole, ecrit A GAUCHE de la colonne ────────────
@@ -195,28 +174,32 @@ Window {
     }
 
     // ── La colonne d'etoiles ──────────────────────────────────────────────
+    // LA BARRE MONTE DEPUIS LE BAS, AU-DESSUS DE L'ETOILE OPTION.
+    // Demande expresse de l'utilisateur du 2026-09-10 : elle ne doit plus pop
+    // au contact du bord de l'ecran (« c'est tannant »), mais monter au-dessus
+    // de la barre des taches lors d'un clic sur l'etoile option a cote de l'heure.
     Verre {
         id: colonne
         anchors.right: parent.right
-        // LES MEMES MARGES QUE LA POIGNEE, CETTE FOIS SUR CE QU'ON VOIT.
-        // Le premier correctif du 2026-08-28 n'avait borne que la ligne d'un
-        // pixel qui declenche l'ouverture — la colonne deployee, elle,
-        // continuait de couvrir les deux coins jusqu'au bord de l'ecran.
-        // Releve par l'utilisateur : « ont toujours la barre par dessus, en
-        // haut, en bas ». Une zone qu'on ne peut pas declencher ne doit pas
-        // non plus s'y afficher.
-        y: laterale.margeHaut
+        y: laterale.deploye ? laterale.margeHaut : (parent.height - laterale.margeBas)
         height: parent.height - laterale.margeHaut - laterale.margeBas
         width: laterale.largeurBarre
-        radius: 0
-        // Elle glisse depuis le bord droit : cela dit d'ou elle vient et ou
-        // elle retourne.
-        x: laterale.deploye ? laterale.largeur - laterale.largeurBarre
-                            : laterale.largeur
+        radius: 8
+        x: laterale.largeur - laterale.largeurBarre
         opacity: laterale.deploye ? 1 : 0
         visible: opacity > 0
-        Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-        Behavior on opacity { NumberAnimation { duration: 160 } }
+
+        Behavior on y {
+            NumberAnimation {
+                duration: laterale.deploye ? (Theme.dureeNormale + 40) : Theme.dureeRapide
+                easing.type: laterale.deploye ? Easing.OutCubic : Easing.InQuad
+            }
+        }
+        Behavior on opacity {
+            NumberAnimation {
+                duration: laterale.deploye ? Theme.dureeNormale : Theme.dureeRapide
+            }
+        }
 
         HoverHandler {
             id: survolColonne
@@ -225,16 +208,8 @@ Window {
 
         Timer {
             id: fermeture
-            interval: 500
-            // ON VERIFIE LE SURVOL, JAMAIS LA VISIBILITE — c'est le defaut
-            // trouve le 2026-08-28 : « !glissiere.visible » ne redevient
-            // jamais vrai une fois la glissiere ouverte (rien dans ce fichier
-            // ne la referme d'elle-meme), donc ce minuteur refusait de fermer
-            // pour toujours des qu'on avait clique une seule jauge. La souris
-            // a pu passer de la ligne a la colonne, ou de la colonne aux
-            // possibilites d'un choix ou d'une glissiere : c'est leur survol
-            // qui doit suspendre la fermeture, pas leur presence a l'ecran.
-            onTriggered: if (!survolColonne.hovered && !survolLigne.hovered
+            interval: 600
+            onTriggered: if (!survolColonne.hovered
                              && !survolChoix.hovered && !survolGlissiere.hovered)
                              laterale.deploye = false
         }

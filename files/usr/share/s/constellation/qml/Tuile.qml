@@ -16,13 +16,25 @@ Item {
     implicitWidth: 78
     implicitHeight: 88
 
+    scale: tapT.pressed ? 0.93 : 1.0
+    Behavior on scale {
+        NumberAnimation {
+            duration: tapT.pressed ? Theme.dureePression : Theme.dureeRapide
+            easing.type: Easing.OutCubic
+        }
+    }
+
     HoverHandler { id: survol; cursorShape: Qt.PointingHandCursor }
 
     Rectangle {
         anchors.fill: parent
         radius: 9
-        color: survol.hovered ? Theme.verre2 : "transparent"
-        Behavior on color { ColorAnimation { duration: 140 } }
+        color: tapT.pressed ? Theme.verre3
+             : (survol.hovered ? Theme.verre2 : "transparent")
+        border.color: tapT.pressed ? Theme.bordVif
+                    : (survol.hovered ? Theme.bord : "transparent")
+        border.width: 1
+        Behavior on color { ColorAnimation { duration: 100 } }
     }
 
     Column {
@@ -123,6 +135,7 @@ Item {
     // clic est ce que tout le monde attend — c'est le ciel qui demande deux
     // clics, parce qu'on y deplace aussi les etoiles.
     TapHandler {
+        id: tapT
         acceptedButtons: Qt.LeftButton
         onTapped: tuile.ouvrir()
     }

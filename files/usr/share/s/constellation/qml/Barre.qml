@@ -119,6 +119,8 @@ Window {
     // dans un terminal — pour une etiquette que personne ne regarde tant que
     // le menu est ferme.
     signal inactivesDemandees()
+    property bool reglagesOuverts: false
+    signal reglagesDemandes()
     // ELLE TRANSMET L'ETAT QU'ELLE AFFICHE, ET C'EST TOUT L'OBJET DU SECOND
     // ARGUMENT. Laisser kwin relire « quelle fenetre est active » au moment ou
     // le script tourne rend une reponse qui a pu changer depuis le clic : le
@@ -206,16 +208,24 @@ Window {
                 GradientStop { position: 0.0; color: "#33333f" }
                 GradientStop { position: 0.78; color: "#07070f" }
             }
-            scale: survolNoyau.hovered ? 1.06 : 1.0
-            Behavior on scale { NumberAnimation { duration: 240 } }
+            scale: tapNoyau.pressed ? 0.88 : (survolNoyau.hovered ? 1.08 : 1.0)
+            Behavior on scale {
+                NumberAnimation {
+                    duration: tapNoyau.pressed ? Theme.dureePression : Theme.dureeRapide
+                    easing.type: Easing.OutCubic
+                }
+            }
 
             HoverHandler { id: survolNoyau; cursorShape: Qt.PointingHandCursor }
             Rectangle {
                 anchors.centerIn: parent
-                width: 8; height: 8; radius: 4
+                width: tapNoyau.pressed ? 10 : 8
+                height: width
+                radius: width / 2
                 color: "#ffffff"
+                Behavior on width { NumberAnimation { duration: 100 } }
             }
-            TapHandler { onTapped: barre.menuDemande() }
+            TapHandler { id: tapNoyau; onTapped: barre.menuDemande() }
         }
 
         // ── Les epinglees : ce qu'on lance, pas ce qui tourne ──────────────
@@ -233,16 +243,25 @@ Window {
             Repeater {
                 model: bureau.donnees.epingles
                 delegate: Item {
+                    id: itemEp
                     required property string modelData
                     readonly property var app: bureau.appParId(modelData)
                     visible: app !== null
                     width: visible ? 32 : 0
                     height: 32
 
+                    scale: tapEp.pressed ? 0.88 : (survolEp.hovered ? 1.12 : 1.0)
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: tapEp.pressed ? Theme.dureePression : Theme.dureeRapide
+                            easing.type: Easing.OutCubic
+                        }
+                    }
+
                     Rectangle {
                         anchors.fill: parent
                         radius: 16
-                        color: "transparent"
+                        color: tapEp.pressed ? Theme.verre3 : "transparent"
                         border.width: 1.5
                         border.color: app ? Theme.teinte(app.src) : "transparent"
                         antialiasing: true
@@ -283,8 +302,17 @@ Window {
                         }
                     }
 
+                    // Rebond de lancement style macOS Dock
+                    SequentialAnimation {
+                        id: animRebondEp
+                        NumberAnimation { target: itemEp; property: "y"; to: -8; duration: 120; easing.type: Easing.OutQuad }
+                        NumberAnimation { target: itemEp; property: "y"; to: 0; duration: 220; easing.type: Easing.OutBounce }
+                    }
+
                     TapHandler {
+                        id: tapEp
                         onTapped: {
+                            animRebondEp.restart();
                             bureau.dire(pont.lancer(parent.app.id));
                             pont.effacerBadge(parent.app.id);
                             bureau.relire();
@@ -356,10 +384,23 @@ Window {
                         / Math.max(1, barre.ouvertures.length)))
                     height: 34
                     radius: 8
-                    color: modelData.active ? Theme.verre2
-                                            : (survolF.hovered ? Qt.rgba(1,1,1,0.03)
-                                                               : "transparent")
-                    Behavior on color { ColorAnimation { duration: 130 } }
+
+                    scale: tapF.pressed ? 0.96 : 1.0
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: tapF.pressed ? Theme.dureePression : Theme.dureeRapide
+                            easing.type: Easing.OutCubic
+                        }
+                    }
+
+                    color: tapF.pressed ? Theme.verre3
+                         : (modelData.active ? Theme.verre2
+                                             : (survolF.hovered ? Qt.rgba(1,1,1,0.045)
+                                                                : "transparent"))
+                    border.color: tapF.pressed ? Theme.bordVif
+                                : (modelData.active ? Theme.bord : "transparent")
+                    border.width: 1
+                    Behavior on color { ColorAnimation { duration: 100 } }
 
                     // Le liseré du monde : rouge Linux, bleu Windows, vert
                     // Android. La meme grammaire que les etoiles du ciel.
@@ -423,6 +464,7 @@ Window {
                     ToolTip.delay: 400
 
                     TapHandler {
+                        id: tapF
                         onTapped: barre.activation(modelData.id,
                                                    modelData.active === true)
                     }
@@ -908,10 +950,18 @@ Window {
             // gauche l'un sous l'autre plutot qu'alignes a droite comme
             // prevu. La largeur se fixe une fois, sur le plus large des deux.
             width: Math.max(horloge.implicitWidth, dateDuJour.implicitWidth)
-            anchors.right: parent.right
-            anchors.rightMargin: 16
+            anchors.right: etoileOption.left
+            anchors.rightMargin: 12
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 1
+            scale: tapHorloge.pressed ? 0.94 : (survolHorloge.hovered ? 1.05 : 1.0)
+            Behavior on scale {
+                NumberAnimation {
+                    duration: tapHorloge.pressed ? Theme.dureePression : Theme.dureeRapide
+                    easing.type: Easing.OutCubic
+                }
+            }
+
+            HoverHandler { id: survolHorloge; cursorShape: Qt.PointingHandCursor }
 
             Text {
                 id: horloge
@@ -951,9 +1001,75 @@ Window {
             // pour le survol ; ici c'est un TapHandler, comme les etoiles et
             // les epinglees.
             TapHandler {
+                id: tapHorloge
                 acceptedButtons: Qt.LeftButton
                 onTapped: calendrier.ouvrirPour(
                     horlogeEtDate.x + horlogeEtDate.width / 2)
+            }
+        }
+
+        // ── L'étoile option (réglages rapides) ──────────────────────────────
+        // Placée à côté de l'heure, pile sous la colonne des réglages.
+        // Un clic fait monter la barre de réglages au-dessus de la barre des tâches.
+        Rectangle {
+            id: etoileOption
+            width: 32
+            height: 32
+            radius: 16
+            anchors.right: parent.right
+            anchors.rightMargin: 14
+            anchors.verticalCenter: parent.verticalCenter
+
+            color: tapOption.pressed ? Theme.verre3
+                                     : (barre.reglagesOuverts ? Theme.verre2
+                                                              : (survolOption.hovered ? Theme.verre2 : "transparent"))
+            border.color: tapOption.pressed ? Theme.bordVif
+                                            : (barre.reglagesOuverts ? Theme.bordVif
+                                                                     : (survolOption.hovered ? Theme.bord : "transparent"))
+            border.width: 1
+            antialiasing: true
+
+            scale: tapOption.pressed ? 0.90 : (survolOption.hovered ? 1.08 : 1.0)
+            Behavior on scale {
+                NumberAnimation {
+                    duration: tapOption.pressed ? Theme.dureePression : Theme.dureeRapide
+                    easing.type: Easing.OutCubic
+                }
+            }
+            Behavior on color { ColorAnimation { duration: Theme.dureeRapide } }
+            Behavior on border.color { ColorAnimation { duration: Theme.dureeRapide } }
+
+            HoverHandler {
+                id: survolOption
+                cursorShape: Qt.PointingHandCursor
+            }
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: 22
+                height: 22
+                radius: 11
+                color: "transparent"
+                border.color: barre.reglagesOuverts ? Theme.lienVif : (survolOption.hovered ? Theme.texte2 : Theme.texte3)
+                border.width: 1.5
+                opacity: barre.reglagesOuverts ? 0.9 : 0.5
+                Behavior on border.color { ColorAnimation { duration: Theme.dureeRapide } }
+                Behavior on opacity { NumberAnimation { duration: Theme.dureeRapide } }
+            }
+
+            Glyphe {
+                anchors.centerIn: parent
+                width: 14
+                height: 14
+                nom: "i-reglages"
+                couleur: barre.reglagesOuverts ? Theme.texte : (survolOption.hovered ? Theme.texte : Theme.texte2)
+                Behavior on couleur { ColorAnimation { duration: Theme.dureeRapide } }
+            }
+
+            TapHandler {
+                id: tapOption
+                acceptedButtons: Qt.LeftButton
+                onTapped: barre.reglagesDemandes()
             }
         }
     }

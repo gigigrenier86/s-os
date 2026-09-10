@@ -18,14 +18,25 @@ Item {
     implicitHeight: 38
     width: parent ? parent.width : implicitWidth
 
+    scale: tapR.pressed ? 0.97 : 1.0
+    Behavior on scale {
+        NumberAnimation {
+            duration: tapR.pressed ? Theme.dureePression : Theme.dureeRapide
+            easing.type: Easing.OutCubic
+        }
+    }
+
     HoverHandler { id: survol; cursorShape: Qt.PointingHandCursor }
 
     Rectangle {
         anchors.fill: parent
         radius: 8
-        color: !survol.hovered ? "transparent"
-                               : (rangee.grave ? Qt.rgba(1, 0.30, 0.30, 0.14) : Theme.verre2)
-        Behavior on color { ColorAnimation { duration: 140 } }
+        color: tapR.pressed ? Theme.verre3
+             : (!survol.hovered ? "transparent"
+                                : (rangee.grave ? Qt.rgba(1, 0.30, 0.30, 0.14) : Theme.verre2))
+        border.color: tapR.pressed ? Theme.bordVif : "transparent"
+        border.width: 1
+        Behavior on color { ColorAnimation { duration: 100 } }
     }
 
     Row {
@@ -64,5 +75,5 @@ Item {
         }
     }
 
-    TapHandler { onTapped: rangee.choisi() }
+    TapHandler { id: tapR; onTapped: rangee.choisi() }
 }

@@ -479,9 +479,12 @@ class Pont(QObject):
         if deploye:
             fenetre.setMask(QRegion(QRect(0, 0, largeur, hauteur)))
         else:
-            hauteur_ligne = max(0, hauteur - marge_haut - marge_bas)
-            fenetre.setMask(QRegion(
-                QRect(largeur - ligne, marge_haut, ligne, hauteur_ligne)))
+            # PLUS AUCUNE ZONE SENSIBLE AU BORD DE L'ECRAN — demande de
+            # l'utilisateur du 2026-09-10 : la barre ne doit plus pop en
+            # touchant le bord de l'ecran. Repliee, elle n'intercepte aucun
+            # evenement (masque vide) et laisse tout passer au bureau/fenetres.
+            # L'ouverture se fait par l'etoile option a cote de l'heure.
+            fenetre.setMask(QRegion())
 
     @Slot(QWindow, int)
     def bornerBarre(self, fenetre, sensible):

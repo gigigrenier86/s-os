@@ -72,8 +72,13 @@ Item {
     implicitWidth: diametre
     implicitHeight: diametre
 
-    scale: survol.hovered ? 1.10 : 1.0
-    Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+    scale: tapEtoile.pressed ? 0.90 : (survol.hovered ? 1.10 : 1.0)
+    Behavior on scale {
+        NumberAnimation {
+            duration: tapEtoile.pressed ? Theme.dureePression : Theme.dureeRapide
+            easing.type: Easing.OutCubic
+        }
+    }
 
     // UN REGLAGE PEUT ETRE VERROUILLE, et le curseur le dit avant le clic.
     // Le Wi-Fi de cette machine est la seule voie vers le reseau : l'eteindre
@@ -91,8 +96,10 @@ Item {
     Rectangle {
         anchors.fill: parent
         radius: width / 2
-        color: survol.hovered ? Theme.verre2 : "transparent"
-        Behavior on color { ColorAnimation { duration: 160 } }
+        color: tapEtoile.pressed ? Theme.verre3 : (survol.hovered ? Theme.verre2 : "transparent")
+        border.color: tapEtoile.pressed ? Theme.bordVif : "transparent"
+        border.width: 1
+        Behavior on color { ColorAnimation { duration: 100 } }
     }
 
     Anneau {
@@ -113,6 +120,7 @@ Item {
     }
 
     TapHandler {
+        id: tapEtoile
         acceptedButtons: Qt.LeftButton
         onTapped: {
             // CLIQUER SUR UNE JAUGE OUVRE UNE GLISSIERE, il ne bascule rien.

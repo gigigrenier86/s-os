@@ -379,7 +379,9 @@ ApplicationWindow {
                 var cible = ciel.childAt(evenement.position.x, evenement.position.y);
                 if (cible && cible.app !== undefined) return;
                 ciel.forceActiveFocus();
+                ciel.choisirDans(null);
                 if (menuDemarrer.visible) menuDemarrer.close();
+                if (laterale.deploye) laterale.deploye = false;
             }
         }
 
@@ -697,6 +699,10 @@ ApplicationWindow {
                 fenetres.activerBureau();
             menuDemarrer.visible ? menuDemarrer.close() : menuDemarrer.open();
         }
+        reglagesOuverts: laterale.deploye
+        onReglagesDemandes: {
+            laterale.deploye = !laterale.deploye;
+        }
     }
 
     // ══ 3 bis. LA BARRE LATERALE ══════════════════════════════════════════
@@ -756,10 +762,17 @@ ApplicationWindow {
         background: Verre { radius: Theme.rayon }
 
         enter: Transition {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 220 }
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: Theme.dureeNormale; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "scale"; from: 0.96; to: 1.0; duration: Theme.dureeNormale; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "y"; from: bureau.height - menuDemarrer.height - 64; to: bureau.height - menuDemarrer.height - 84; duration: Theme.dureeNormale; easing.type: Easing.OutCubic }
+            }
         }
         exit: Transition {
-            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 220 }
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: Theme.dureeRapide; easing.type: Easing.InQuad }
+                NumberAnimation { property: "scale"; from: 1.0; to: 0.97; duration: Theme.dureeRapide; easing.type: Easing.InQuad }
+            }
         }
 
         clip: true
@@ -866,6 +879,13 @@ ApplicationWindow {
                             readonly property bool actif: menuDemarrer.vue === modelData.cle
                             width: contenuOnglet.width + 24
                             height: 37
+                            scale: tapOnglet.pressed ? 0.95 : 1.0
+                            Behavior on scale {
+                                NumberAnimation {
+                                    duration: tapOnglet.pressed ? Theme.dureePression : Theme.dureeRapide
+                                    easing.type: Easing.OutCubic
+                                }
+                            }
                             HoverHandler { id: survolOnglet; cursorShape: Qt.PointingHandCursor }
                             Row {
                                 id: contenuOnglet
@@ -876,7 +896,8 @@ ApplicationWindow {
                                     anchors.verticalCenter: parent.verticalCenter
                                     nom: modelData.ico
                                     couleur: actif ? Theme.texte
-                                                   : (survolOnglet.hovered ? Theme.texte2 : Theme.texte3)
+                                                   : (tapOnglet.pressed ? Theme.texte : (survolOnglet.hovered ? Theme.texte2 : Theme.texte3))
+                                    Behavior on couleur { ColorAnimation { duration: Theme.dureeRapide } }
                                 }
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
@@ -884,15 +905,21 @@ ApplicationWindow {
                                     font.family: Theme.police
                                     font.pixelSize: 12
                                     color: actif ? Theme.texte
-                                                 : (survolOnglet.hovered ? Theme.texte2 : Theme.texte3)
+                                                 : (tapOnglet.pressed ? Theme.texte : (survolOnglet.hovered ? Theme.texte2 : Theme.texte3))
+                                    Behavior on color { ColorAnimation { duration: Theme.dureeRapide } }
                                 }
                             }
                             Rectangle {
                                 anchors.bottom: parent.bottom
                                 width: parent.width; height: 2
+                                radius: 1
                                 color: actif ? Theme.texte : "transparent"
+                                Behavior on color { ColorAnimation { duration: Theme.dureeRapide } }
                             }
-                            TapHandler { onTapped: menuDemarrer.vue = modelData.cle }
+                            TapHandler {
+                                id: tapOnglet
+                                onTapped: menuDemarrer.vue = modelData.cle
+                            }
                         }
                     }
                 }
@@ -1362,6 +1389,16 @@ ApplicationWindow {
             implicitWidth: 232
         }
 
+        enter: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: Theme.dureeRapide; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "scale"; from: 0.94; to: 1.0; duration: Theme.dureeRapide; easing.type: Easing.OutCubic }
+            }
+        }
+        exit: Transition {
+            NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: 100 }
+        }
+
         ArticleMenu {
             text: "Ouvrir"
             onTriggered: {
@@ -1545,6 +1582,16 @@ ApplicationWindow {
         background: Verre {
             radius: 8
             implicitWidth: 244
+        }
+
+        enter: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: Theme.dureeRapide; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "scale"; from: 0.94; to: 1.0; duration: Theme.dureeRapide; easing.type: Easing.OutCubic }
+            }
+        }
+        exit: Transition {
+            NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: 100 }
         }
 
         ArticleMenu {

@@ -17,6 +17,7 @@ QtObject {
     readonly property color espace:   "#050510"
     readonly property color verre:    Qt.rgba(12 / 255, 12 / 255, 20 / 255, 0.86)
     readonly property color verre2:   Qt.rgba(1, 1, 1, 0.045)
+    readonly property color verre3:   Qt.rgba(1, 1, 1, 0.12)
     readonly property color bord:     Qt.rgba(1, 1, 1, 0.09)
     readonly property color bordVif:  Qt.rgba(1, 1, 1, 0.22)
     readonly property color texte:    "#eef0f6"
@@ -27,6 +28,12 @@ QtObject {
 
     readonly property int rayon:      12
     readonly property int sphere:     40
+
+    // Constantes d'animation harmonisées (micro-interactions tactiles & fluidité)
+    readonly property int dureePression: 100
+    readonly property int dureeRapide:   140
+    readonly property int dureeNormale:  200
+    readonly property int dureeRessort:  260
 
     readonly property string police:     "IBM Plex Sans"
     readonly property string policeMono: "IBM Plex Mono"
