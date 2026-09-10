@@ -65,12 +65,14 @@ echo "  polices       : $(fc-list 2>/dev/null | grep -ci 'IBM Plex' || true) fic
 # --- Les gestes de la session ---------------------------------------------
 # Le bit d'execution ne survit pas a un depot edite sous Windows ; on le repose
 # plutot que de dependre de ce que git a bien voulu enregistrer.
-chmod 0755 /usr/bin/s-session /usr/bin/s-coquille /usr/bin/s-constellation
+chmod 0755 /usr/bin/s-session /usr/bin/s-coquille /usr/bin/s-constellation \
+    /usr/bin/s-salon-session
 
 # Une faute de syntaxe ne se verrait qu'au premier ouverture de session,
 # c'est-a-dire sur un ecran noir. Elle se voit ici en une seconde.
 bash -n /usr/bin/s-session
 bash -n /usr/bin/s-coquille
+bash -n /usr/bin/s-salon-session
 python3 -m py_compile /usr/bin/s-constellation /usr/lib/s/noyau.py
 rm -rf /usr/bin/__pycache__ /usr/lib/s/__pycache__ /root/.cache 2>/dev/null || true
 echo "  syntaxe       : session, coquille, coquille native et noyau analyses"
@@ -148,7 +150,7 @@ for f in /usr/share/wayland-sessions/*.desktop /usr/share/xsessions/*.desktop; d
     [[ -f "$f" ]] || continue
     base="$(basename "$f")"
     case "$base" in
-        s.desktop|s-secours.desktop) echo "    $base  (gardee)"; continue ;;
+        s.desktop|s-secours.desktop|s-salon.desktop) echo "    $base  (gardee)"; continue ;;
     esac
     grep -q '^NoDisplay=true' "$f" || printf 'NoDisplay=true\n' >> "$f"
     echo "    $base  masquee"
@@ -156,14 +158,31 @@ for f in /usr/share/wayland-sessions/*.desktop /usr/share/xsessions/*.desktop; d
 done
 echo "  sessions masquees : $masquees"
 
-for s in /usr/share/wayland-sessions/s.desktop /usr/share/wayland-sessions/s-secours.desktop; do
+for s in /usr/share/wayland-sessions/s.desktop /usr/share/wayland-sessions/s-secours.desktop \
+         /usr/share/wayland-sessions/s-salon.desktop; do
     [[ -s "$s" ]] || { echo "ECHEC : $s absente." >&2; exit 1; }
 done
 test -x /usr/bin/s-session
+test -x /usr/bin/s-salon-session
 grep -q '^Name=S$' /usr/share/wayland-sessions/s.desktop
 
 if [[ ! -x /usr/bin/startplasma-wayland ]]; then
     echo "  ATTENTION : /usr/bin/startplasma-wayland absent — le bureau de secours ne demarrera pas." >&2
 fi
+
+# MODE SALON NE VAUT RIEN SANS GAMESCOPE NI STEAM. Les deux viennent de la
+# base (Terra pour gamescope, le depot Steam pour steam) — on ne les
+# construit pas, on verifie juste qu'ils sont toujours la plutot que de
+# laisser une session choisie au greeter echouer en silence sur un « command
+# not found » que personne ne verrait avant de s'y connecter.
+if [[ ! -x /usr/bin/gamescope ]]; then
+    echo "ECHEC : /usr/bin/gamescope absent — Mode Salon ne demarrerait jamais." >&2
+    exit 1
+fi
+if [[ ! -x /usr/bin/steam ]]; then
+    echo "ECHEC : /usr/bin/steam absent — Mode Salon ne demarrerait jamais." >&2
+    exit 1
+fi
+echo "  mode salon    : gamescope et steam presents, session prete"
 
 echo "=== 36-constellation : la session S est posee ==="

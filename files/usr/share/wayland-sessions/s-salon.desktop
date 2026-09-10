@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=S — Salon
+Comment=Steam Big Picture, plein écran, à la manette — ferme Constellation le temps d'y être
+Exec=/usr/bin/s-salon-session
+TryExec=/usr/bin/s-salon-session
+DesktopNames=gamescope
+Icon=applications-games
+X-KDE-PluginInfo-Name=s-salon

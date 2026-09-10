@@ -1,0 +1,86 @@
+#!/usr/bin/bash
+# Mode Salon — ce que le greeter lance quand on choisit « S — Salon ».
+#
+# CE N'EST PAS UNE FENETRE DE PLUS DANS CONSTELLATION. C'est une session a
+# part entiere, au meme rang que « S » et « S — bureau de secours » dans le
+# menu du greeter — decision de l'utilisateur (2026-09-10), prise en
+# connaissance de l'autre option (une bascule reversible a l'interieur de
+# Constellation, qui aurait garde Windows/Android joignables en arriere-plan).
+# Ici, choisir « Salon » ferme Constellation le temps d'y etre ; s'en
+# deconnecter la retrouve, comme n'importe quel changement de session.
+#
+# GAMESCOPE EST DEJA LE COMPOSITEUR — encore la regle « on ne reimplemente
+# pas ce que l'amont maintient ». kwin_wayland n'a rien a faire ici : gamescope
+# sait deja tout ce qu'il faut (Xwayland, la mise a l'echelle, le DRM direct)
+# et c'est EXACTEMENT ce que fait un vrai SteamOS. Le composer avec kwin comme
+# la session « S » n'ajouterait qu'une couche pour rien.
+#
+# EPROUVE EN MODE IMBRIQUE (--backend wayland), PAS ENCORE EN DRM DIRECT.
+# Le 2026-09-10, sur cette machine (Intel UHD 630) : la fenetre gamescope
+# nait, Steam Big Picture Mode rend sa vraie bibliotheque, geree par
+# fenetres.js sans aucun cas particulier a ecrire, et tout se referme
+# proprement sur un seul kill -TERM du processus gamescope — toute la
+# descendance (gamescopereaper, steam.sh, les steamwebhelper CEF) s'eteint
+# avec lui. Ce fichier passe en --backend drm, le vrai mode console : la
+# meme prise d'ecran directe n'a pas encore ete mesuree.
+#
+# LE MODE JEU S'APPLIQUE A L'ENTREE ET SE DEFAIT A LA SORTIE, DANS LE MEME
+# SCRIPT — d'ou gamescope n'est PAS execute avec « exec ». Un « exec » aurait
+# remplace ce script par gamescope lui-meme : plus aucun code n'aurait pu
+# tourner une fois Big Picture ferme, et la machine serait restee en profil
+# Jeu (GPU au plafond, effets coupes, Android arrete) apres un retour au
+# greeter — decouvert en testant l'entree automatique du mode Jeu le
+# 2026-09-10, demande symetrique de l'utilisateur pour la sortie.
+set -uo pipefail
+
+JOURNAL="${XDG_STATE_HOME:-$HOME/.local/state}/s"
+mkdir -p "$JOURNAL"
+
+if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]] && command -v dbus-run-session >/dev/null 2>&1; then
+    exec dbus-run-session -- "$0" "$@"
+fi
+
+if ! command -v gamescope >/dev/null 2>&1; then
+    echo "s-salon-session : gamescope introuvable." >&2
+    exit 1
+fi
+if ! command -v steam >/dev/null 2>&1; then
+    echo "s-salon-session : steam introuvable." >&2
+    exit 1
+fi
+
+# LE PROFIL EST REPRIS, JAMAIS REECRIT — meme mecanisme que le reglage
+# « Mode S » de la barre laterale de Constellation (reglages.py::_regler_mode,
+# 2026-09-01). Un echec ici degrade la session (pas de bascule de
+# performance) mais ne doit jamais l'empecher de demarrer ou de rendre la
+# main au greeter : brancher une manette et jouer compte plus que le profil
+# tuned, et rester coince en Salon compte plus que le profil Travail.
+_appliquer_mode() {
+    local cible="$1"
+    if python3 -c "
+import sys
+sys.path.insert(0, '/usr/lib/s')
+import reglages
+ok, detail = reglages.regler('mode', '$cible')
+sys.exit(0 if ok else 1)
+" 2>>"$JOURNAL/salon.log"; then
+        echo "s-salon-session : profil $cible applique." >> "$JOURNAL/salon.log"
+    else
+        echo "s-salon-session : profil $cible non applique, on continue quand meme." \
+            >> "$JOURNAL/salon.log"
+    fi
+}
+
+_appliquer_mode jeu
+
+gamescope --backend drm -- steam -tenfoot
+CODE=$?
+
+# TOUJOURS REPASSER EN TRAVAIL, MEME SI GAMESCOPE A MAL FINI. Un plantage de
+# Steam ne doit pas laisser la machine tournant a plein regime, GPU au
+# plafond, jusqu'a la prochaine ouverture de session S. Android, lui, ne
+# redemarre jamais tout seul ici — c'est deja la regle du 2026-09-01 pour
+# tout retour au mode Travail, et elle vaut aussi en sortant du Salon.
+_appliquer_mode travail
+
+exit "$CODE"

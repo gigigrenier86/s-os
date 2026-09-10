@@ -8,6 +8,161 @@ Interface en français.
 
 ---
 
+## 2026-09-10, suite — sept vidéos passées au crible, et « Mode Salon » sort du lot, prouvé au banc
+
+Demande de l'utilisateur, après chargement des quatre rôles : analyser
+sept liens YouTube et dire ce qui vaut la peine d'entrer dans S. Plan
+complet dans le fichier de session ; résumé ici, avec la mesure faite
+après approbation du plan.
+
+**Six vidéos sur sept n'ont rien donné, et c'est un verdict, pas une
+esquive.** Elles visent toutes un public qui cherche le système le plus
+léger possible pour du matériel très ancien (Core 2 Duo, 2 Go de RAM) —
+Q4OS, Lubuntu, Linux Lite, Puppy, Bodhi, PrimeOS (Android-x86 qui
+remplace tout l'OS, contrairement à Waydroid qui partage la session avec
+Linux et Windows), Zorin OS (vendu sur son imitation de Windows, un
+problème que S n'a pas puisque les vrais programmes Windows tournent déjà
+sous Wine avec leur vraie apparence). Le Hackintosh (macOS sur PC non
+Apple) a été explicitement écarté : contrairement à Wine (réimplémentation
+propre) et Waydroid (AOSP), un Hackintosh démarre le vrai noyau Apple sur
+du matériel non-Apple — violation directe de la licence macOS, pas une
+zone grise, et une compatibilité matérielle en loterie. Aucune mesure
+n'était nécessaire pour trancher celui-là.
+
+**La septième — « SteamOS Is Free Now… So I Turned My Mini PC Into a
+Steam Machine! » — a débouché sur un vrai chantier, et il a été éprouvé
+en direct sur cette machine avant d'écrire le moindre fichier de
+session.** Relevé d'abord, sans toucher à rien : `/usr/bin/gamescope`
+(3.16.19, Terra) et `/usr/bin/steam` (1.0.0.87) sont déjà dans l'image ;
+aucun `gamescope-session-plus` en revanche — l'entrée du 2026-09-04 avait
+déjà écarté ce paquet, mais il visait le bundle **matériel de portable**
+(hhd, gyroscope) de la ROG Ally, pas une session de salon sur cette
+machine. Les deux verdicts ne se contredisent pas.
+
+**Éprouvé en mode imbriqué (`--backend wayland`), jamais `--backend drm`**
+— le second aurait pu disputer l'écran à `kwin_wayland` sans avertir,
+l'utilisateur l'a écarté explicitement au profit du mode fenêtre :
+
+```
+gamescope --backend wayland -w 1280 -h 800 -- steam -tenfoot
+```
+
+Le témoin kwin (même patron D-Bus que partout ailleurs dans ce dépôt) a
+montré la fenêtre naître, `gamescope | Steam Big Picture Mode`, bornée
+automatiquement à `1920x1028` par la logique de fenêtres déjà existante de
+`fenetres.js` — **sans aucun cas particulier à écrire**, gamescope est
+traité comme n'importe quelle fenêtre Linux normale. Capturée deux fois :
+d'abord l'écran de chargement Steam, puis, quinze secondes plus tard, la
+**vraie bibliothèque Big Picture rendue en entier** — vignettes de jeux,
+écran « Set up Parental Controls » du tout premier lancement, compte réel
+connecté. Refermé par `kill -TERM` sur le seul PID de `gamescope` : toute
+la descendance (`gamescopereaper`, `steam.sh`, le client, les
+`steamwebhelper` CEF) s'est éteinte d'un coup, zéro résidu — vérifié par
+un second `ps aux`. Le focus est revenu à VS Code, où l'utilisateur
+travaillait, sans qu'il ait rien eu à faire.
+
+**Décision de l'utilisateur pour la version réelle : remplacement complet
+au greeter**, pas une bascule dans Constellation — une session « Mode
+Salon » au même rang que « S » et « S — bureau de secours », en
+`--backend drm` cette fois (le vrai mode console, écran de TV, manette).
+Aucune image externe à télécharger : l'icône se compose sur place, comme
+`s-logo`/`s-web`, dans la même langue visuelle du S de verre brisé.
+
+### Ce que cette passe ne prouve pas
+
+- **Le mode `--backend drm` n'a pas été essayé** — seul le mode imbriqué,
+  délibérément plus prudent, l'a été. Rien ne dit encore comment gamescope
+  se comporte en prenant l'écran directement sur cette machine.
+- **Aucun fichier de session n'existe.** `s-salon.desktop` et
+  `s-salon-session` sont décrits dans le plan, pas écrits — ce test ne
+  visait qu'à répondre « est-ce que gamescope + Steam Big Picture rendent
+  proprement sur cet iGPU », pas à livrer la fonctionnalité.
+- **Aucune manette n'a été branchée** pour cet essai — la navigation dans
+  Big Picture n'a été vérifiée par aucun geste, seule l'apparence à
+  l'écran l'a été.
+- **Le profil « Mode S: Jeu » n'a pas été basculé** avant ce test — le
+  chantier prévoit de le réutiliser, mais ce banc a tourné sous le
+  profil `tuned` courant de la session, sans y toucher.
+
+### Addendum, la même nuit — les fichiers de session écrits, et une vraie faute commise en les vérifiant
+
+Décision de l'utilisateur : construire `s-salon.desktop`/`s-salon-session`
+maintenant, sans encore les déployer ni essayer le vrai `--backend drm`.
+
+**Écrits sur le patron exact de `s.desktop`/`s-session`** : `s-salon-session`
+ne recrée pas la boucle de choix de compositeur de `s-session` — gamescope
+**est** déjà le compositeur en `--backend drm`, y ajouter kwin serait une
+couche pour rien. Il tente `reglages.regler("mode", "jeu")` avant d'exécuter
+gamescope, jamais bloquant si ça échoue (brancher une manette compte plus
+que le profil tuned). `s-salon.desktop` reprend `DesktopNames=gamescope`,
+la convention de l'amont pour ce genre de session (pas `DesktopNames=S` :
+aucun `kwin`/portail KDE ne tourne dans ce mode). Icône provisoire,
+`applications-games` — une vraie icône Breeze, vérifiée présente sur le
+disque avant d'être citée, même prudence que l'icône provisoire de S Web
+le 2026-09-07. `build_files/36-constellation.sh` étendu aux quatre points
+qui l'auraient laissé de côté sans qu'on le remarque avant un vrai clic au
+greeter : le bit d'exécution, la syntaxe bash, **la liste des sessions
+« gardées »** (sans ça, le masquage des sessions de l'amont aurait pris
+`s-salon.desktop` pour une session étrangère et lui aurait collé
+`NoDisplay=true`), et un contrôle neuf — `gamescope`/`steam` présents dans
+l'image, pour ne pas découvrir leur absence au premier clic sur « Salon »
+plutôt qu'à la construction.
+
+**Une vraie faute, commise en voulant seulement vérifier.** Pour confirmer
+que l'appel Python inséré dans `s-salon-session` était syntaxiquement bon,
+il a été exécuté « en isolation » — sauf que `reglages.regler("mode", "jeu")`
+n'a rien d'isolé : c'est un appel à effets de bord réels, pas une fonction
+pure. **Il a basculé pour de vrai la session en cours** de l'utilisateur —
+profil `tuned` en `accelerator-performance`, GPU forcé au maximum, effets
+kwin coupés, **et Android arrêté** — sans qu'aucun geste de sa part ne l'ait
+demandé. Trouvé en relisant ce que la fonction fait réellement (elle est
+décrite dans `reglages.py` comme appelant `_regler_energie`/`_regler_gpu`/
+`_regler_effets_kwin`/`_arreter_android`, aucune de ces quatre n'est une
+lecture), pas en le devinant. Corrigé dans la minute — `reglages.regler(
+"mode", "travail")` — mais **Android est resté arrêté**, par construction
+(voir l'entrée du 2026-09-01 : « Android n'est jamais redémarré
+automatiquement en sortant du mode Jeu ») : c'est le reglage « Android »
+de la barre latérale qui le rallume, à la main. *La leçon à retenir : lire
+la signature d'une fonction ne dit pas si elle est pure — ici, rien dans
+son nom (`regler`) ne l'annonçait, et seule la lecture de son corps le
+montrait.*
+
+**Symétrie demandée par l'utilisateur, posée dans la foulée : la sortie
+défait ce que l'entrée a fait.** La première version faisait
+`exec gamescope …` — et un `exec` remplace le script par gamescope
+lui-même, donc **aucun code n'aurait pu tourner après la fermeture de
+Big Picture** : la machine serait restée en profil Jeu (GPU au plafond,
+effets coupés, Android arrêté) jusqu'à la prochaine bascule manuelle,
+même après un retour au greeter. Corrigé en n'utilisant plus `exec` pour
+gamescope — le script l'attend en avant-plan, relève son code de sortie,
+**repasse toujours en Travail** (même si gamescope s'est mal terminé —
+un plantage ne doit pas laisser la machine à plein régime jusqu'au
+prochain geste manuel), puis rend ce code de sortie au greeter. La
+bascule est factorisée dans une seule fonction (`_appliquer_mode`),
+appelée une fois à l'entrée avec `jeu`, une fois à la sortie avec
+`travail` — jamais deux chemins de code qui pourraient diverger.
+
+### Ce que cet addendum ne prouve pas
+
+- **`--backend drm` n'est toujours pas essayé.** Les fichiers sont écrits
+  et passent les contrôles statiques (syntaxe, présence, `desktop-file-
+  validate` — qui se plaint de `DesktopNames` de la même façon sur les
+  trois fichiers de session, `s.desktop`/`s-secours.desktop` compris :
+  un faux positif déjà accepté dans ce dépôt, pas un défaut neuf).
+- **La bascule automatique à l'entrée ET au retour n'a pas été rejouée de
+  bout en bout.** Elle a été mesurée une fois côté entrée (par la faute
+  ci-dessus, corrigée depuis) et une fois côté sortie (relecture du code,
+  pas un vrai cycle complet gamescope-lancé-puis-fermé).
+- **Rien n'est construit ni déployé.** Il faut une construction, un
+  `bootc upgrade`, un redémarrage, et un choix explicite de « S — Salon »
+  au greeter avant que quiconque voie cette session pour de vrai.
+- **Android est resté arrêté après la session de test de cette nuit** — le
+  script neuf le laisserait pareil après un vrai passage par Salon (règle
+  déjà en place depuis le 2026-09-01) ; à relancer à la main si
+  l'utilisateur le veut de retour, comme toujours en sortant du mode Jeu.
+
+---
+
 ## 2026-09-10 — le glisser-déposer depuis le bureau de Constellation marche enfin, vers Linux ET vers Wine
 
 Demande de l'utilisateur, testant en direct le Bloc-notes déjà ouvert pour
