@@ -8,6 +8,113 @@ Interface en français.
 
 ---
 
+## 2026-09-10 — le glisser-déposer depuis le bureau de Constellation marche enfin, vers Linux ET vers Wine
+
+Demande de l'utilisateur, testant en direct le Bloc-notes déjà ouvert pour
+le correctif du clic sur le bureau : « ah, ça semble fonctionner quand
+c'est pas du bureau, mais faudrait ça fonctionne aussi du bureau ». C'est
+l'item 2 du triage des six chantiers (« glisser-déposer inter-mondes »),
+jamais construit — seulement diagnostiqué et refermé le 2026-08-27 sur un
+constat négatif.
+
+### Ce que le code confirmait, avant d'y toucher
+
+`Astre.qml` (l'étoile du ciel de Constellation) ne portait qu'un
+`DragHandler { target: astre }` ordinaire, qui écrit `astre.x`/`astre.y` —
+un déplacement purement interne à la scène QML. **Aucune trace de l'API
+`Drag` de Qt Quick** (`Drag.active`, `Drag.mimeData`, `Drag.dragType`) :
+exactement ce que le carnet établissait déjà par lecture de code le
+2026-08-27 (« Aucune session Wayland `wl_data_device.start_drag` n'est
+donc jamais initiée par un « glisser » d'astre sur le ciel »).
+
+### Une mesure au banc avant d'écrire le correctif — et une hypothèse à moitié vraie
+
+Une fenêtre QtQuick jetable minimale (`Rectangle` + `DragHandler` +
+`Drag.active`/`Drag.mimeData`, jamais une fenêtre de l'utilisateur), lancée
+sous `WAYLAND_DEBUG=1`. **`wl_data_device.start_drag` est bel et bien
+émis** — Qt Quick sait déclencher un vrai glisser-déposer Wayland dès que
+`Drag.active` suit un `DragHandler`, contrairement à ce qu'une lecture
+rapide du mur du 2026-08-27 aurait pu laisser croire (ce mur concernait
+Dolphin→Wine, jamais Constellation→quoi que ce soit, puisque Constellation
+n'avait jamais essayé). Mais dans ce premier essai, dirigé par
+l'utilisateur vers le Bloc-notes déjà ouvert : **`dnd_drop_performed()`
+suivi immédiatement de `cancelled()`, trois fois de suite** — la dépose est
+reconnue par le compositeur, rien n'est délivré côté Wine. Exactement le
+symptôme déjà mesuré le 2026-08-27 avec Dolphin.
+
+### Le correctif, posé sur le vrai composant
+
+Ajouté à `Astre.qml`, à côté du `DragHandler` existant qui continue de
+gérer le déplacement interne sans rien y changer :
+
+```qml
+property string cheminGlissable: app.chemin || ""
+Drag.active: glisser.active && astre.cheminGlissable !== ""
+Drag.dragType: Drag.Automatic
+Drag.mimeData: cheminGlissable !== ""
+    ? { "text/uri-list": "file://" + encodeURI(cheminGlissable) }
+    : ({})
+```
+
+**Seuls les vrais fichiers ont un contenu à offrir.** `app.chemin` n'existe
+(`noyau.py::fichiers_bureau()`/`composer_etoiles()`) que pour ce qui vient
+du disque — jamais pour un lanceur d'application, qui porte `app.fichier`
+(le `.desktop`), pas `app.chemin`. Glisser l'icône d'une application
+continue donc de ne faire QUE la déplacer dans le ciel, comme avant —
+glisser un lanceur vers l'extérieur n'avait de toute façon aucun sens
+défini.
+
+### Éprouvé sur le vrai composant, pas une reproduction — et ça marche, dans les deux sens
+
+Le vrai `Astre.qml` du dépôt, chargé dans une seconde fenêtre jetable
+(`import`s de répertoire résolus normalement, `Theme`/`Session` compris,
+via `qmldir`), avec une fausse entrée `app.chemin` pointant sur un fichier
+texte réel. **Glissé par l'utilisateur, en un seul geste continu, sur
+deux cibles réelles :**
+
+- **VS Code** — le fichier s'est ouvert dans l'éditeur (confirmé par la
+  notification IDE elle-même : « The user opened the file … in the IDE »).
+- **Le Bloc-notes de Windows, déjà ouvert sous GE-Proton11/Xwayland** —
+  **le fichier s'est ouvert avec son contenu affiché**, titre de fenêtre
+  `glisser-test.txt - Bloc-notes`, capture d'écran de l'utilisateur à
+  l'appui.
+
+**Ça renverse, au moins pour ce mécanisme précis, le constat du
+2026-08-27** (« l'hypothèse … est réfutée sur cette machine précise »),
+qui portait sur un glisser-déposer initié par **Dolphin/KIO**. Le
+glisser-déposer initié par **Qt Quick** (`Drag.mimeData` avec un seul type
+MIME `text/uri-list`, `Drag.dragType: Drag.Automatic`) réussit là où celui
+de Dolphin échouait le même mois, sur la même chaîne Wine.
+
+**Ce qui distingue les deux mécanismes n'est pas élucidé.** Aucune
+hypothèse n'a été creusée plus loin — un seul type MIME offert plutôt que
+plusieurs, une négociation d'action différente, un GE-Proton passé de
+`UMU-Proton-10.0-4` à `GE-Proton11-6` entre-temps (2026-08-29/30), ou une
+part de non-déterminisme dans le protocole lui-même. Noté comme question
+ouverte plutôt que comme cause tranchée.
+
+### Ce que cette passe ne prouve pas
+
+- **Rien n'est dans l'image, ni dans la session réelle.** Le correctif
+  tourne depuis le dépôt, dans une fenêtre jetable distincte de la vraie
+  Constellation — jamais depuis le vrai bureau de l'utilisateur. Il faut
+  soit un redémarrage de `s-constellation` en direct (patron déjà éprouvé
+  cette même nuit pour un autre correctif), soit une construction et un
+  `bootc upgrade`, pour que glisser une vraie étoile du vrai ciel fasse
+  quoi que ce soit.
+- **Glisser un dossier n'a pas été testé** — seul un fichier texte l'a été.
+  `app.chemin` porte aussi les dossiers (`fichiers_bureau()`), donc le code
+  les couvre, mais rien ne confirme qu'un `text/uri-list` vers un
+  répertoire se comporte pareil côté destination.
+- **Le sens inverse (glisser un fichier VERS le ciel de Constellation)
+  reste entier** — hors de portée de cette passe, qui ne touchait que la
+  source.
+- **Un seul programme Windows testé** (le Bloc-notes). PURPLE et PC Boost,
+  qui avaient échoué le 2026-08-27 sous Dolphin, n'ont pas été retentés
+  sous ce nouveau mécanisme.
+
+---
+
 ## 2026-09-10 — les 91 % de /var, enfin mesurés : rien à voir avec S, presque tout des résidus de construction
 
 Question de l'utilisateur : « c'est quoi qui prend toute la place sur mon

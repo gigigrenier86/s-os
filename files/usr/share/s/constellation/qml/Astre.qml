@@ -251,4 +251,25 @@ Item {
         cursorShape: Qt.ClosedHandCursor
         onActiveChanged: if (!active) astre.deplacee(astre.x, astre.y)
     }
+
+    // GLISSER-DEPOSE REEL VERS L'EXTERIEUR (2026-09-10). Jusqu'ici le
+    // DragHandler ci-dessus ne faisait QUE deplacer astre.x/astre.y dans la
+    // scene -- aucune session Wayland wl_data_device.start_drag n'etait
+    // jamais emise, confirme par lecture du code le 2026-08-27. MESURE au
+    // banc le 2026-09-10, sur une fenetre QtQuick jetable independante de ce
+    // fichier : Drag.active suivant un DragHandler.active fait bien partir
+    // un vrai start_drag, et le protocole va jusqu'a dnd_drop_performed().
+    //
+    // SEULS LES VRAIS FICHIERS ONT UN CONTENU A OFFRIR. app.chemin n'existe
+    // que pour ce que fichiers_bureau()/composer_etoiles() posent depuis le
+    // disque (noyau.py) -- jamais pour un lanceur d'application, qui porte
+    // "fichier" (le .desktop), pas "chemin". Glisser une icone d'application
+    // vers l'exterieur continue donc a ne faire QUE la deplacer dans le ciel,
+    // exactement comme avant -- rien n'y avait de sens a offrir.
+    property string cheminGlissable: app.chemin || ""
+    Drag.active: glisser.active && astre.cheminGlissable !== ""
+    Drag.dragType: Drag.Automatic
+    Drag.mimeData: cheminGlissable !== ""
+        ? { "text/uri-list": "file://" + encodeURI(cheminGlissable) }
+        : ({})
 }
