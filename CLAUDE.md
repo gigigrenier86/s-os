@@ -8,6 +8,73 @@ Interface en français.
 
 ---
 
+## 2026-09-10 — les 91 % de /var, enfin mesurés : rien à voir avec S, presque tout des résidus de construction
+
+Question de l'utilisateur : « c'est quoi qui prend toute la place sur mon
+disque dur interne ? ». Le seuil de 91 % traînait dans ce carnet depuis
+plusieurs entrées, toujours noté « pas critique, mais à surveiller »,
+jamais mesuré poste par poste.
+
+**Relevé, `du --max-depth` descendu jusqu'à trouver les vrais coupables :**
+
+| Poste | Taille | Nature |
+|---|---|---|
+| Images podman locales inutilisées | 49,3 Go (99 % du stockage podman) | résidus de `podman build` locaux (dont `s-os-verif-harnais`, 18,6 Go — une reproduction locale d'une panne CI, pratique déjà documentée plusieurs fois dans ce carnet) et neuf conteneurs de construction **buildah fantômes**, âgés de douze jours, qui tenaient encore deux images sans qu'aucun `podman ps -a` ne les montre — invisibles tant qu'on ne pense pas à `buildah containers` |
+| Corbeille KDE jamais vidée | 17,4 Go | presque entièrement deux copies de `bazzite-deck-gnome-stable-amd64.iso` (8,7 Go chacune) — l'ISO de la ROG Ally, déjà écrite sur sa clé, enquête close depuis le 2026-09-04 |
+| ISO ROG Ally restante, hors corbeille | 9,1 Go | `bazzite-deck-stable-live-amd64.iso`, même origine, jamais jetée |
+
+**Rien de tout ça n'appartient à S.** L'image réelle de S vient de
+`ghcr.io` via `bootc`, jamais du stockage podman local — celui-ci ne sert
+qu'aux reproductions locales de panne de construction, une pratique déjà
+établie et documentée (2026-08-29, 2026-08-20…), jamais nettoyée après
+coup.
+
+**Nettoyé, avec l'accord explicite de l'utilisateur pour les trois
+postes** : corbeille vidée deux fois (une fois pour faire de la place, la
+corbeille ayant elle-même atteint sa limite de taille KDE et refusant d'y
+accepter l'ISO restante — `kioclient` l'a dit en clair, « la corbeille est
+pleine »), les neuf conteneurs `buildah` fantômes retirés
+(`buildah rm --all`), puis `podman system prune -af --volumes`.
+
+**Le `prune` est allé plus loin que prévu, sans dommage.** L'intention
+était de ne retirer que les résidus de construction et de garder les
+images de base réutilisables (`ghcr.io/ublue-os/bazzite:stable`,
+`docker.io/library/debian:stable` — cette dernière servant en principe au
+mécanisme réel `.deb`/distrobox). Le `-a` les a toutes emportées, puisque
+aucune n'était activement référencée par un conteneur au moment du geste —
+`podman system df` les comptait comme « reclaimable » au même titre que le
+reste. Vérifié après coup : `distrobox list` ne montre **aucun** conteneur
+persistant sur cette machine — il n'y avait donc aucune infrastructure
+réelle à casser, seulement des images en cache que le prochain
+`podman pull`/`podman build`/install `.deb` retéléchargera tout seul. Un
+coût de bande passante différé au prochain usage, pas une perte d'état.
+
+**Résultat, mesuré :**
+
+```
+avant   233G   201G utilise   22G libre    91 %
+apres   233G   134G utilise   89G libre    61 %
+```
+
+**67 Go libérés**, sans toucher à une seule fenêtre de l'utilisateur ni à
+rien de ce qui tourne. La réserve « `/var` est à 91 % — pas critique, mais
+à surveiller », répétée depuis plusieurs entrées de ce carnet, est
+close.
+
+### Ce que cette passe ne prouve pas
+
+- **Rien n'a été mis en place pour empêcher que ça revienne.** Aucun geste
+  post-construction locale (`podman rm`/`buildah rm`/`prune`) n'est
+  automatisé après un `podman build` de diagnostic — la prochaine
+  reproduction locale d'une panne CI laissera les mêmes résidus si
+  personne n'y repense.
+- **`soul-land-awakening-world-2-7-1`** (dossier 3,3 Go + `.xapk` 1,4 Go
+  dans Téléchargements, du test ARM/libndk du 2026-09-08) n'a pas été
+  touché — pas demandé, et potentiellement encore utile si le jeu doit
+  être réinstallé.
+
+---
+
 ## 2026-09-09, suite — le correctif du clic sur le bureau survit à un vrai redémarrage complet
 
 Suite directe de l'addendum de la nuit précédente (« le premier correctif ne
