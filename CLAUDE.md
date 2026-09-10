@@ -70,6 +70,23 @@ ces deux entrées ne touchent pas le menu Démarrer), aucun avertissement.
 - **Rien n'est dans l'image.** Écrit dans le dépôt, pas construit, pas
   redémarré dessus.
 
+### Le piège du bit d'exécution a encore mordu, avec une nuance neuve sur l'ordre
+
+Le premier commit de ce soir a poussé les deux scripts en **`100644`**, non
+exécutables, malgré un `git update-index --chmod=+x` fait et vérifié
+(`git ls-files -s` rendait bien `100755`) **avant** de committer. Le
+coupable : un second `git add` sur les deux mêmes chemins, fait juste après
+pour inclure `CLAUDE.md` et `reglages.py` dans le même commit — sur ce
+dépôt, en `core.filemode=false`, git ne fait confiance ni au disque ni à
+l'index déjà posé pour le mode d'un fichier qu'on réajoute : il retombe sur
+`644`. **La leçon, plus précise que les trois fois précédentes où ce carnet
+l'a écrite** : `git update-index --chmod=+x` doit être le tout dernier
+geste avant `git commit`, jamais suivi d'un `git add` sur le même chemin,
+même pour un motif sans rapport (grouper plusieurs fichiers dans un seul
+commit). Corrigé par un second commit, `git update-index --chmod=+x`
+suivi immédiatement de `git commit`, sans aucun `git add` entre les deux —
+vérifié après coup, `100755` sur les deux fichiers, poussé.
+
 ---
 
 ## 2026-09-10, encore — RetroArch éprouvé au même banc que Steam, et il tient au premier essai
