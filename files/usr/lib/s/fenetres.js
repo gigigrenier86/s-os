@@ -234,6 +234,11 @@ function suivreGeometrie(f) {
             try { z = workspace.clientArea(KWin.FullScreenArea, f); } catch (e0) { }
             if (z && g && g.width >= z.width - 4 &&
                 g.height >= (basUtile(f) - z.y) - 4) {
+                // Si la fenetre a des bordures et n'est pas plein ecran, elle doit
+                // etre bornee pour ne pas deborder sous la barre des taches.
+                if (!f.noBorder && !f.fullScreen) {
+                    borner(f);
+                }
                 return;
             }
             agrandir(f);
@@ -255,7 +260,7 @@ function suivreGeometrie(f) {
             var g2 = f.frameGeometry;
             var z2 = null;
             try { z2 = workspace.clientArea(KWin.FullScreenArea, f); } catch (e1) { }
-            if (z2 && g2 && g2.width >= z2.width - 4 && g2.height >= z2.height - 4) {
+            if ((f.noBorder || f.fullScreen) && z2 && g2 && g2.width >= z2.width - 4 && g2.height >= z2.height - 4) {
                 return;
             }
             borner(f);
@@ -274,7 +279,7 @@ function suivreGeometrie(f) {
             var gm = f.frameGeometry;
             var zm = null;
             try { zm = workspace.clientArea(KWin.FullScreenArea, f); } catch (em) { }
-            if (zm && gm && gm.width >= zm.width - 4 && gm.height >= zm.height - 4) return;
+            if ((f.noBorder || f.fullScreen) && zm && gm && gm.width >= zm.width - 4 && gm.height >= zm.height - 4) return;
             borner(f);
         });
     } catch (e2) {
@@ -339,7 +344,11 @@ function suivreGeometrie(f) {
 function estPleinEcran(f) {
     if (!f) return false;
     if (f.fullScreen === true) return true;
-    if (f.normalWindow && !f.minimized && String(f.resourceClass) !== "s-constellation") {
+    // Une fenetre avec barre de titre ou bordures n'est JAMAIS un plein ecran :
+    // c'est une fenetre normale maximisee ou de grande taille (ex: OfficeSetup,
+    // installateurs, navigateurs). Seule une fenetre SANS bordure (f.noBorder === true)
+    // qui couvre tout l'ecran est un vrai plein ecran (ex: jeux « borderless »).
+    if (f.noBorder === true && f.normalWindow && !f.minimized && String(f.resourceClass) !== "s-constellation") {
         var z = null;
         try { z = workspace.clientArea(KWin.FullScreenArea, f); } catch (e0) { }
         var g = f.frameGeometry;
@@ -443,6 +452,8 @@ function suivre(f) {
         f.minimizedChanged.connect(envoyer);
         f.skipTaskbarChanged.connect(envoyer);
         f.fullScreenChanged.connect(envoyer);
+        if (f.noBorderChanged) f.noBorderChanged.connect(envoyer);
+        if (f.decorationChanged) f.decorationChanged.connect(envoyer);
     } catch (e) {
         // Une propriete absente dans une version de kwin ne doit pas emporter
         // le reste du branchement : on garde ce qui a marche.

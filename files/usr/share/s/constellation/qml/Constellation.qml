@@ -44,7 +44,7 @@ ApplicationWindow {
     // perdre visuellement. Un seul endroit a lire pour savoir si « vivant »
     // doit bouger, plutot que de repeter la condition a chaque signal.
     readonly property bool vivant: !barreTaches.ouvertures.some(function (f) {
-        return f.plein === true && f.reduite !== true;
+        return f.plein === true && f.reduite !== true && f.active === true;
     })
 
     visible: true
@@ -654,7 +654,7 @@ ApplicationWindow {
         // juste en dessous dans ce fichier : « plein » vient du rapporteur
         // de kwin, seul a pouvoir le savoir.
         efface: ouvertures.some(function (f) {
-            return f.plein === true && f.reduite !== true;
+            return f.plein === true && f.reduite !== true && f.active === true;
         })
 
         onActivation: function (ident, estActive) {
@@ -712,7 +712,7 @@ ApplicationWindow {
         // rapporteur de kwin, seul a pouvoir le savoir : un client Wayland ne
         // voit pas l'etat des fenetres des autres.
         efface: barreTaches.ouvertures.some(function (f) {
-            return f.plein === true && f.reduite !== true;
+            return f.plein === true && f.reduite !== true && f.active === true;
         })
         onOuverte: pont.rafraichirReglages()
         onReglageBascule: function (cle, vers) {
