@@ -1011,6 +1011,7 @@ Window {
         // ── L'étoile option (réglages rapides) ──────────────────────────────
         // Placée à côté de l'heure, pile sous la colonne des réglages.
         // Un clic fait monter la barre de réglages au-dessus de la barre des tâches.
+        // Fondu chromatique infini : bleu → rouge → vert → jaune tout le temps.
         Rectangle {
             id: etoileOption
             width: 32
@@ -1020,24 +1021,56 @@ Window {
             anchors.rightMargin: 14
             anchors.verticalCenter: parent.verticalCenter
 
-            color: tapOption.pressed ? Theme.verre3
-                                     : (barre.reglagesOuverts ? Theme.verre2
-                                                              : (survolOption.hovered ? Theme.verre2 : "transparent"))
-            border.color: tapOption.pressed ? Theme.bordVif
-                                            : (barre.reglagesOuverts ? Theme.bordVif
-                                                                     : (survolOption.hovered ? Theme.bord : "transparent"))
+            // Les 4 teintes de S (bleu, rouge, vert, jaune) animées en boucle continue
+            property color teinteEtoile: Theme.windows
+
+            SequentialAnimation on teinteEtoile {
+                loops: Animation.Infinite
+                running: true
+                ColorAnimation {
+                    from: Theme.windows  // bleu (#4da6ff)
+                    to: Theme.linux      // rouge (#ff4d4d)
+                    duration: 2500
+                    easing.type: Easing.InOutSine
+                }
+                ColorAnimation {
+                    from: Theme.linux    // rouge (#ff4d4d)
+                    to: Theme.android    // vert (#4dff88)
+                    duration: 2500
+                    easing.type: Easing.InOutSine
+                }
+                ColorAnimation {
+                    from: Theme.android  // vert (#4dff88)
+                    to: Theme.fichier    // jaune (#ffd24d)
+                    duration: 2500
+                    easing.type: Easing.InOutSine
+                }
+                ColorAnimation {
+                    from: Theme.fichier  // jaune (#ffd24d)
+                    to: Theme.windows    // bleu (#4da6ff)
+                    duration: 2500
+                    easing.type: Easing.InOutSine
+                }
+            }
+
+            color: tapOption.pressed ? Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.28)
+                                     : (barre.reglagesOuverts ? Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.20)
+                                                              : (survolOption.hovered ? Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.14)
+                                                                                      : Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.05)))
+            border.color: tapOption.pressed ? teinteEtoile
+                                            : (barre.reglagesOuverts ? teinteEtoile
+                                                                     : (survolOption.hovered ? Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.60)
+                                                                                             : Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.22)))
             border.width: 1
             antialiasing: true
 
-            scale: tapOption.pressed ? 0.90 : (survolOption.hovered ? 1.08 : 1.0)
+            scale: tapOption.pressed ? 0.90 : ((survolOption.hovered || barre.reglagesOuverts) ? 1.08 : 1.0)
             Behavior on scale {
                 NumberAnimation {
                     duration: tapOption.pressed ? Theme.dureePression : Theme.dureeRapide
                     easing.type: Easing.OutCubic
                 }
             }
-            Behavior on color { ColorAnimation { duration: Theme.dureeRapide } }
-            Behavior on border.color { ColorAnimation { duration: Theme.dureeRapide } }
 
             HoverHandler {
                 id: survolOption
@@ -1050,10 +1083,9 @@ Window {
                 height: 22
                 radius: 11
                 color: "transparent"
-                border.color: barre.reglagesOuverts ? Theme.lienVif : (survolOption.hovered ? Theme.texte2 : Theme.texte3)
+                border.color: etoileOption.teinteEtoile
                 border.width: 1.5
-                opacity: barre.reglagesOuverts ? 0.9 : 0.5
-                Behavior on border.color { ColorAnimation { duration: Theme.dureeRapide } }
+                opacity: barre.reglagesOuverts ? 0.95 : (survolOption.hovered ? 0.80 : 0.45)
                 Behavior on opacity { NumberAnimation { duration: Theme.dureeRapide } }
             }
 
@@ -1061,9 +1093,8 @@ Window {
                 anchors.centerIn: parent
                 width: 14
                 height: 14
-                nom: "i-reglages"
-                couleur: barre.reglagesOuverts ? Theme.texte : (survolOption.hovered ? Theme.texte : Theme.texte2)
-                Behavior on couleur { ColorAnimation { duration: Theme.dureeRapide } }
+                nom: "i-etincelle"
+                couleur: etoileOption.teinteEtoile
             }
 
             TapHandler {
