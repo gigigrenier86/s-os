@@ -73,6 +73,9 @@ function borner(f) {
         f.splash || f.utility) return;
     if (f.fullScreen) return;
     if (f.minimized) return;
+    // Une fenêtre maximisée est gérée par le compositeur lui-même.
+    // Modifier frameGeometry sur une fenêtre maximisée annule la maximisation dans KWin.
+    if (f.maximized || f.maximizeMode > 0) return;
     var bas = basUtile(f);
     if (bas < 0) return;
     var g = f.frameGeometry;
@@ -169,8 +172,6 @@ function estAgrandissable(f) {
 
 function agrandir(f) {
     if (!estAgrandissable(f)) return;
-    // Meme plafond que « borner » : le bas de l'ecran utile, jamais sous la
-    // barre. Meme source, jamais deux calculs qui pourraient diverger.
     var bas = basUtile(f);
     if (bas < 0) return;
     var z;
@@ -180,91 +181,38 @@ function agrandir(f) {
         return;
     }
     if (!z) return;
+    // On définit d'abord une taille normale agréable (restaurée / petite)
+    // centrée à l'écran, pour que "rendre petit" (démaximiser) redonne une vraie
+    // fenêtre flottante manipulable et non une fenêtre identique au plein écran.
+    var wFlo = Math.min(1280, Math.round(z.width * 0.72));
+    var hFlo = Math.min(760, Math.round((bas - z.y) * 0.78));
+    var xFlo = Math.round(z.x + (z.width - wFlo) / 2);
+    var yFlo = Math.round(z.y + (bas - z.y - hFlo) / 3);
     enTrainDeBorner = true;
-    f.frameGeometry = { x: z.x, y: z.y, width: z.width, height: bas - z.y };
+    f.frameGeometry = { x: xFlo, y: yFlo, width: wFlo, height: hFlo };
+    try {
+        f.setMaximize(true, true);
+    } catch (eMax) {
+        f.frameGeometry = { x: z.x, y: z.y, width: z.width, height: bas - z.y };
+    }
     enTrainDeBorner = false;
 }
 
 function suivreGeometrie(f) {
     if (!f) return;
-    // ON REGAGNE LES DEUX OU TROIS PREMIERS CHANGEMENTS DE GEOMETRIE, PAS
-    // SEULEMENT L'INSTANT DE LA NAISSANCE. Mesure du 2026-08-30 : « agrandir »
-    // au « windowAdded » tient parfois et se fait ecraser d'autres fois, un
-    // instant plus tard, par l'application elle-meme qui restaure sa PROPRE
-    // position memorisee (Vivaldi dans ses Preferences, VS Code dans son
-    // storage) — apres sa creation, pas au meme instant. Aucun minuteur
-    // n'existe dans ce moteur de script (« typeof setTimeout » mesure
-    // « undefined » ici, sur cette machine) : on regagne donc la course par
-    // le NOMBRE de changements plutot que par le temps. Les premiers sont
-    // l'application qui s'installe ; les suivants sont l'utilisateur qui
-    // deplace ou redimensionne pour de vrai, et ceux-la on les laisse faire.
-    var essaisRestants = 3;
+    // « reagir » surveille les changements de géométrie pour empêcher une fenêtre
+    // normale non maximisée de déborder sous la barre des tâches. Il ne doit JAMAIS
+    // ré-appeler « agrandir() », ce qui interdisait à l'utilisateur de rétrécir la fenêtre.
     var reagir = function () {
-        // Sans cette garde, l'ecriture d'« agrandir » ci-dessous rappellerait
-        // ce meme gestionnaire — kwin et ce script se renverraient la
-        // fenetre tant qu'il reste des essais.
         if (enTrainDeBorner) return;
-        if (essaisRestants > 0 && estAgrandissable(f)) {
-            essaisRestants -= 1;
-            // NE REGAGNER LA COURSE QUE SI LA FENETRE EST VRAIMENT PETITE.
-            //
-            // BOGUE TROUVE LE 2026-08-30, RAPPORTE PAR L'UTILISATEUR : passer
-            // une video en plein ecran ne devenait JAMAIS reellement plein
-            // ecran — la barre disparaissait (le correctif « efface »
-            // marchait), mais le contenu restait coince a la hauteur utile.
-            // Cause : un vrai passage en plein ecran CHANGE AUSSI
-            // frameGeometry, et ce changement peut arriver avant que
-            // « f.fullScreen » lui-meme ne soit passe a vrai — « estAgran-
-            // dissable » ne l'excluait donc pas encore, et « agrandir »
-            // clouait la fenetre a « basUtile() » (sous la barre) au moment
-            // meme ou elle grandissait vers l'ecran ENTIER. On ne regagne
-            // donc que ce qui est reellement petit : une fenetre deja proche
-            // de la taille utile n'a besoin de rien, et la laisser tranquille
-            // laisse un vrai plein ecran se terminer.
-            // « borner() » N'EST PAS APPELE NON PLUS DANS CETTE BRANCHE : une
-            // fenetre qui a deja depasse la hauteur utile a cet instant precis
-            // peut etre en train de grandir vers un vrai plein ecran (1080),
-            // et « borner » la ramenerait aussitot a la hauteur utile (1028)
-            // — exactement le clouage qu'on evite. Ne rien faire laisse la
-            // transition se terminer ; si elle echoue vraiment a devenir
-            // plein ecran, le prochain changement de geometrie ou
-            // « fullScreenChanged »/« maximizedChanged » la rattrapera.
-            var g = f.frameGeometry;
-            var z = null;
-            try { z = workspace.clientArea(KWin.FullScreenArea, f); } catch (e0) { }
-            if (z && g && g.width >= z.width - 4 &&
-                g.height >= (basUtile(f) - z.y) - 4) {
-                // Si la fenetre a des bordures et n'est pas plein ecran, elle doit
-                // etre bornee pour ne pas deborder sous la barre des taches.
-                if (!f.noBorder && !f.fullScreen) {
-                    borner(f);
-                }
-                return;
-            }
-            agrandir(f);
-        } else {
-            // MEME PROTECTION QUE CI-DESSUS, MAIS POUR UNE FENETRE QUI VIT
-            // DEPUIS LONGTEMPS (essaisRestants deja epuise — le cas de tout
-            // navigateur deja ouvert). MESURE EN DIRECT, ETAPE PAR ETAPE, LE
-            // 2026-09-03 : corriger APRES coup (ecrire frameGeometry une fois
-            // f.fullScreen deja vrai) NE FAIT RIEN — l'ecriture est un
-            // NO-OP silencieux, sans exception, sur ce Vivaldi/Chromium-
-            // Wayland. Le client garde la main sur sa taille une fois le
-            // plein ecran negocie ; il faut donc empecher le clampage AVANT
-            // que la negociation ne se termine sur la mauvaise valeur,
-            // jamais le corriger apres. Meme heuristique que la branche
-            // « agrandir » : si la geometrie qui arrive est deja proche du
-            // VRAI plein ecran (z.width/z.height, pas basUtile), on ne
-            // clampe pas — « fullScreenChanged » tranchera une fois l'etat
-            // reellement connu.
-            var g2 = f.frameGeometry;
-            var z2 = null;
-            try { z2 = workspace.clientArea(KWin.FullScreenArea, f); } catch (e1) { }
-            if ((f.noBorder || f.fullScreen) && z2 && g2 && g2.width >= z2.width - 4 && g2.height >= z2.height - 4) {
-                return;
-            }
-            borner(f);
+        if (f.maximized || f.maximizeMode > 0) return;
+        var g = f.frameGeometry;
+        var z = null;
+        try { z = workspace.clientArea(KWin.FullScreenArea, f); } catch (e1) { }
+        if ((f.noBorder || f.fullScreen) && z && g && g.width >= z.width - 4 && g.height >= z.height - 4) {
+            return;
         }
+        borner(f);
     };
     try {
         f.frameGeometryChanged.connect(reagir);
@@ -272,10 +220,9 @@ function suivreGeometrie(f) {
     }
     try {
         f.maximizedChanged.connect(function () {
-            // Meme protection que dans « reagir() » : un client peut passer
-            // par « maximise » juste avant que « fullScreen » ne bascule a
-            // vrai, et cloue-la ici serait aussi irreversible qu'ailleurs
-            // (voir le commentaire au-dessus de « reagir() »).
+            // Une fenêtre maximisée ne doit pas être bornée, sinon l'écriture de
+            // frameGeometry annule son état maximisé dans KWin.
+            if (f.maximized || f.maximizeMode > 0) return;
             var gm = f.frameGeometry;
             var zm = null;
             try { zm = workspace.clientArea(KWin.FullScreenArea, f); } catch (em) { }
@@ -442,14 +389,29 @@ function cacherAndroidSysteme(f) {
 // UN TITRE QUI CHANGE EST UN EVENEMENT DE BARRE DES TACHES : un navigateur qui
 // change d'onglet ne cree pas de fenetre, il renomme la sienne. Sans ce
 // branchement, la barre afficherait le titre de la premiere page pour toujours.
-function suivre(f) {
+function suivre(f, nouvelle) {
     if (!f) return;
     cacherAndroidSysteme(f);
-    agrandir(f);
+    if (nouvelle === true) {
+        agrandir(f);
+    }
     suivreGeometrie(f);
     try {
         f.captionChanged.connect(envoyer);
-        f.minimizedChanged.connect(envoyer);
+        f.minimizedChanged.connect(function () {
+            if (f.minimized && derniereFenetreReelle === f) {
+                derniereFenetreReelle = null;
+            }
+            envoyer();
+        });
+        if (f.closed) {
+            f.closed.connect(function () {
+                if (derniereFenetreReelle === f) {
+                    derniereFenetreReelle = null;
+                }
+                envoyer();
+            });
+        }
         f.skipTaskbarChanged.connect(envoyer);
         f.fullScreenChanged.connect(envoyer);
         if (f.noBorderChanged) f.noBorderChanged.connect(envoyer);
@@ -461,10 +423,15 @@ function suivre(f) {
 }
 
 var deja = workspace.windowList();
-for (var i = 0; i < deja.length; i++) suivre(deja[i]);
+for (var i = 0; i < deja.length; i++) suivre(deja[i], false);
 
-workspace.windowAdded.connect(function (f) { suivre(f); envoyer(); });
-workspace.windowRemoved.connect(envoyer);
+workspace.windowAdded.connect(function (f) { suivre(f, true); envoyer(); });
+workspace.windowRemoved.connect(function (f) {
+    if (derniereFenetreReelle === f) {
+        derniereFenetreReelle = null;
+    }
+    envoyer();
+});
 
 // LA BULLE VOLE L'ACTIVATION, MALGRE « Qt.WindowDoesNotAcceptFocus ». Mesure
 // sur cette machine le 2026-08-30, avant/apres, VS Code deja actif :

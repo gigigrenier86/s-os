@@ -198,6 +198,8 @@ class Fenetres(QObject):
         self._mode = _lire_mode()
         self._actif = None
         self._repli = None
+        self._fermetures = set()
+        self._replis_voulus = set()
         self._geles = set()
         self._toutes = []
         # LE JETON DE « activerBureau() » — voir _corriger_bureau().
@@ -236,13 +238,26 @@ class Fenetres(QObject):
             face = dbus.Interface(objet, KWIN[2])
             face.loadScript(chemin, nom, signature="ss")
             face.start()
-            face.unloadScript(nom)
+            # On differe le dechargement pour laisser a KWin et a la boucle
+            # d'evenements le temps d'accomplir l'action (closeWindow, minimize)
+            # sans collision avec la destruction immediate du contexte JS.
+            QTimer.singleShot(600, lambda n=nom: self._decharger_script(n))
             return True
         except dbus.DBusException:
             # kwin peut etre en train de se reconfigurer. Une fenetre non
             # activee n'est pas une panne ; un bureau qui tombe pour ca en
             # serait une.
             return False
+
+    def _decharger_script(self, nom):
+        if self._bus is None:
+            return
+        try:
+            objet = self._bus.get_object(*KWIN[:2])
+            face = dbus.Interface(objet, KWIN[2])
+            face.unloadScript(nom)
+        except dbus.DBusException:
+            pass
 
     # ---- Ce que la scene demande -----------------------------------------
     @Slot(result="QVariant")
@@ -305,6 +320,8 @@ class Fenetres(QObject):
             return
         if not deja_active:
             self._reveiller(propre)
+        else:
+            self._replis_voulus.add(propre)
         parti = self._script(
             'var reduire = %s;\n'
             'var l = workspace.windowList();\n'
@@ -351,6 +368,7 @@ class Fenetres(QObject):
         if not propre:
             return
         self._reveiller(propre)
+        self._fermetures.add(propre)
         # FERMER FAIT REMONTER LA SUIVANTE, exactement comme ranger. Sans le
         # jeton, « ferme-moi celle-la » rangerait et endormirait tout le reste
         # du bureau au passage. Voir activer().
@@ -386,6 +404,7 @@ class Fenetres(QObject):
         propre = _ident(ident)
         if not propre:
             return
+        self._fermetures.add(propre)
         pid = 0
         for f in (self._toutes or self._liste):
             if f.get("id") == propre:
@@ -622,7 +641,7 @@ class Fenetres(QObject):
             tous = [f.get("id") for f in liste if f.get("id") != ident]
             QTimer.singleShot(DELAI_GEL, lambda: self._geler(set(tous)))
 
-    def _corriger_bureau(self, dernier_actif):
+    def _corriger_bureau(self, dernier_actif, repli=None):
         """Le clic sur le bureau vide « rangeait » la fenetre active — et ce
         n'etait NI activer() (seul appele par la barre et le menu contextuel,
         jamais touches par ce geste), NI la veille (verifiee coupee, et de
@@ -658,6 +677,11 @@ class Fenetres(QObject):
         """
         voulu, self._bureau_voulu = self._bureau_voulu, False
         if voulu or not dernier_actif:
+            return
+        # NE JAMAIS RESSUSCITER UNE FENETRE QU'ON VIENT DE MINIMISER OU FERMER.
+        if repli or dernier_actif in self._fermetures or dernier_actif in self._replis_voulus:
+            self._fermetures.discard(dernier_actif)
+            self._replis_voulus.discard(dernier_actif)
             return
         bureau = next((f for f in self._toutes
                         if f.get("classe") == "s-constellation"
@@ -751,8 +775,13 @@ class Fenetres(QObject):
         # meme appel — la valeur qu'il portait juste avant est donc la
         # seule preuve qui reste de la vraie fenetre a corriger.
         dernier_actif = self._actif
+        repli = self._repli
         self._veiller(self._liste)
-        self._corriger_bureau(dernier_actif)
+        self._corriger_bureau(dernier_actif, repli)
+        # Nettoyage des ensembles de suivi pour les fenetres qui ont disparu
+        ids_actuels = {f.get("id") for f in self._toutes}
+        self._fermetures.intersection_update(ids_actuels)
+        self._replis_voulus.intersection_update(ids_actuels)
         self.changees.emit(json.dumps(self._liste))
 
     def arreter(self):
