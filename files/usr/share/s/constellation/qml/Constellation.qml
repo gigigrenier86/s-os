@@ -1985,7 +1985,7 @@ ApplicationWindow {
                 "glisser une etoile  la deplacer (et les choisies avec elle)",
                 "glisser le fond  selectionner plusieurs etoiles",
                 "Suppr  retirer les etoiles choisies",
-                "N  noms toujours visibles"
+                "Ctrl+N  noms toujours visibles"
             ]
             delegate: Text {
                 required property string modelData
