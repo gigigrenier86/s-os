@@ -288,15 +288,25 @@ Window {
                     y: survolEp.hovered ? -2 : 0
                     Behavior on y { NumberAnimation { duration: 150 } }
 
+                    // « parent », A L'INTERIEUR DE Connections, VAUT null.
+                    // Contrairement a TapHandler/HoverHandler/DragHandler
+                    // (des PointerHandler, qui exposent bien leur Item
+                    // englobant), Connections est un simple QtObject -- il
+                    // n'herite jamais de parent visuel. Mesure au banc :
+                    // parent.app levait une TypeError silencieuse a CHAQUE
+                    // survol, et barre.nomSurvole n'etait donc jamais ecrit
+                    // -- ce mecanisme n'a probablement jamais fonctionne.
+                    // itemEp, l'identifiant nomme, resout partout dans ce
+                    // fichier, lui.
                     Connections {
                         target: survolEp
                         function onHoveredChanged() {
                             if (survolEp.hovered) {
-                                barre.nomSurvole = parent.app ? parent.app.nom : "";
-                                barre.centreSurvole = parent.mapToItem(
-                                    null, parent.width / 2, 0).x;
+                                barre.nomSurvole = itemEp.app ? itemEp.app.nom : "";
+                                barre.centreSurvole = itemEp.mapToItem(
+                                    null, itemEp.width / 2, 0).x;
                             } else if (barre.nomSurvole ===
-                                       (parent.app ? parent.app.nom : "")) {
+                                       (itemEp.app ? itemEp.app.nom : "")) {
                                 barre.nomSurvole = "";
                             }
                         }
