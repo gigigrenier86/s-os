@@ -198,10 +198,13 @@ Item {
         }
 
         // --- L'etiquette ------------------------------------------------------
+        // Au-dessus de l'etoile, jamais en dessous : les etoiles reposent pres
+        // du bas du ciel, et un nom sous l'icone y sortirait de l'ecran ou se
+        // ferait couvrir par la barre. Au-dessus, il reste toujours visible.
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.bottom
-            anchors.topMargin: 8
+            anchors.bottom: parent.top
+            anchors.bottomMargin: 8
             text: app.nom || ""
             color: Theme.texte2
             font.family: Theme.police
