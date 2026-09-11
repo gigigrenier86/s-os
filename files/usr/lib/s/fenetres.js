@@ -181,20 +181,21 @@ function agrandir(f) {
         return;
     }
     if (!z) return;
-    // On définit d'abord une taille normale agréable (restaurée / petite)
-    // centrée à l'écran, pour que "rendre petit" (démaximiser) redonne une vraie
-    // fenêtre flottante manipulable et non une fenêtre identique au plein écran.
-    var wFlo = Math.min(1280, Math.round(z.width * 0.72));
-    var hFlo = Math.min(760, Math.round((bas - z.y) * 0.78));
-    var xFlo = Math.round(z.x + (z.width - wFlo) / 2);
-    var yFlo = Math.round(z.y + (bas - z.y - hFlo) / 3);
+    // « f.setMaximize(true, true) » A ETE ESSAYE ICI, ET C'EST UN NO-OP
+    // SILENCIEUX — MESURE EN DIRECT LE 2026-09-11, sur une vraie fenetre
+    // (Dolphin) : appele sans lever d'exception, maximizeMode et la
+    // geometrie restent IDENTIQUES avant et apres. Comme aucune exception
+    // n'est levee, le filet de secours (try/catch) ne se declenchait
+    // jamais : chaque nouvelle fenetre restait clouee a sa petite taille
+    // flottante, jamais agrandie. Meme famille que le no-op deja
+    // documente le 2026-09-03 (ecrire frameGeometry apres coup sur une
+    // fenetre deja passee plein ecran).
+    //
+    // On revient donc au calcul direct, seule forme eprouvee sur cette
+    // machine : remplir la zone utile via frameGeometry, jamais via une
+    // API de maximisation qui n'agit pas.
     enTrainDeBorner = true;
-    f.frameGeometry = { x: xFlo, y: yFlo, width: wFlo, height: hFlo };
-    try {
-        f.setMaximize(true, true);
-    } catch (eMax) {
-        f.frameGeometry = { x: z.x, y: z.y, width: z.width, height: bas - z.y };
-    }
+    f.frameGeometry = { x: z.x, y: z.y, width: z.width, height: bas - z.y };
     enTrainDeBorner = false;
 }
 
