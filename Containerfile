@@ -71,6 +71,12 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/28-bureautique.sh
 
+# Lecteur IPTV natif — mpv seul, quelques Mo (playlists/QML deposes par COPY)
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/29-iptv.sh
+
 # L archive de Proton (468 Mo) — gros et stable
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \

@@ -1,0 +1,171 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""s-iptv — lecteur IPTV natif de S.
+
+CE QUE CE PROGRAMME EST, ET CE QU'IL N'EST PAS. C'est un LECTEUR : il ouvre
+des flux dont l'utilisateur a deja l'acces — une playlist M3U, ou des
+identifiants Xtream Codes que son fournisseur lui a remis — exactement ce
+que Ibo Player Pro et CAP Player font deja, sous Wine, dans le Windows de S
+(voir windows.sh). Celui-ci est natif : aucun prefixe a amorcer, aucun
+wineserver a attendre, une fenetre en une seconde.
+
+Ce n'est PAS un service qui fournit des chaines : il n'embarque, ne cache
+ni ne redistribue aucun contenu. La provenance de ce qui joue reste
+entierement celle que l'utilisateur a lui-meme fournie.
+
+CE QUI DECODE ET AFFICHE LA VIDEO : mpv, jamais reimplemente ici. mpv gere
+deja tout ce qu'un flux IPTV peut prendre comme forme — HLS, TS brut, RTMP,
+multicast UDP — mieux que ne le ferait un pipeline maison. Il tourne dans
+SA PROPRE fenetre, geree comme n'importe quelle autre par fenetres.js et
+fenetres.py : aucune couture nouvelle a poser cote compositeur, exactement
+le meme principe deja en place pour les fenetres Windows et Android.
+"""
+
+import os
+import subprocess
+import sys
+import threading
+
+_ICI = os.path.dirname(os.path.abspath(__file__))
+for _essai in (os.environ.get("S_NOYAU"), "/usr/lib/s",
+               os.path.join(_ICI, "..", "lib", "s")):
+    if _essai and os.path.isfile(os.path.join(_essai, "iptv.py")):
+        sys.path.insert(0, os.path.abspath(_essai))
+        break
+
+import iptv  # noqa: E402
+
+from PySide6.QtCore import QObject, QUrl, Signal, Slot  # noqa: E402
+from PySide6.QtGui import QGuiApplication  # noqa: E402
+from PySide6.QtQml import QQmlApplicationEngine  # noqa: E402
+
+QML = os.environ.get("S_QML_IPTV") or "/usr/share/s/iptv/qml"
+if not os.path.isdir(QML):
+    QML = os.path.join(_ICI, "..", "share", "s", "iptv", "qml")
+
+
+class Pont(QObject):
+    """Ce que QML peut demander. Rien de plus."""
+
+    chainesPretes = Signal("QVariant")
+    erreurChargement = Signal(str)
+    lectureChangee = Signal(bool, str)   # (en cours, titre)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._playlists = iptv.charger_playlists()
+        self._processus = None   # subprocess.Popen de mpv, ou None
+
+    # ---- Playlists ---------------------------------------------------
+    @Slot(result="QVariant")
+    def playlists(self):
+        return self._playlists
+
+    @Slot(str, str)
+    def ajouterM3U(self, nom, url):
+        url = (url or "").strip()
+        if not url:
+            return
+        self._playlists.append({"nom": (nom or "").strip() or "Playlist", "url": url})
+        iptv.sauver_playlists(self._playlists)
+
+    @Slot(str, str, str, str, str)
+    def ajouterXtream(self, nom, serveur, port, utilisateur, motdepasse):
+        if not (serveur or "").strip() or not (utilisateur or "").strip():
+            return
+        url = iptv.url_xtream(serveur, port, utilisateur, motdepasse)
+        self._playlists.append({
+            "nom": (nom or "").strip() or serveur.strip(),
+            "url": url,
+        })
+        iptv.sauver_playlists(self._playlists)
+
+    @Slot(int)
+    def supprimer(self, indice):
+        if 0 <= indice < len(self._playlists):
+            del self._playlists[indice]
+            iptv.sauver_playlists(self._playlists)
+
+    # ---- Chaines -----------------------------------------------------
+    # Jamais synchrone : une playlist de plusieurs dizaines de milliers de
+    # lignes, tiree sur un reseau lent, gelerait toute la fenetre — le meme
+    # principe deja pose dans s-constellation pour tout ce qui touche le
+    # reseau ou un travail de plus d'un instant.
+    @Slot(int)
+    def demanderChaines(self, indice):
+        if not (0 <= indice < len(self._playlists)):
+            return
+        url = self._playlists[indice]["url"]
+
+        def travailler():
+            try:
+                texte = iptv.telecharger(url)
+                chaines = iptv.parser_m3u(texte)
+            except Exception as exc:  # noqa: BLE001 — remonte a l'ecran, jamais avale
+                self.erreurChargement.emit(str(exc))
+                return
+            self.chainesPretes.emit(chaines)
+
+        threading.Thread(target=travailler, daemon=True).start()
+
+    # ---- Lecture -------------------------------------------------------
+    @Slot(str, str)
+    def lancer(self, url, titre):
+        self._arreter_processus()
+        titre_fenetre = f"{titre} — S IPTV" if titre else "S IPTV"
+        try:
+            self._processus = subprocess.Popen(
+                ["mpv", "--force-window=yes",
+                 f"--force-media-title={titre_fenetre}",
+                 f"--title={titre_fenetre}",
+                 url],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except FileNotFoundError:
+            self.erreurChargement.emit(
+                "mpv est introuvable sur cette machine — rien ne peut lire le flux.")
+            return
+        self.lectureChangee.emit(True, titre or "")
+
+    @Slot()
+    def arreter(self):
+        self._arreter_processus()
+        self.lectureChangee.emit(False, "")
+
+    def _arreter_processus(self):
+        # Par PID exact, jamais par motif — la regle payee plusieurs fois
+        # dans ce depot pour tout ce qui touche un processus tiers.
+        if self._processus is not None and self._processus.poll() is None:
+            try:
+                self._processus.terminate()
+            except ProcessLookupError:
+                pass
+        self._processus = None
+
+
+def main():
+    app = QGuiApplication(sys.argv)
+    app.setApplicationName("S IPTV")
+    # Meme convention que Constellation : le nom du .desktop, pour que kwin
+    # rattache correctement cette fenetre a son icone et son identite.
+    app.setDesktopFileName("s-iptv")
+
+    engine = QQmlApplicationEngine()
+    pont = Pont()
+    engine.rootContext().setContextProperty("pont", pont)
+    engine.load(QUrl.fromLocalFile(os.path.join(QML, "Principal.qml")))
+    if not engine.rootObjects():
+        sys.exit(1)
+
+    # Un lecteur ne doit jamais laisser un flux jouer, invisible, apres
+    # qu'on ait ferme sa seule commande.
+    app.aboutToQuit.connect(pont.arreter)
+
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

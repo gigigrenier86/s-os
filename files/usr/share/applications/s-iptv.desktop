@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Lecteur IPTV
+GenericName=Lecteur de flux IPTV
+Comment=Lit vos playlists M3U et vos abonnements Xtream Codes, sans Wine
+Exec=/usr/bin/s-iptv
+TryExec=/usr/bin/s-iptv
+Icon=video-television
+Terminal=false
+StartupNotify=true
+Categories=AudioVideo;Player;

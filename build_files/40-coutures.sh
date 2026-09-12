@@ -12,7 +12,7 @@ echo "=== 40-coutures : les gestes qui manquaient ==="
 chmod 0755 /usr/bin/s-monde /usr/bin/s-ouvrir-* /usr/bin/s-menu-windows \
            /usr/bin/s-android /usr/bin/s-android-lancer /usr/bin/s-play-store \
            /usr/bin/s-diagnostic /usr/bin/s-nettoyer \
-           /usr/bin/s-magasin-android /usr/bin/s-web
+           /usr/bin/s-magasin-android /usr/bin/s-web /usr/bin/s-iptv
 
 # --- Un magasin de secours, a provenance certaine ---------------------------
 # Le Play Store arrive avec l'image GAPPS de Waydroid, telechargee au premier
@@ -553,5 +553,31 @@ grep -q -- '--confirmer' /usr/bin/s-sauvegarder \
 test -s /usr/share/applications/s-sauvegarder.desktop \
     || { echo "ECHEC : le lanceur « S — Sauvegarder » a disparu." >&2; exit 1; }
 echo "  s-sauvegarder : filet pour reglages/ciel/lanceurs, sur le grand disque si branche"
+
+# --- LECTEUR IPTV NATIF — mpv, jamais un service qui fournit des chaines ---
+# Demande de l'utilisateur : un lecteur natif, sur le patron deja etabli
+# (build_files/29-iptv.sh installe mpv ; ce fichier depose le programme, le
+# QML et le lanceur). Aucune chaine n'est fournie par S : l'utilisateur
+# apporte sa propre playlist M3U ou son abonnement Xtream Codes, exactement
+# comme il le fait deja avec Ibo Player Pro / CAP Player sous Wine.
+test -x /usr/bin/s-iptv \
+    || { echo "ECHEC : s-iptv absent ou non executable." >&2; exit 1; }
+test -s /usr/lib/s/iptv.py \
+    || { echo "ECHEC : iptv.py absent — s-iptv n'aurait rien pour lire une playlist." >&2; exit 1; }
+python3 -c "import ast; ast.parse(open('/usr/lib/s/iptv.py').read())" \
+    || { echo "ECHEC : iptv.py contient une erreur de syntaxe." >&2; exit 1; }
+python3 -c "import ast; ast.parse(open('/usr/bin/s-iptv').read())" \
+    || { echo "ECHEC : s-iptv contient une erreur de syntaxe." >&2; exit 1; }
+test -s /usr/share/s/iptv/qml/Principal.qml \
+    || { echo "ECHEC : Principal.qml absent — s-iptv n'aurait aucune fenetre." >&2; exit 1; }
+python3 /ctx/build_files/verifier-iptv.py /usr/share/s/iptv/qml \
+    || { echo "ECHEC : la scene du lecteur IPTV ne charge pas proprement." >&2; exit 1; }
+test -s /usr/share/applications/s-iptv.desktop \
+    || { echo "ECHEC : s-iptv.desktop absent — aucune etoile pour le lecteur IPTV." >&2; exit 1; }
+grep -q '^Exec=/usr/bin/s-iptv$' /usr/share/applications/s-iptv.desktop \
+    || { echo "ECHEC : s-iptv.desktop ne pointe plus vers /usr/bin/s-iptv." >&2; exit 1; }
+command -v mpv >/dev/null \
+    || { echo "ECHEC : mpv absent — le lecteur IPTV n'aurait rien pour decoder un flux." >&2; exit 1; }
+echo "  s-iptv : lecteur IPTV natif (mpv), playlists M3U/Xtream Codes fournies par l'utilisateur"
 
 echo "=== 40-coutures : fait ==="
