@@ -481,10 +481,33 @@ class Pont(QObject):
         else:
             # PLUS AUCUNE ZONE SENSIBLE AU BORD DE L'ECRAN — demande de
             # l'utilisateur du 2026-09-10 : la barre ne doit plus pop en
-            # touchant le bord de l'ecran. Repliee, elle n'intercepte aucun
-            # evenement (masque vide) et laisse tout passer au bureau/fenetres.
-            # L'ouverture se fait par l'etoile option a cote de l'heure.
-            fenetre.setMask(QRegion())
+            # touchant le bord de l'ecran. Repliee, elle ne doit intercepter
+            # AUCUN evenement et laisser tout passer au bureau/fenetres.
+            #
+            # « QRegion() » NE FAIT PAS CA — bogue trouve le 2026-09-15,
+            # signale par l'utilisateur comme une bande de 300 px
+            # totalement morte au clic, sur toute la hauteur de l'ecran,
+            # des qu'une fenetre occupait cet espace (plein ecran ou non).
+            # Le protocole Wayland lui-meme le dit, dans « set_input_region » :
+            # « When the input region is empty (i.e. the wl_region contains
+            # no rectangles) [...] the input region is infinite; the entire
+            # surface will accept input events. » Une region VIDE ne veut
+            # pas dire « n'accepte rien » — elle veut dire « pas de region
+            # posee du tout », donc « accepte tout », l'exact inverse de
+            # l'intention. Qt lui-meme prend le meme raccourci cote client :
+            # une QRegion vide (QRegion::isEmpty()) fait sauter l'appel a
+            # « wl_surface_set_input_region » avec un region nulle plutot
+            # que d'en poser une reellement vide.
+            #
+            # LE REMEDE, sur le meme mecanisme deja eprouve plus haut (une
+            # region avec de vrais rectangles) : un rectangle d'un seul
+            # pixel, place HORS de la fenetre elle-meme. Non vide au sens de
+            # Qt (il a une aire), donc bien envoye au compositeur — mais le
+            # protocole dit aussi : « The compositor ignores the parts of
+            # the input region that fall outside of the surface. » Une fois
+            # cette intersection faite, il ne reste plus rien DANS la
+            # fenetre qui accepte quoi que ce soit : le clic traverse.
+            fenetre.setMask(QRegion(QRect(-1, -1, 1, 1)))
 
     @Slot(QWindow, int)
     def bornerBarre(self, fenetre, sensible):
