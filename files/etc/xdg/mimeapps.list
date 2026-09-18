@@ -12,3 +12,6 @@ application/vnd.appimage=s-ouvrir-appimage.desktop
 application/vnd.flatpak=s-ouvrir-flatpak.desktop
 application/vnd.flatpak.ref=s-ouvrir-flatpak.desktop
 application/vnd.android.package-archive=s-ouvrir-apk.desktop
+x-scheme-handler/s-telecharger=s-telecharger.desktop
+x-scheme-handler/magnet=org.qbittorrent.qBittorrent.desktop
+application/x-bittorrent=org.qbittorrent.qBittorrent.desktop

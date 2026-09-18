@@ -6,10 +6,20 @@
     raison de reimplementer un bloqueur de pubs/traqueurs qui existe deja,
     voir s-web dans le depot), mais son propre ecran d'accueil porte sa
     marque partout — speed-dial, raccourcis « Decouvrir Vivaldi », logo V.
-    Cette page prend sa place, par les strategies (policies) Chromium que
-    Vivaldi honore deja nativement : RestoreOnStartup=5 (« nouvel onglet »
-    au demarrage) + NewTabPageLocation pointent tous les deux ici. Rien de
-    reimplemente cote navigateur — seule la destination change.
+    Cette page prend sa place au tout premier lancement.
+
+    NewTabPageLocation a ete essayee en premier et refutee par la mesure :
+    elle se declare « OK » dans vivaldi://policy mais le Speed Dial de
+    Vivaldi ne la consulte pas. RestoreOnStartup=4 (« toujours ouvrir cette
+    page ») a suivi — et a casse autre chose : signale par l'utilisateur le
+    2026-09-18 (« en reouvrant S, les onglets precedemment ouverts ne sont
+    plus la »), RestoreOnStartup gouverne TOUT demarrage du navigateur, pas
+    le seul premier — chaque fermeture de S Web effacait la session en
+    cours. La strategie geree ne pose plus que RestoreOnStartup=1
+    (continuer la ou on etait) ; c'est le script s-web lui-meme qui ouvre
+    cette page, en argument de ligne de commande, seulement s'il detecte
+    qu'aucun profil n'existe encore — un URL passe ainsi s'ajoute a la
+    session restauree, il ne l'ecrase jamais.
 
     Posee par /etc/vivaldi/policies/managed/s-web.json, jamais par un
     reglage de profil : les prefs de demarrage (session.restore_on_startup,
@@ -67,6 +77,16 @@
         display: flex; gap: 22px; color: var(--texte2); font-size: 12.5px;
     }
     .protections span::before { content: "●  "; color: var(--vert); font-size: 9px; }
+    .signet {
+        display: flex; flex-direction: column; align-items: center; gap: 6px;
+        color: var(--texte2); font-size: 11.5px;
+    }
+    .signet a {
+        color: var(--texte); text-decoration: none; font-size: 12.5px;
+        padding: 7px 14px; border-radius: 10px; border: 1px dashed var(--bordVif);
+        background: var(--verre); cursor: grab;
+    }
+    .signet a:hover { border-style: solid; }
 </style>
 </head>
 <body>
@@ -84,6 +104,10 @@
             <span>Pubs bloquees</span>
             <span>Traqueurs bloques</span>
             <span>Popups bloques</span>
+        </div>
+        <div class="signet">
+            <span>Glisser dans la barre de favoris, puis cliquer depuis n'importe quelle page :</span>
+            <a href="javascript:location.href='s-telecharger:'+encodeURIComponent(location.href)">&darr; Telecharger avec S</a>
         </div>
     </div>
 </body>

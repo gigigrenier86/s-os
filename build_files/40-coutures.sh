@@ -152,6 +152,31 @@ test -s /usr/share/mime/packages/s-formats.xml || { echo "ECHEC : s-formats.xml 
 # files/etc/xdg/mimeapps.list. Un defaut est de la donnee, pas du code.
 test -s /etc/xdg/mimeapps.list || { echo "ECHEC : mimeapps.list absent." >&2; exit 1; }
 
+# --- Telechargements de S Web — video, acceleration, torrent ---------------
+# 2026-09-18. Voir build_files/51-telechargements.sh pour le pourquoi des
+# trois outils. Ici, seulement ce que ce fichier-ci peut verifier : ce que
+# COPY files/ / a depose, apres que 51-telechargements.sh (qui tourne AVANT
+# le COPY) a pose les paquets eux-memes.
+test -s /usr/bin/s-telecharger \
+    || { echo "ECHEC : s-telecharger absent — le signet de S Web n'ouvrirait rien." >&2; exit 1; }
+test -x /usr/bin/s-telecharger \
+    || { echo "ECHEC : s-telecharger n'est pas executable." >&2; exit 1; }
+bash -n /usr/bin/s-telecharger \
+    || { echo "ECHEC : s-telecharger contient une erreur de syntaxe." >&2; exit 1; }
+test -s /usr/share/applications/s-telecharger.desktop \
+    || { echo "ECHEC : s-telecharger.desktop absent." >&2; exit 1; }
+grep -q '^MimeType=x-scheme-handler/s-telecharger;$' /usr/share/applications/s-telecharger.desktop \
+    || { echo "ECHEC : s-telecharger.desktop ne declare plus son propre protocole." >&2; exit 1; }
+grep -q '^x-scheme-handler/s-telecharger=s-telecharger.desktop$' /etc/xdg/mimeapps.list \
+    || { echo "ECHEC : le signet de telechargement n'est plus associe." >&2; exit 1; }
+grep -q '^x-scheme-handler/magnet=org.qbittorrent.qBittorrent.desktop$' /etc/xdg/mimeapps.list \
+    || { echo "ECHEC : les liens magnet ne sont plus associes a qBittorrent." >&2; exit 1; }
+grep -q '^application/x-bittorrent=org.qbittorrent.qBittorrent.desktop$' /etc/xdg/mimeapps.list \
+    || { echo "ECHEC : les .torrent ne sont plus associes a qBittorrent." >&2; exit 1; }
+grep -q "s-telecharger:" /usr/share/s/web/demarrage.html \
+    || { echo "ECHEC : le signet a disparu de la page de demarrage de S Web." >&2; exit 1; }
+echo "  telechargements : s-telecharger pose, magnet/.torrent vers qBittorrent"
+
 update-mime-database /usr/share/mime >/dev/null 2>&1 || true
 update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
 # Le logo s-logo entre par COPY dans hicolor, et os-release y fait reference
@@ -511,21 +536,50 @@ echo "  s-web : navigateur S, profil separe sous \$S_DATA/web, icone propre"
 #
 # NewTabPageLocation a ete essayee en premier et refutee par la mesure : elle
 # se declare « OK » dans vivaldi://policy mais le Speed Dial de Vivaldi ne la
-# consulte pas — un defaut de Vivaldi, pas de configuration. La strategie
-# retenue est RestoreOnStartup=4 + RestoreOnStartupURLs, le mecanisme
-# Chromium le plus ancien pour « quoi ouvrir au demarrage » — vu fonctionner
-# a l'ecran. Elle ne couvre que le tout premier onglet ; Ctrl+T dans une
-# session deja ouverte retombe sur le Speed Dial, limite connue et non
-# corrigee.
+# consulte pas — un defaut de Vivaldi, pas de configuration.
+#
+# RestoreOnStartup=4 + RestoreOnStartupURLs a suivi, et a tenu jusqu'au
+# 2026-09-18 : signale par l'utilisateur (« en reouvrant S, les onglets
+# precedemment ouverts ne sont plus la »), RestoreOnStartup gouverne TOUT
+# demarrage du navigateur, pas seulement le premier — chaque fermeture de
+# S Web effacait la session en cours. La strategie geree ne pose plus que
+# « RestoreOnStartup=1 » (continuer la ou on etait) ; c'est s-web lui-meme
+# qui ouvre demarrage.html en argument de ligne de commande, seulement au
+# tout premier lancement (absence du dossier de profil) — un URL en
+# argument s'ajoute a la session restauree, il ne l'ecrase jamais.
 test -s /usr/share/s/web/demarrage.html \
     || { echo "ECHEC : demarrage.html absent — S Web ouvrirait le speed-dial de Vivaldi." >&2; exit 1; }
 test -s /etc/vivaldi/policies/managed/s-web.json \
     || { echo "ECHEC : la strategie de demarrage de S Web est absente." >&2; exit 1; }
 python3 -c "import json,sys; json.load(open('/etc/vivaldi/policies/managed/s-web.json'))" \
     || { echo "ECHEC : s-web.json (strategie) n'est pas un JSON valide." >&2; exit 1; }
-grep -q '"RestoreOnStartupURLs"' /etc/vivaldi/policies/managed/s-web.json \
-    || { echo "ECHEC : RestoreOnStartupURLs absente de la strategie — le premier onglet resterait sur Vivaldi." >&2; exit 1; }
-echo "  s-web : page de demarrage posee, strategie geree vers demarrage.html"
+grep -q '"RestoreOnStartup": *1' /etc/vivaldi/policies/managed/s-web.json \
+    || { echo "ECHEC : RestoreOnStartup n'est plus a 1 — S Web perdrait la session a chaque fermeture." >&2; exit 1; }
+grep -q 'demarrage.html' /usr/bin/s-web \
+    || { echo "ECHEC : s-web ne pose plus demarrage.html au premier lancement." >&2; exit 1; }
+echo "  s-web : page de demarrage posee au premier lancement, session restauree ensuite"
+
+# --- S WEB — uBlock Origin Lite force-installe, jamais reimplemente --------
+# 2026-09-18 : l'utilisateur signale des popups en rafale et des videos qui
+# chargent mal. Mesure sur cette machine : ce n'est pas un mauvais reglage,
+# c'est l'exposition normale a des reseaux publicitaires agressifs (chaines
+# de redirection, regies en temps reel) que les cinq listes de filtres
+# posees par defaut dans Vivaldi ne suffisent pas a arreter.
+#
+# uBlock Origin (la version pleine puissance, Manifest V2) a ete retire du
+# Chrome Web Store — Google a coupe les extensions MV2 restantes en 2025.
+# uBlock Origin Lite (uBOL), le successeur officiel du meme projet en
+# Manifest V3, reste disponible et embarque EasyList/EasyPrivacy/Peter
+# Lowe's par defaut — plus large que les cinq sources actives de Vivaldi.
+# Force-installee par « ExtensionInstallForcelist », le mecanisme standard
+# des politiques Chromium — jamais reimplemente, jamais empaquetee a la
+# main : l'URL de mise a jour est celle du Chrome Web Store, la meme que
+# tout navigateur Chromium interroge deja.
+grep -q '"ExtensionInstallForcelist"' /etc/vivaldi/policies/managed/s-web.json \
+    || { echo "ECHEC : uBlock Origin Lite n'est plus force-installe dans S Web." >&2; exit 1; }
+grep -q 'ddkjiahejlhfcafbddmgiahcphecmpfh' /etc/vivaldi/policies/managed/s-web.json \
+    || { echo "ECHEC : l'identifiant d'uBlock Origin Lite est absent ou faux." >&2; exit 1; }
+echo "  s-web : uBlock Origin Lite force-installe par politique geree"
 
 test -s /usr/lib/systemd/user/s-pilotes.timer \
     || { echo "ECHEC : s-pilotes.timer absent." >&2; exit 1; }

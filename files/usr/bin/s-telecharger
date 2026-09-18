@@ -1,0 +1,69 @@
+#!/usr/bin/bash
+# S Web sait telecharger, sans quitter le navigateur ni ouvrir un site tiers.
+#
+# CE QUE CA FAIT. Un signet (« bookmarklet ») pose sur la page de demarrage de
+# S Web transforme l'onglet courant en « s-telecharger:<url encodee> ». Le
+# systeme sait deja ouvrir ce type d'adresse — c'est le meme mecanisme que
+# « s-ouvrir-exe » pour un .exe, une association xdg-mime, jamais une
+# extension de navigateur. Rien a maintenir cote Chromium, rien qui puisse
+# casser au prochain changement de politique d'extensions (voir l'entree du
+# 2026-09-18 sur uBlock Origin, retire du Chrome Web Store : les extensions
+# sont un sol mouvant, un gestionnaire xdg-mime ne l'est pas).
+#
+# LE PIEGE MESURE LE 2026-09-18, ET POURQUOI LE CHOIX D'OUTIL NE SE FAIT PAS
+# « essaie yt-dlp, s'il echoue prends aria2 ». yt-dlp NE REND PRESQUE JAMAIS
+# un code d'echec : son extracteur « generic » traite TOUTE adresse jamais
+# vue comme « pourrait etre un lien video direct » et la telecharge telle
+# quelle — mesure en direct, un simple robots.txt de Google est ressorti
+# nomme « robots.unknown_video », code de sortie 0. Un « si ca reussit »
+# aurait donc route CHAQUE gros fichier (une ISO, un .zip) vers yt-dlp, en
+# UNE seule connexion — l'exact inverse du telechargement accelere demande.
+#
+# LE VRAI SIGNAL, TROUVE EN LISANT CE QUE yt-dlp SAIT DEJA DE LUI-MEME :
+# « --simulate --print extractor » nomme l'extracteur choisi SANS rien
+# telecharger. Il vaut « generic » quand rien de dedie n'a reconnu le site,
+# et le vrai nom du site (« youtube », etc.) sinon. C'est ce nom qui decide,
+# jamais un code de sortie.
+#
+# « --js-runtimes node » evite une seconde degradation mesuree le meme jour :
+# sans moteur JavaScript, yt-dlp avertit lui-meme que « some formats may be
+# missing » sur YouTube. Node est deja dans l'image (voir 27-applications.sh)
+# — rien a ajouter, seulement a lui dire de s'en servir.
+#
+# CE QUE CA NE FAIT PAS. Les liens magnet et .torrent ne passent pas par ici
+# — qBittorrent les recoit directement (voir mimeapps.list), sans detour.
+set -uo pipefail
+source /usr/bin/s-monde
+
+BRUT="${1:?s-telecharger attend une adresse s-telecharger:<url>}"
+BRUT="${BRUT#s-telecharger:}"
+URL="$(python3 -c "import sys, urllib.parse as u; print(u.unquote(sys.argv[1]))" "$BRUT")"
+
+case "$URL" in
+    http://*|https://*) ;;
+    *) s_echec "Adresse refusee" "Ni http ni https : $URL" ;;
+esac
+
+DEST="$(xdg-user-dir DOWNLOAD 2>/dev/null)"
+[ -n "$DEST" ] && [ -d "$DEST" ] || DEST="$HOME/Downloads"
+mkdir -p "$DEST"
+
+s_dire "Telechargement lance" "$URL" folder-download
+
+EXTRACTEUR="$(yt-dlp --js-runtimes node --simulate --print extractor "$URL" 2>/dev/null | tail -n1)"
+
+if [ -n "$EXTRACTEUR" ] && [ "$EXTRACTEUR" != "generic" ] \
+    && yt-dlp --js-runtimes node --no-playlist --restrict-filenames \
+        -o "$DEST/%(title)s.%(ext)s" "$URL" >/dev/null 2>&1; then
+    s_dire "Video telechargee" "$(basename "$DEST")" video-x-generic
+    exit 0
+fi
+
+if command -v aria2c >/dev/null 2>&1 \
+    && aria2c --dir="$DEST" --max-connection-per-server=16 --split=16 \
+        --continue=true --console-log-level=warn "$URL" >/dev/null 2>&1; then
+    s_dire "Telechargement termine" "$(basename "$DEST")" folder-download
+    exit 0
+fi
+
+s_echec "Echec du telechargement" "$URL"

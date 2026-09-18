@@ -13,6 +13,28 @@
 # ni les cookies, ni les extensions d'aucun autre usage de Vivaldi sur cette
 # machine — son propre profil, sous S_WEB, cree au premier lancement par
 # Vivaldi lui-meme (--user-data-dir cree le dossier s'il manque).
+#
+# BOGUE TROUVE LE 2026-09-18, SIGNALE PAR L'UTILISATEUR : « en reouvrant S,
+# les onglets precedemment ouverts ne sont plus la ». La strategie geree
+# posait « RestoreOnStartup=4 » (toujours ouvrir demarrage.html, jamais la
+# session precedente) — pensee a l'origine pour habiller le tout PREMIER
+# onglet, elle s'applique en realite a CHAQUE lancement : RestoreOnStartup
+# gouverne tout le demarrage du navigateur, pas un onglet en particulier.
+# Chaque fermeture de S Web effacait donc les onglets ouverts, sans
+# exception. La strategie geree porte maintenant « RestoreOnStartup=1 »
+# (continuer la ou on etait, le comportement normal d'un navigateur) ; c'est
+# ce script qui pose demarrage.html, et seulement au tout premier lancement
+# — detecte par l'absence du dossier de profil, avant que Vivaldi ne le
+# cree. Un URL passe en argument s'ajoute a la session restauree, il ne la
+# remplace jamais : les deux cohabitent sans conflit.
 source /usr/bin/s-monde
+
+premier_lancement=1
+[ -d "$S_WEB" ] && premier_lancement=0
+
+if [ "$premier_lancement" = 1 ]; then
+    exec /usr/lib/opt/vivaldi/vivaldi --user-data-dir="$S_WEB" --no-first-run \
+        "file:///usr/share/s/web/demarrage.html" "$@"
+fi
 
 exec /usr/lib/opt/vivaldi/vivaldi --user-data-dir="$S_WEB" --no-first-run "$@"

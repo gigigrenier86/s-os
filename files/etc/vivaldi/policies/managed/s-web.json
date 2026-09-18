@@ -1,6 +1,8 @@
 {
-    "RestoreOnStartup": 4,
-    "RestoreOnStartupURLs": ["file:///usr/share/s/web/demarrage.html"],
+    "RestoreOnStartup": 1,
     "HomepageLocation": "file:///usr/share/s/web/demarrage.html",
-    "HomepageIsNewTabPage": false
+    "HomepageIsNewTabPage": false,
+    "ExtensionInstallForcelist": [
+        "ddkjiahejlhfcafbddmgiahcphecmpfh;https://clients2.google.com/service/update2/crx"
+    ]
 }

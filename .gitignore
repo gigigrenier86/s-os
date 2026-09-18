@@ -9,6 +9,7 @@
 .idea/
 .sixth/
 .claude/settings.json
+.claude/skills/synced/
 *~
 
 # Les caches de Python : produits en essayant le noyau, jamais livres.

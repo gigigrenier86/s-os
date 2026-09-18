@@ -256,6 +256,15 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/47-android-selinux.sh
 
+# Telechargements de S Web — yt-dlp, aria2, qBittorrent. Voir
+# build_files/51-telechargements.sh. Avant les coutures, comme 45/46/47 :
+# 40-coutures.sh verifie ce que celui-ci pose (le .desktop de qBittorrent,
+# entre autres) et doit donc s'executer apres lui.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/51-telechargements.sh
+
 # Les coutures — la partie qui bouge le plus
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \

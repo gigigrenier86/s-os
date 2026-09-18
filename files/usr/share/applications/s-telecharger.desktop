@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Telecharger avec S
+Comment=Recoit une adresse s-telecharger: depuis le signet de S Web
+Exec=/usr/bin/s-telecharger %u
+Icon=folder-download
+Terminal=false
+NoDisplay=true
+MimeType=x-scheme-handler/s-telecharger;
