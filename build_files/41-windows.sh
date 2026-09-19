@@ -74,6 +74,16 @@ fi
 DOSSIER_ARCHIVE="$(tar tzf "$TRAVAIL/proton.tar.gz" | head -1 | cut -d/ -f1 || true)"
 [ -n "$DOSSIER_ARCHIVE" ] || { echo "ECHEC : impossible de lire le nom du dossier dans l'archive Proton." >&2; exit 1; }
 
+# « files/bin/wineserver » EST LE TEMOIN DE COMPLETUDE du depliage
+# (s_windows_deplier, windows.sh) : un dossier qui ne le porte pas est pris pour
+# un depliage interrompu et refait. Si un futur GE-Proton changeait sa mise en
+# page, le depliage echouerait sur toute machine neuve — il vaut mieux que ce
+# soit ICI, a la construction, que chez l'utilisateur. Le comptage lit toute la
+# liste (« grep -c » ne ferme jamais son entree en avance) : pas de SIGPIPE
+# sous « pipefail ».
+[ "$(tar tzf "$TRAVAIL/proton.tar.gz" | grep -cx "$DOSSIER_ARCHIVE/files/bin/wineserver")" = "1" ] \
+    || { echo "ECHEC : l'archive Proton ne contient pas $DOSSIER_ARCHIVE/files/bin/wineserver — s_windows_deplier ne saurait pas la juger complete." >&2; exit 1; }
+
 install -m 0644 "$TRAVAIL/proton.tar.gz" "$DEST/proton.tar.gz"
 printf '%s\n' "$DOSSIER_ARCHIVE" > "$DEST/proton.version"
 rm -rf "$TRAVAIL"

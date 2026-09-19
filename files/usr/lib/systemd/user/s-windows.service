@@ -20,6 +20,21 @@ Documentation=man:wineserver(1)
 PartOf=s-session.target
 After=s-session.target
 
+# UNE PANNE PERSISTANTE DOIT S'ARRETER ET SE VOIR, PAS TOURNER A VIDE.
+#
+# Le 2026-09-18, le serveur a redemarre 62 fois en 16 minutes sans que
+# « systemctl --failed » en dise un mot : chaque tour dure ~13 s (l'amorce
+# attend dix secondes un serveur qui ne viendra pas), donc la limite par defaut
+# de systemd — cinq departs en dix secondes — n'etait JAMAIS atteinte. Une
+# unite en « activating » ou « auto-restart » n'est pas « failed » ; on la
+# croyait saine parce que l'outil de controle ne la comptait pas.
+#
+# Cinq departs en cinq minutes suffisent : au-dela, l'unite passe en
+# « failed (start-limit-hit) », ce qui se voit — et ce qui rend enfin le
+# processeur.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
 [Service]
 Type=simple
 
@@ -39,15 +54,23 @@ Type=simple
 # suivre le chiffre mesure au plus juste.
 TimeoutStartSec=180
 
-# SI LE WINDOWS DE S N'EXISTE PAS ENCORE, IL N'Y A RIEN A SERVIR.
+# SI LE WINDOWS DE S N'EST PAS PRET POUR CETTE VERSION DE PROTON, IL N'Y A RIEN
+# A SERVIR.
 #
-# Une unite qui echoue a chaque ouverture de session sur une machine ou aucun
-# .exe n'a jamais ete ouvert serait du bruit, et le bruit finit par etre ignore
-# — y compris le jour ou il dit quelque chose. « ExecCondition » fait sauter
-# l'unite sans la marquer en echec : c'est exactement la nuance qu'il faut ici.
-# C'est s-ouvrir-exe qui construit le prefixe au premier usage, puis demarre
-# cette unite lui-meme.
-ExecCondition=/usr/bin/test -d %h/.local/share/S/windows/pfx/drive_c
+# Une unite qui echoue a chaque ouverture de session serait du bruit, et le
+# bruit finit par etre ignore — y compris le jour ou il dit quelque chose.
+# « ExecCondition » fait sauter l'unite sans la marquer en echec : c'est
+# exactement la nuance qu'il faut ici. C'est s-ouvrir-exe qui construit le
+# prefixe au premier usage, et qui le remet a jour apres un changement de
+# Proton, puis demarre cette unite lui-meme.
+#
+# LA VERSION D'AVANT NE TESTAIT QUE L'EXISTENCE DU PREFIXE (« test -d
+# .../drive_c »). Or le prefixe survit aux mises a jour d'image, et pas le
+# dossier du Proton que l'image demande : la premiere mise a jour qui changeait
+# de version (GE-Proton11-6 vers 11-7) laissait le prefixe en place, le serveur
+# cherchait un dossier absent, et l'unite redemarrait a l'infini. « --pret »
+# teste les quatre conditions de s_windows_pret, version de Proton comprise.
+ExecCondition=/usr/bin/s-windows --pret
 
 ExecStart=/usr/bin/s-windows --serveur
 

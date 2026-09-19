@@ -329,6 +329,36 @@ test -L /etc/systemd/user/s-session.target.wants/s-windows.service \
     || { echo "ECHEC : s-windows.service n'est pas tire par s-session.target." >&2; exit 1; }
 echo "  s-windows.service : resident, tire par s-session.target"
 
+# LES TROIS INVARIANTS DU 2026-09-18 — chacun est une panne muette qui a ete
+# vue sur la machine, et qu'aucune construction n'aurait attrapee.
+#
+# 1. L'unite ne demarre que si le Windows est pret POUR CETTE VERSION de Proton.
+#    Sans cette condition, une mise a jour d'image qui change la version faisait
+#    redemarrer le serveur a l'infini (62 tours en 16 minutes), invisible dans
+#    « systemctl --failed ».
+grep -q '^ExecCondition=/usr/bin/s-windows --pret$' /usr/lib/systemd/user/s-windows.service \
+    || { echo "ECHEC : s-windows.service ne teste plus « s-windows --pret » — une mise a jour de Proton le ferait boucler." >&2; exit 1; }
+grep -q '^if \[ "\${1:-}" = "--pret" \]' /usr/bin/s-windows \
+    || { echo "ECHEC : s-windows ne connait plus --pret, que l'unite appelle." >&2; exit 1; }
+grep -q '^StartLimitBurst=' /usr/lib/systemd/user/s-windows.service \
+    || { echo "ECHEC : s-windows.service n'a plus de limite de redemarrage — une panne persistante tournerait a vide." >&2; exit 1; }
+# 2. Le binaire « wine » se cherche par UNE fonction. « wine64 » n'existe pas dans
+#    GE-Proton11 : trois appels le figeaient en dur, echouaient en silence, et le
+#    premier ecrivait quand meme son marqueur « mode pose ».
+grep -q '^s_windows_wine()' /usr/lib/s/windows.sh \
+    || { echo "ECHEC : s_windows_wine() a disparu de windows.sh." >&2; exit 1; }
+if grep -hv '^[[:space:]]*#' /usr/bin/s-windows /usr/lib/s/windows.sh \
+        | grep -q 'files/bin/wine64'; then
+    echo "ECHEC : « files/bin/wine64 » est ecrit en dur hors de s_windows_wine — il n'existe pas dans GE-Proton11." >&2
+    exit 1
+fi
+# 3. Le depliage de Proton ne doit jamais laisser un dossier PARTIEL sous son vrai
+#    nom : un depliage coupe (redemarrage en cours de route) etait pris pour un
+#    Proton valide, et chaque lancement echouait ensuite sans explication.
+grep -q '\.depliage-XXXXXX' /usr/lib/s/windows.sh \
+    || { echo "ECHEC : s_windows_deplier ne deplie plus a cote avant d'echanger — un depliage coupe laisserait un Proton partiel." >&2; exit 1; }
+echo "  s-windows      : condition de demarrage, limite de redemarrage, binaire wine et depliage controles"
+
 # --- L'EGALISEUR RESIDENT — MEME PATRON QUE s-windows.service --------------
 # L'etoile « Egaliseur » pilote EasyEffects par sa ligne de commande, qui a
 # besoin d'un exemplaire deja en vie pour repondre sans attendre. Voir
@@ -622,6 +652,12 @@ python3 -c "import ast; ast.parse(open('/usr/lib/s/iptv.py').read())" \
     || { echo "ECHEC : iptv.py contient une erreur de syntaxe." >&2; exit 1; }
 python3 -c "import ast; ast.parse(open('/usr/bin/s-iptv').read())" \
     || { echo "ECHEC : s-iptv contient une erreur de syntaxe." >&2; exit 1; }
+# L'adresse d'un flux vient d'une playlist, souvent prise chez un tiers : sans
+# « -- » avant elle, une ligne commencant par « - » serait lue par mpv comme une
+# OPTION (--script=, --input-commands=, --o=). Mesure du 2026-09-18 : une ligne
+# « --version » imprimait la version de mpv au lieu de s'ouvrir comme un flux.
+grep -q '"--", url' /usr/bin/s-iptv \
+    || { echo "ECHEC : s-iptv n'isole plus l'adresse du flux par « -- » — une playlist pourrait injecter des options dans mpv." >&2; exit 1; }
 test -s /usr/share/s/iptv/qml/Principal.qml \
     || { echo "ECHEC : Principal.qml absent — s-iptv n'aurait aucune fenetre." >&2; exit 1; }
 python3 /ctx/build_files/verifier-iptv.py /usr/share/s/iptv/qml \

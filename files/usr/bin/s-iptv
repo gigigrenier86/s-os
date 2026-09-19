@@ -115,10 +115,17 @@ class Pont(QObject):
         titre_fenetre = f"{titre} — S IPTV" if titre else "S IPTV"
         try:
             self._processus = subprocess.Popen(
+                # « -- » : FIN DES OPTIONS, ET IL EST INDISPENSABLE. L'adresse vient
+                # d'une playlist, souvent prise chez un tiers, et une ligne de flux
+                # qui commence par « - » serait sinon lue par mpv comme une OPTION —
+                # « --script= », « --input-commands= », « --o= » ecrivent ou
+                # executent. Mesure du 2026-09-18 avec mpv 0.41 : une ligne
+                # « --version » imprimait la version au lieu de s'ouvrir comme un
+                # flux ; avec « -- » elle est traitee comme un nom de fichier.
                 ["mpv", "--force-window=yes",
                  f"--force-media-title={titre_fenetre}",
                  f"--title={titre_fenetre}",
-                 url],
+                 "--", url],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

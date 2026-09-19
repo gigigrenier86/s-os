@@ -66,8 +66,35 @@ _dire_windows() {
 # le rend persistant, sinon il sort des que le dernier programme Windows se
 # ferme et on retombe sur le demarrage a froid qu'on essaie justement d'eviter.
 if [ "${1:-}" = "--serveur" ]; then
-    s_windows_charger || { echo "s-windows : aucun environnement capture" >&2; exit 1; }
+    # DEUX CAUSES POSSIBLES, ET LE MESSAGE D'AVANT N'EN NOMMAIT QU'UNE : la
+    # capture peut manquer, ou le Proton que l'image demande peut ne pas etre
+    # encore deplie. Le second cas est le plus courant — il suit toute mise a
+    # jour d'image qui change de version — et se voyait dans le journal comme
+    # « ./wineserver : Aucun fichier », sans dire de quoi.
+    s_windows_charger || {
+        echo "s-windows : environnement ou Proton introuvable pour $(s_windows_version)" >&2
+        exit 1
+    }
+    [ -x "$WINESERVER" ] || { echo "s-windows : wineserver introuvable : $WINESERVER" >&2; exit 1; }
     exec "$WINESERVER" -f -p
+fi
+
+# ---------------------------------------------------------------------------
+# --pret : la CONDITION de demarrage du serveur resident
+# ---------------------------------------------------------------------------
+# Lu par « ExecCondition= » de s-windows.service. Un code 1 fait SAUTER l'unite
+# sans la marquer en echec : c'est la nuance qu'il faut ici. Sans cette
+# condition, une mise a jour d'image qui changeait la version de Proton
+# laissait le serveur dans une boucle de redemarrage — 62 tours en 16 minutes
+# le 2026-09-18, un toutes les treize secondes, 1,2 s de processeur chacun —
+# jusqu'au premier double-clic sur un .exe. Voir s_windows_pret.
+#
+# Ce n'est pas une regression que le serveur ne demarre plus tant que le
+# nouveau Proton n'est pas deplie : c'est s-ouvrir-exe qui le deplie (par
+# --preparer) puis demarre l'unite lui-meme, cette fois condition remplie.
+if [ "${1:-}" = "--pret" ]; then
+    s_windows_pret
+    exit $?
 fi
 
 if [ "${1:-}" = "--arreter-serveur" ]; then
@@ -230,8 +257,25 @@ afficheront un carre a la place de leurs icones." dialog-warning
         } > "$reg"
         DECLAREES=$(grep -c '(TrueType)' "$reg")
         DECLAREES=$((DECLAREES / 2))
-        WINEPREFIX="$S_WIN_PFX" WINEDEBUG=-all \
-            "$(s_windows_proton)/files/bin/wine64" regedit "$reg" >/dev/null 2>&1 || true
+        # « wine64 » N'EXISTE PAS DANS GE-PROTON11 — voir s_windows_wine. La
+        # version d'avant figeait ce chemin, avalait l'erreur (« || true ») et
+        # annoncait quand meme « N declaree(s) au registre » : le compte etait
+        # celui des lignes ECRITES dans le fichier, jamais de celles que le
+        # registre avait acceptees. Sur une machine neuve, les polices seraient
+        # arrivees dans le dossier sans jamais exister pour Windows, et les
+        # icones de tout logiciel Windows moderne seraient restees des carres
+        # vides — le defaut exact du 2026-08-26 — avec un message de succes.
+        local wine_polices
+        if wine_polices="$(s_windows_wine)" \
+           && WINEPREFIX="$S_WIN_PFX" WINEDEBUG=-all \
+              "$wine_polices" regedit "$reg" >/dev/null 2>&1; then
+            :
+        else
+            DECLAREES=0
+            _dire_windows "Polices Windows" \
+"Les polices sont copiees mais regedit n'a pas pu les declarer : les icones \
+Segoe resteront des carres vides." dialog-warning
+        fi
         rm -f "$reg"
     else
         DECLAREES=0
@@ -288,10 +332,16 @@ if [ "${1:-}" = "--fondations" ]; then
     s_windows_verrou
 
     REPRISE="$(s_windows_pause)"
-    s_windows_charger
+    s_windows_charger || { s_windows_reprendre "$REPRISE"; s_echec \
+        "Le Windows de S est incomplet" \
+        "Proton $(s_windows_version) est introuvable. Lance : s-windows --preparer"; }
 
-    export WINE="$(s_windows_proton)/files/bin/wine64"
-    export WINESERVER="$(s_windows_proton)/files/bin/wineserver"
+    # WINELOADER ET WINESERVER VIENNENT DE s_windows_charger, QUI A CHOISI LE
+    # BON ARBRE. La version d'avant les recalculait ici a la main, sur
+    # « files/bin/wine64 » — qui n'existe pas dans GE-Proton11 : winetricks
+    # aurait cherche un binaire absent sur toute machine neuve, la ou les
+    # fondations (.NET, WebView2) sont justement posees pour la premiere fois.
+    export WINE="$WINELOADER"
     export WINEPREFIX="$S_WIN_PFX"
     export WINETRICKS_LATEST_VERSION_CHECK=disabled
     JOURNAL="$S_ETAT/windows-fondations.log"

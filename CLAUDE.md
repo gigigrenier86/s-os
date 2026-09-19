@@ -8,6 +8,190 @@ Interface en français.
 
 ---
 
+## 2026-09-18, soir — l'audit à cinq rôles : le Windows résident bouclait depuis la mise à jour, et « zéro unité en échec » mentait
+
+Demande de l'utilisateur, juste après le redémarrage sur `b0f140a` : « regarde en
+profondeur tout le projet, je veux que tout soit fluide et fonctionnel, fouille
+fort pour des bugs, load les skills ». Wizard, Alchimiste, Contremaître et Voyeur
+chargés ; rien n'est commité ni dans l'image à l'heure où j'écris.
+
+### D'abord une correction à mon propre premier relevé
+
+Ma première commande après le redémarrage a rendu « zéro unité en échec, système
+et session », et je l'ai lu comme un état sain. **C'était vrai et trompeur.**
+`s-windows.service` était en **boucle de redémarrage — 62 tours en 16 minutes**
+(65 un peu plus tard), un toutes les ~13 s, 1,2 s de processeur à chaque tour.
+Une unité en `activating` ou `auto-restart` n'est pas `failed` : `systemctl
+--failed` ne la compte pas. Le témoin qui dit la vérité est le compteur du
+journal — `journalctl -b | grep "Scheduled restart job, restart counter"` — ou
+`systemctl list-units --state=activating,auto-restart`.
+
+### Le mécanisme, mesuré
+
+Mise à jour d'image → `proton.version` passe à `GE-Proton11-7` (l'image suit
+toujours la dernière version publiée) → ce dossier n'existe pas encore chez
+l'utilisateur → `s_windows_charger` ne trouve aucun loader, **laisse `WINELOADER`
+vide, et exporte quand même `WINESERVER="$(dirname '')/wineserver"`, soit
+`./wineserver`** — le dossier courant, ici `/var/home/RyuRex/wineserver` → code
+127 → systemd relance. Le geste qui redéplie le nouveau Proton (`--preparer`) ne
+part qu'au **premier double-clic sur un .exe**. Donc chaque nouvelle version de
+GE-Proton mettait toute machine en boucle jusqu'à ce que quelqu'un ouvre un .exe.
+
+La limite de systemd par défaut (cinq départs en dix secondes) ne pouvait jamais
+mordre : un tour dure ~13 s, puisque l'amorce attend dix secondes un serveur qui
+ne viendra pas.
+
+### Le défaut jumeau, et il était plus grave que la boucle
+
+**`GE-Proton11` n'a pas de `wine64`** — un seul `files/bin/wine`. Mesuré sur le
+dossier déplié ET sur l'archive livrée dans l'image (`tar tzf` : `wineserver` et
+`wine` présents, zéro `wine64`). Le correctif du 2026-08-29 n'avait atteint que
+`s_windows_pret` et `s_windows_charger` ; **trois autres appels figeaient encore
+`files/bin/wine64`** :
+
+- `s_windows_rendu_pose` — la bascule de rendu matériel/logiciel, par programme.
+  `regedit` échouait sous `>/dev/null 2>&1`, et la fonction **écrivait quand même
+  son marqueur « mode posé »**. PURPLE, qui exige le rendu logiciel, aurait ouvert
+  une fenêtre noire sur toute machine neuve ; et comme le marqueur ne différait
+  plus de la demande, plus rien ne retentait : panne permanente et muette.
+- `s-windows --polices` — les polices Segoe auraient été copiées sans jamais être
+  déclarées, avec un message annonçant « N déclarée(s) au registre » (le compte
+  était celui des lignes écrites dans le fichier, pas de celles que le registre
+  avait acceptées). Les icônes de tout logiciel Windows moderne seraient restées
+  des carrés vides — le défaut exact du 2026-08-26.
+- `s-windows --fondations` — winetricks aurait cherché un binaire absent, là où
+  .NET et WebView2 sont posés pour la première fois.
+
+Ces trois chemins n'avaient **jamais** été exercés sous GE-Proton : le registre du
+préfixe portait déjà le bon état (posé sous UMU-Proton le 2026-08-26), donc
+`s_windows_rendu_pose` retombait sur « rien à changer » à chaque essai.
+
+### Ce qui a été fait
+
+- **`s_windows_wine()`** (windows.sh) : un seul endroit qui choisit le loader
+  (`wine64` d'abord, puis `wine`). `s_windows_pret`, `s_windows_charger` et les
+  trois appels ci-dessus l'utilisent. `--fondations` prend `$WINELOADER`.
+- **`s_windows_charger` échoue franchement** si aucun loader n'existe, au lieu de
+  fabriquer `./wineserver` à partir d'une variable vide.
+- **`s_windows_rendu_pose`** n'écrit son marqueur qu'**après** un `regedit`
+  réussi, et journalise l'échec dans `windows-repli.log`.
+- **`--polices`** compte 0 et le dit si `regedit` échoue.
+- **`s-windows --pret`** + `ExecCondition=/usr/bin/s-windows --pret` dans l'unité :
+  elle est **sautée**, pas en échec, tant que le Windows n'est pas prêt pour la
+  version de Proton que l'image demande. `StartLimitBurst=5` sur 300 s : une
+  panne persistante devient visible (`failed`) au lieu de tourner à vide.
+- **`s_windows_pause`** compte `activating` comme actif (sinon `umu-run` partait
+  pendant que l'unité tentait encore de tenir le préfixe).
+- **`s_windows_deplier`** déplie dans un dossier voisin puis renomme. Voir plus bas.
+- Trois contrôles de construction neufs dans `40-coutures.sh` et un dans
+  `41-windows.sh` (l'archive doit porter `files/bin/wineserver`, témoin de
+  complétude) ; le balayage par motif passe de 26 à 31 contrôles, tous verts.
+
+### Un troisième défaut, trouvé en cherchant ce que la boucle cachait
+
+`s_windows_deplier` faisait `tar xzf` **directement dans le dossier final**. Le
+dépliage dure trente secondes à une minute et cette machine redémarre souvent : un
+dépliage coupé laissait un dossier partiel que `[ -d "$dest" ] && return 0`
+prenait pour un Proton valide. Reproduit avec une archive tronquée : le second
+essai, avec l'archive complète, **rendait 0 et ne réparait rien**. Corrigé, et
+rejoué sur cinq scénarios — normal, interrompu puis relancé, partiel hérité de
+l'ancien code, déjà complet (idempotent), archive au mauvais nom : aucun résidu.
+
+### La réparation a été faite en direct, et c'est elle qui a prouvé le correctif
+
+Le chemin d'auto-réparation prévu (`s-windows --preparer --silencieux`, depuis le
+dépôt par `S_BIN`/`S_LIB`) a tourné **2 min 43 s** : `GE-Proton11-7` déplié,
+environnement recapturé, serveur résident actif (`ntsync: up and running`, session
+amorcée en 1996 ms). Puis la bascule de rendu, contre le **vrai serveur** :
+
+```
+registre vivant (reg query)   0x0  ->  0x1 (logiciel)  ->  0x0 (materiel, etat d'origine)
+```
+
+**Piège de mesure, et il a failli me faire conclure à un échec :** `user.reg` sur
+disque reste à `0` pendant tout ce temps — le `wineserver` résident n'écrit le
+registre qu'à sa sortie. Lire le fichier donnait un faux « ça n'a pas marché ».
+La question se pose au serveur vivant (`wine reg query`), jamais au fichier.
+
+Chemin rapide ensuite : `cmd /c echo … > C:\preuve.txt` avec **relecture du contenu
+du fichier**, cinq fois, **232 à 250 ms**, cohérent avec les 215 ms historiques.
+Une première mesure à 17-21 ms sur `hostname.exe` était vraie mais sans valeur
+(un exécutable natif de Wine, minuscule) : elle a été refaite avec la preuve par
+fichier avant d'être écrite ici.
+
+### IPTV : deux vrais défauts, et deux durcissements
+
+- **Injection d'options dans `mpv`.** L'adresse d'un flux vient d'une playlist,
+  souvent prise chez un tiers, et était passée en dernier argument **sans `--`**.
+  Mesuré avec mpv 0.41 : une ligne de flux `--version` imprimait la version au lieu
+  de s'ouvrir comme un flux — même mécanisme que `--script=`, `--input-commands=`,
+  `--o=`. Corrigé (`"--", url`) + contrôle de construction.
+- **Noms de chaînes tronqués.** `rsplit(",", 1)` prenait la dernière virgule :
+  « Sky Sports 1, HD » devenait « HD », « Arte, FR » devenait « FR ». Le nom
+  commence maintenant après la première virgule hors guillemets.
+- Plafond de 256 Mio sur le téléchargement d'une playlist (`timeout` ne borne que
+  l'attente de chaque lecture, jamais le volume) ; fichier des playlists en `0600`
+  (l'URL Xtream porte `username=`/`password=` en clair).
+
+### Ce qui a été examiné et écarté — une piste fermée est un bon résultat
+
+| Soupçon | Ce que la mesure a dit |
+|---|---|
+| 29 fichiers à `100644` avec un shebang | Aucun n'est exécuté directement : modules Python importés, ou `python3 x.py`. Les deux seuls exécutés en direct par systemd (`android-lancer.sh`, `android-net.sh`) sont `100755` |
+| `marge_haut`/`marge_bas` inutilisées dans `bornerLaterale` | Code mort hérité (la poignée repliée n'existe plus depuis le 2026-09-10) ; inoffensif |
+| `graphical.target` à 14,7 s : le greeter attend le réseau ? | Non. `plasmalogin` démarre à ~8,3 s (derrière `tuned` et `plymouth-quit`), hors de la chaîne `NetworkManager-wait-online` → `greenboot-healthcheck` |
+| 95 lignes « Failed to make and chown /sys/fs/cgroup/uid_N » | Bruit de démarrage d'Android (26 s puis plus rien), config LXC `cgroup:ro` — le défaut de Waydroid amont |
+| Cinq `subprocess` sans `timeout` (Android) | Un est déjà borné par `timeout(1)`, les autres sont `systemctl`/`cksum`/`update-desktop-database` |
+| Secrets dans le dépôt public | Aucun, ni dans l'arbre ni dans l'historique (clés privées, jetons `ghp_`/`github_pat_`, `AKIA…`, affectations littérales) |
+| `noyau.lire_desktop` et `registre.protocoles` face à des entrées hostiles | Neuf `.desktop` piégés (BOM, binaire, 2 Mo de nom…) et sept faux préfixes (ligne de 20 Mo, échappement tronqué, UTF-16) : aucune exception, aucune boucle |
+| `s-monter-windows` : « aucune partition NTFS » | Le disque Windows n'est simplement pas branché ; le service le dit franchement |
+| S Web placé hors écran (18 septembre) | Les deux fenêtres Vivaldi relevées sont à `0,0 1920×1028`, `maximizeMode=3`. **Bon signe, pas une preuve** : un seul relevé |
+
+Ce qui est propre : shellcheck 0.11.0 niveau warning (aucune erreur, 18 avertissements
+de style ou de variables exportées par `source`), pyflakes (aucun nom indéfini), la
+scène QML (35 slots au pont, 9 appels sur `Fenetres`, menu de 10 articles, zéro
+avertissement), `desktop-file-validate`, `fenetres.js`. Outillage : `shellcheck-py`
+et `pyflakes` dans un venv jetable du scratchpad — rien dans `/usr`, rien dans le
+dépôt.
+
+### Ce que cette passe ne prouve pas
+
+- **Rien n'est commité ni dans l'image.** L'unité déployée est encore l'ancienne :
+  `ExecCondition=/usr/bin/test -d …`. Le correctif de la boucle ne sera prouvé que
+  par un démarrage sur l'image qui le porte — et sa branche « version de Proton
+  qui change » ne pourra l'être qu'au prochain changement de version de GE-Proton.
+  La boucle a été arrêtée à la main (`systemctl --user stop`) puis guérie par le
+  `--preparer` en direct, pas par le nouveau code de l'unité.
+- **`--fondations` (winetricks) sous GE-Proton n'a jamais tourné.** Le changement
+  est petit et évident (`WINE=$WINELOADER`), mais un préfixe créé par Proton en mode
+  wow64 pourrait refuser `dotnet48` pour une raison sans rapport. Exige ~10 minutes
+  et le réseau : à faire sur un préfixe jetable.
+- **`--polices` n'a pas pu être exercé** : Windows n'est pas monté sur cette
+  machine (le message l'a dit). Le même mécanisme `regedit` est prouvé par la
+  bascule de rendu, pas par cette commande.
+- **Le dépliage corrigé n'a tourné que sur une archive factice.** La structure de
+  la vraie archive a été vérifiée (`tar tzf`), pas un dépliage réel de 1,4 Go.
+- **`reglages.rapides()` prend 1,2 s (2,2 s à froid)** — quatorze sondes en série,
+  hors du fil graphique, donc rien ne se fige. Les paralléliser gagnerait ~0,9 s,
+  **mais `ddcutil` (luminosité et contraste) parle en I2C à l'écran et n'aime pas
+  les accès simultanés** : les deux devraient rester dans un même fil. Non fait.
+- **Le lecteur IPTV n'a pas lu de vrai flux** dans cette passe : l'injection a été
+  démontrée avec `--version`, le reste sur des chaînes de test et un mini-serveur
+  local.
+- **25 Go de stockage podman** sont l'image de base `bazzite:stable` (11,8 Go
+  compressée) que j'utilise pour reproduire les constructions CI. Elle est
+  réutilisable ; la supprimer coûterait un re-téléchargement. Non touchée.
+
+### À faire, si l'utilisateur le veut
+
+Préparer le nouveau Proton **en tâche de fond** à l'ouverture de session (comme
+Android), pour que le premier .exe après une mise à jour ne paie pas la minute de
+dépliage. Piège déjà repéré : `--preparer` se termine par `systemctl --user start
+s-windows.service`, qui **bloquerait** s'il tourne depuis une unité que
+`s-windows.service` attend (`After=`) — il faudrait `--no-block`.
+
+---
+
 ## 2026-09-10, encore plus tard — Office 365 « gelait », et c'était App-V contre Wine
 
 Demande de l'utilisateur, en plein milieu d'une installation Microsoft Office

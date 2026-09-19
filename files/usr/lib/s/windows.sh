@@ -122,23 +122,56 @@ s_windows_proton() {
     printf '%s/%s' "$S_PROTON_RACINE" "$(s_windows_version)"
 }
 
+# LE BINAIRE « wine » DE CE PROTON — UN SEUL ENDROIT, PARCE QUE TROIS AUTRES
+# LE DEVINAIENT MAL.
+#
+# « wine64 » d'abord : sur l'arbre classique (UMU-Proton), « files/bin/wine » est
+# le loader 32 BITS SEUL — le prendre par defaut casserait tout logiciel 64
+# bits. « wine64 » n'existe PAS DU TOUT sur un Proton unifie (GE-Proton11 et
+# plus) : un seul « files/bin/wine », qui heberge les deux architectures.
+#
+# CE QUI A ETE TROUVE LE 2026-09-18 EN AUDITANT : trois appels figeaient
+# « files/bin/wine64 » en dur — la bascule de rendu materiel/logiciel
+# (s_windows_rendu_pose), la declaration des polices (s-windows --polices) et
+# winetricks (s-windows --fondations). Le 2026-08-29, la correction n'avait
+# atteint que s_windows_pret et s_windows_charger. Sur GE-Proton, ces trois
+# appels echouaient EN SILENCE — « >/dev/null 2>&1 » — et le premier ecrivait
+# meme son marqueur « mode pose » apres coup. PURPLE, qui exige le rendu
+# logiciel, aurait ouvert une fenetre noire sur toute machine neuve, sans un
+# message, et le marqueur aurait continue de dire que tout allait bien.
+#
+# Rend le chemin sur la sortie standard, ou echoue sans rien afficher.
+s_windows_wine() {
+    local racine essai
+    racine="$(s_windows_proton)/files/bin"
+    for essai in "$racine/wine64" "$racine/wine"; do
+        [ -x "$essai" ] && { printf '%s' "$essai"; return 0; }
+    done
+    return 1
+}
+
 # ---------------------------------------------------------------------------
 # Le Windows de S est-il construit, et a jour ?
 # ---------------------------------------------------------------------------
-# Trois conditions, et il faut les trois. Une capture qui a survecu a une mise
+# Quatre conditions, et il faut les quatre. Une capture qui a survecu a une mise
 # a jour de Proton est pire qu'une capture absente : elle pointerait vers un
 # dossier qui n'existe plus, et wine echouerait sans dire pourquoi.
+#
+# C'EST AUSSI LA CONDITION DE DEMARRAGE DU SERVEUR RESIDENT (« s-windows
+# --pret », lu par ExecCondition). Sans elle, une mise a jour d'image qui
+# change la version de Proton laissait s-windows.service dans une boucle de
+# redemarrage — 62 tours en 16 minutes le 2026-09-18, un toutes les treize
+# secondes — jusqu'au premier double-clic sur un .exe, seul geste qui
+# redeplie le nouveau Proton. Une unite « activating » n'apparait pas dans
+# « systemctl --failed » : la boucle etait invisible aux controles habituels.
 s_windows_pret() {
     [ -d "$S_WIN_PFX/drive_c" ]                      || return 1
     [ -s "$S_WIN_ENV" ]                              || return 1
-    # « wine64 » OU « wine » : un Proton unifie (GE-Proton11 et plus) n'a
-    # PLUS DU TOUT de wine64 — un seul binaire, « files/bin/wine », qui
-    # heberge les deux architectures. Verifie le 2026-08-29 : ce test ne
-    # visant que wine64 rendait « pret() » faux en permanence sur
+    # « wine64 » OU « wine » — voir s_windows_wine. Verifie le 2026-08-29 : un
+    # test qui ne visait que wine64 rendait « pret() » faux en permanence sur
     # GE-Proton11, et s-ouvrir-exe repartait dans un --preparer complet a
     # chaque lancement au lieu d'utiliser le serveur deja construit.
-    { [ -x "$(s_windows_proton)/files/bin/wine64" ] || \
-      [ -x "$(s_windows_proton)/files/bin/wine" ]; }   || return 1
+    s_windows_wine >/dev/null                        || return 1
     [ "$(cat "$S_WIN_VERSION" 2>/dev/null)" = "$(s_windows_version)" ] || return 1
     return 0
 }
@@ -146,14 +179,37 @@ s_windows_pret() {
 # ---------------------------------------------------------------------------
 # Deplier Proton depuis l'image
 # ---------------------------------------------------------------------------
+#
+# LE DEPLIAGE SE FAIT A COTE, PUIS S'ECHANGE D'UN COUP — trouve le 2026-09-18.
+# La version d'avant depliait DIRECTEMENT dans le dossier final. Or le depliage
+# dure de trente secondes a une minute (468 Mo compresses, 1,4 Go a l'arrivee),
+# et cette machine redemarre souvent : un depliage coupe laissait un dossier
+# PARTIEL, que « [ -d "$dest" ] && return 0 » prenait ensuite pour un Proton
+# valide. Chaque lancement echouait alors sans que rien ne dise pourquoi, jusqu'a
+# ce que quelqu'un efface le dossier a la main. Reproduit avec une archive
+# tronquee : le second essai, avec l'archive complete, rendait 0 et ne reparait
+# rien.
+#
+# Un dossier n'existe donc sous son vrai nom que s'il est ENTIER : on depile
+# ailleurs (meme systeme de fichiers, donc « mv » est un simple renommage,
+# atomique), et « wineserver » sert de temoin de completude. Un dossier partiel
+# d'une version anterieure de ce code est remplace au lieu d'etre cru.
 s_windows_deplier() {
-    local version dest
+    local version dest tmp
     version="$(s_windows_version)"
     dest="$S_PROTON_RACINE/$version"
-    [ -d "$dest" ] && return 0
+    [ -x "$dest/files/bin/wineserver" ] && return 0
     [ -f "$S_PROTON_ARCHIVE" ] || return 1
     mkdir -p "$S_PROTON_RACINE"
-    tar xzf "$S_PROTON_ARCHIVE" -C "$S_PROTON_RACINE"
+    tmp="$(mktemp -d "$S_PROTON_RACINE/.depliage-XXXXXX")" || return 1
+    if tar xzf "$S_PROTON_ARCHIVE" -C "$tmp" \
+       && [ -x "$tmp/$version/files/bin/wineserver" ]; then
+        rm -rf "$dest"
+        mv "$tmp/$version" "$dest" && rmdir "$tmp"
+        return $?
+    fi
+    rm -rf "$tmp"
+    return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -318,19 +374,21 @@ s_windows_charger() {
     # (« unable to use parent for game drive »), benin en soi, mais qui
     # laisse WINELOADER dans un format que bash ne peut pas executer. Un
     # simple test de vide l'aurait laisse passer tel quel. On verifie
-    # maintenant qu'il s'agit d'un vrai fichier executable ; sinon, repli.
-    # « wine64 » d'abord : sur l'arbre classique, « files/bin/wine » est le
-    # loader 32 BITS SEUL — le prendre par defaut casserait tout logiciel
-    # 64 bits. « wine64 » n'existe pas du tout sur les Proton unifies
-    # (GE-Proton11 et plus), d'ou le second essai.
+    # maintenant qu'il s'agit d'un vrai fichier executable ; sinon, repli sur
+    # s_windows_wine (« wine64 » d'abord, puis « wine » — voir sa note).
+    #
+    # ET SI RIEN N'EXISTE, ON ECHOUE — TROISIEME PIEGE, TROUVE LE 2026-09-18.
+    # La version d'avant laissait WINELOADER vide et exportait quand meme
+    # WINESERVER="$(dirname '')/wineserver", soit « ./wineserver » : le dossier
+    # courant, ici le dossier personnel. Le serveur residant executait donc
+    # /var/home/RyuRex/wineserver, code 127, et systemd le relancait sans fin —
+    # exactement le cas d'une mise a jour d'image qui change la version de
+    # Proton avant que quiconque ait redeplie la nouvelle. Un chemin fabrique a
+    # partir d'une variable vide est le succes silencieux sous sa forme la plus
+    # banale : il a l'air d'un chemin.
     if [ -z "${WINELOADER:-}" ] || [ ! -x "$WINELOADER" ]; then
-        for _essai in "$(s_windows_proton)/files/bin/wine64" \
-                      "$(s_windows_proton)/files/bin/wine"; do
-            if [ -x "$_essai" ]; then
-                export WINELOADER="$_essai"
-                break
-            fi
-        done
+        WINELOADER="$(s_windows_wine)" || { unset WINELOADER; return 1; }
+        export WINELOADER
     fi
     export WINESERVER="$(dirname "$WINELOADER")/wineserver"
     export WINEDEBUG="${WINEDEBUG:--all}"
@@ -433,6 +491,17 @@ s_windows_rendu_pose() {
     # logiciel, PcBoostApp tournait en logiciel sans l'avoir demande. Vu sur la
     # machine le 2026-08-26 : sa zone centrale ne peignait pas.
     [ "$(cat "$S_WIN_RENDU_ACTUEL" 2>/dev/null)" = "$mode" ] && return 0
+
+    # LE MARQUEUR NE SE POSE QUE SI L'ECRITURE A REUSSI — trouve le 2026-09-18.
+    # La version d'avant ecrivait « mode pose » sans regarder le code de sortie
+    # de regedit, alors que regedit tournait avec « >/dev/null 2>&1 » sur un
+    # « wine64 » qui n'existe pas dans GE-Proton. Le registre ne changeait
+    # jamais, le marqueur mentait a chaque lancement, et comme il ne differe
+    # plus de la demande, plus rien ne retentait : la panne devenait permanente
+    # et muette. Un marqueur qui affirme un etat doit etre ecrit APRES l'avoir
+    # obtenu, jamais a cote.
+    local wine
+    wine="$(s_windows_wine)" || return 1
     reg="$(mktemp)" || return 1
     printf 'REGEDIT4
 
@@ -440,10 +509,15 @@ s_windows_rendu_pose() {
 "DisableHWAcceleration"=dword:0000000%s
 ' \
         "$([ "$mode" = logiciel ] && echo 1 || echo 0)" > "$reg"
-    WINEPREFIX="$S_WIN_PFX" WINEDEBUG=-all \
-        "$(s_windows_proton)/files/bin/wine64" regedit "$reg" >/dev/null 2>&1
+    if WINEPREFIX="$S_WIN_PFX" WINEDEBUG=-all "$wine" regedit "$reg" >/dev/null 2>&1; then
+        rm -f "$reg"
+        printf '%s' "$mode" > "$S_WIN_RENDU_ACTUEL"
+        return 0
+    fi
     rm -f "$reg"
-    printf '%s' "$mode" > "$S_WIN_RENDU_ACTUEL"
+    echo "$(date -Is) rendu « $mode » : regedit a echoue ($wine)" \
+        >> "${S_ETAT:-/tmp}/windows-repli.log" 2>/dev/null
+    return 1
 }
 
 # Le mode retenu pour un programme donne, « materiel » par defaut.
@@ -494,13 +568,21 @@ s_windows_serveur_vivant() {
 #
 # D'ou cette paire. Tout ce qui passe par umu-run l'encadre.
 s_windows_pause() {
-    if systemctl --user is-active --quiet s-windows.service 2>/dev/null; then
-        systemctl --user stop s-windows.service 2>/dev/null
-        printf '1'
-    else
-        s_windows_serveur_vivant && { "${WINESERVER:-$(s_windows_proton)/files/bin/wineserver}" -k 2>/dev/null; printf '1'; return; }
-        printf '0'
-    fi
+    # « activating » COMPTE COMME ACTIVE. « systemctl is-active --quiet » ne
+    # rend 0 que pour « active » : une unite en plein demarrage — ou coincee
+    # dans sa boucle de redemarrage, comme le 2026-09-18 — passait pour arretee,
+    # et umu-run partait alors pendant qu'elle tentait encore de tenir le
+    # prefixe. Le meme verrou « pfx.lock » que ce bloc existe pour eviter.
+    case "$(systemctl --user is-active s-windows.service 2>/dev/null)" in
+        active|activating|reloading)
+            systemctl --user stop s-windows.service 2>/dev/null
+            printf '1'
+            ;;
+        *)
+            s_windows_serveur_vivant && { "${WINESERVER:-$(s_windows_proton)/files/bin/wineserver}" -k 2>/dev/null; printf '1'; return; }
+            printf '0'
+            ;;
+    esac
     # Le serveur ecrit le registre en sortant : sans cette attente, la capture
     # ou l'installation qui suit lirait un registre d'avant.
     local i

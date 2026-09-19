@@ -28,6 +28,7 @@ FICHIER_PLAYLISTS = os.path.join(ETAT, "iptv-playlists.json")
 
 _AGENT = "S-IPTV/1.0"
 _DELAI_S = 20  # une playlist peut porter des dizaines de milliers de lignes
+_MAX_OCTETS = 256 * 1024 * 1024
 
 
 def charger_playlists():
@@ -45,7 +46,10 @@ def sauver_playlists(playlists):
     # peuvent pas corrompre le fichier, au pire l'une des deux est perdue.
     os.makedirs(ETAT, exist_ok=True)
     tmp = FICHIER_PLAYLISTS + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
+    # 0600 : l'URL d'une playlist Xtream porte « username= » et « password= »
+    # en clair. Avec le masque par defaut le fichier naissait en 0644.
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(playlists, f, ensure_ascii=False, indent=2)
     os.replace(tmp, FICHIER_PLAYLISTS)
 
@@ -63,12 +67,34 @@ def url_xtream(serveur, port, utilisateur, motdepasse):
             f"&password={q(motdepasse or '')}&type=m3u_plus&output=ts")
 
 
+def _premiere_virgule_hors_guillemets(ligne):
+    """Position de la premiere virgule qui n'est pas dans une valeur entre
+    guillemets, ou -1."""
+    entre = False
+    for i, c in enumerate(ligne):
+        if c == '"':
+            entre = not entre
+        elif c == "," and not entre:
+            return i
+    return -1
+
+
 def _decouper_extinf(ligne):
-    """« #EXTINF:-1 tvg-id="x" tvg-logo="y" group-title="z",Nom affiche »"""
+    """« #EXTINF:-1 tvg-id="x" tvg-logo="y" group-title="z",Nom affiche »
+
+    LE NOM COMMENCE APRES LA PREMIERE VIRGULE HORS GUILLEMETS, PAS APRES LA
+    DERNIERE. La version d'avant coupait sur la derniere virgule de la ligne
+    (« rsplit(",", 1) ») : un nom qui en contient une — « Sky Sports 1, HD »,
+    « Arte, FR », courants dans les listes publiques — devenait « HD » ou « FR ».
+    Mesure du 2026-09-18 sur quatre lignes de test. Les virgules DANS une valeur
+    d'attribut (group-title="News, World") ne separent rien non plus, d'ou le
+    suivi des guillemets.
+    """
     attrs = {}
     for cle, val in re.findall(r'([\w-]+)="([^"]*)"', ligne):
         attrs[cle.lower()] = val
-    nom = ligne.rsplit(",", 1)[-1].strip() if "," in ligne else ""
+    i = _premiere_virgule_hors_guillemets(ligne)
+    nom = ligne[i + 1:].strip() if i >= 0 else ""
     return attrs, nom
 
 
@@ -111,7 +137,14 @@ def telecharger(url):
     """
     requete = urllib.request.Request(url, headers={"User-Agent": _AGENT})
     with urllib.request.urlopen(requete, timeout=_DELAI_S) as reponse:
-        brut = reponse.read()
+        # « timeout » ne borne que l'attente de chaque lecture, jamais le volume :
+        # une adresse qui deverse des gigaoctets remplirait la memoire. Une
+        # playlist de plusieurs centaines de milliers de chaines tient sous ce
+        # plafond, un flux video pris pour une playlist n'y tient pas.
+        brut = reponse.read(_MAX_OCTETS + 1)
+    if len(brut) > _MAX_OCTETS:
+        raise ValueError("cette adresse ne ressemble pas a une playlist "
+                         "(plus de %d Mio)" % (_MAX_OCTETS // (1024 * 1024)))
     for encodage in ("utf-8", "latin-1"):
         try:
             return brut.decode(encodage)
