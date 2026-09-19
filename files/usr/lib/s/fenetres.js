@@ -170,17 +170,41 @@ function estAgrandissable(f) {
     return true;
 }
 
-function agrandir(f) {
-    if (!estAgrandissable(f)) return;
+function egal(a, b) {
+    return !!a && !!b &&
+        Math.round(a.x) === Math.round(b.x) && Math.round(a.y) === Math.round(b.y) &&
+        Math.round(a.width) === Math.round(b.width) && Math.round(a.height) === Math.round(b.height);
+}
+
+// La zone que S veut donner a une fenetre « en grand » : l'ecran, moins la barre.
+function cibleUtile(f) {
     var bas = basUtile(f);
-    if (bas < 0) return;
-    var z;
+    if (bas < 0) return null;
+    var z = null;
     try {
         z = workspace.clientArea(KWin.FullScreenArea, f);
     } catch (e) {
-        return;
+        return null;
     }
-    if (!z) return;
+    if (!z) return null;
+    return { x: z.x, y: z.y, width: z.width, height: bas - z.y };
+}
+
+// Le drapeau retombe MEME si l'ecriture leve : reste a vrai, il rendrait muets
+// borner(), agrandir() et reparerIncoherence() jusqu'au prochain rechargement.
+function poserGeometrie(f, r) {
+    enTrainDeBorner = true;
+    try {
+        f.frameGeometry = r;
+    } finally {
+        enTrainDeBorner = false;
+    }
+}
+
+function agrandir(f) {
+    if (!estAgrandissable(f)) return;
+    var r = cibleUtile(f);
+    if (!r) return;
     // « f.setMaximize(true, true) » A ETE ESSAYE ICI, ET C'EST UN NO-OP
     // SILENCIEUX — MESURE EN DIRECT LE 2026-09-11, sur une vraie fenetre
     // (Dolphin) : appele sans lever d'exception, maximizeMode et la
@@ -194,9 +218,47 @@ function agrandir(f) {
     // On revient donc au calcul direct, seule forme eprouvee sur cette
     // machine : remplir la zone utile via frameGeometry, jamais via une
     // API de maximisation qui n'agit pas.
-    enTrainDeBorner = true;
-    f.frameGeometry = { x: z.x, y: z.y, width: z.width, height: bas - z.y };
-    enTrainDeBorner = false;
+    poserGeometrie(f, r);
+}
+
+// UNE FENETRE « MAXIMISEE » DONT LA GEOMETRIE N'EST PAS CELLE D'UNE MAXIMISEE.
+//
+// MESURE LE 2026-09-18, SUR LA MACHINE, apres le redemarrage (S Web ouvert
+// depuis une etoile) — kwin, interroge par le temoin D-Bus :
+//
+//     classe=vivaldi-stable  frame=960,540 1920x488  maximizeMode=3
+//     zoneMax=0,0 1920x1080
+//
+// Mode 3 (maximisee en plein), et pourtant coin haut-gauche au CENTRE de
+// l'ecran, largeur pleine, hauteur rognee par borner() (1028 - 540) : les trois
+// quarts de la fenetre etaient hors ecran. Vivaldi enregistre « maximise »
+// dans son profil ET dans sa session (0,0 1920x905, etat 3, relu) : c'est lui
+// qui demande la maximisation. Ce que kwin ne fait pas seul, c'est la ramener
+// a sa zone. L'ordre exact des evenements a la naissance n'est PAS mesure
+// (un kwin virtuel avec les seules preferences ne reproduit pas l'ecart), donc
+// la correction ne depend d'aucun ordre : quel que soit l'evenement qui arrive
+// ensuite, une maximisee dont la geometrie n'est NI la zone de maximisation
+// NI la zone utile est ramenee a la zone utile.
+//
+// UNE VRAIE MAXIMISATION N'EST JAMAIS TOUCHEE : sa geometrie EST la zone de
+// maximisation, et borner() l'exclut deja pour la meme raison. Seul le mode 3
+// est vise — une maximisation verticale ou horizontale seule a legitimement
+// une geometrie qui n'est pas celle de la zone.
+function reparerIncoherence(f) {
+    if (enTrainDeBorner) return;
+    if (!estAgrandissable(f)) return;
+    if (f.maximizeMode !== 3) return;
+    var g = f.frameGeometry;
+    var cible = cibleUtile(f);
+    if (!g || !cible || egal(g, cible)) return;
+    var zm = null;
+    try {
+        zm = workspace.clientArea(KWin.MaximizeArea, f);
+    } catch (e) {
+        zm = null;
+    }
+    if (zm && egal(g, zm)) return;
+    poserGeometrie(f, cible);
 }
 
 function suivreGeometrie(f) {
@@ -206,6 +268,10 @@ function suivreGeometrie(f) {
     // ré-appeler « agrandir() », ce qui interdisait à l'utilisateur de rétrécir la fenêtre.
     var reagir = function () {
         if (enTrainDeBorner) return;
+        if (f.maximizeMode === 3) {
+            reparerIncoherence(f);
+            return;
+        }
         if (f.maximized || f.maximizeMode > 0) return;
         var g = f.frameGeometry;
         var z = null;
@@ -221,6 +287,10 @@ function suivreGeometrie(f) {
     }
     try {
         f.maximizedChanged.connect(function () {
+            if (f.maximizeMode === 3) {
+                reparerIncoherence(f);
+                return;
+            }
             // Une fenêtre maximisée ne doit pas être bornée, sinon l'écriture de
             // frameGeometry annule son état maximisé dans KWin.
             if (f.maximized || f.maximizeMode > 0) return;
@@ -395,9 +465,18 @@ function suivre(f, nouvelle) {
     cacherAndroidSysteme(f);
     if (nouvelle === true) {
         agrandir(f);
+    } else {
+        // Une fenetre deja la au chargement du script — apres un redemarrage de
+        // la coquille, ou un rechargement a chaud — peut deja etre dans l'etat
+        // incoherent que reparerIncoherence() ramene.
+        reparerIncoherence(f);
     }
     suivreGeometrie(f);
     try {
+        // Un navigateur renomme sa fenetre a chaque page : c'est un rendez-vous
+        // regulier ou rattraper un etat incoherent que rien d'autre n'aurait
+        // signale. Sans effet quand la geometrie est deja bonne.
+        f.captionChanged.connect(function () { reparerIncoherence(f); });
         f.captionChanged.connect(envoyer);
         f.minimizedChanged.connect(function () {
             if (f.minimized && derniereFenetreReelle === f) {
