@@ -221,6 +221,78 @@ retrait — il était là avant.
 - **Le panneau « choix » de la barre n'est plus exercé par la vraie barre** que si un projet de
   `~/Projets` porte un `.s-dev.json` — aucun sur cette machine à cet instant.
 
+### Addendum, 2026-09-20, plus tard — déployé, mesuré à l'écran, et « mode jeu » revient
+
+Le commit `669d899` a été construit (CI verte, 11 étapes), signé (`cosign verify` avec la clé
+de S rend 0), publié (`sha256:8680da90…`) et posé par `pkexec bootc upgrade`. Redémarrage
+demandé par l'utilisateur (« oui »). **Les quatre témoins promis dans l'addendum précédent sont
+maintenant mesurés, sur la machine réellement redémarrée :**
+
+| Témoin | Avant (attendu) | Après (mesuré) |
+|---|---|---|
+| Version bootée | — | `●` sur `44.20260920.669d899`, digest exact |
+| `grep -c qmlc /proc/<pid>/maps` | doit rendre 0 | **0** |
+| `ps -o cputimes`, deux relevés à 60 s d'écart | ne doit plus croître | **31 → 32** (1 centiseconde en 60 s, repos réel) |
+| `systemctl list-units --state=activating,auto-restart` | doit être vide | **vide**, `--failed` aussi (système et session) |
+
+**Ce que ça clôt du 2026-09-19 :** la boucle de `s-windows.service` et la dérive du ciel caché
+sont bien parties de la session vivante, pas seulement du dépôt.
+
+**Puis l'utilisateur, en demandant ces mesures : « j'aimerais quand même garder le passage au
+mode jeu ».** Pas le panneau « choix » à trois états d'avant (Travail/Jeu/Art, retiré la même
+soirée) — juste la possibilité de demander le mode Jeu à la main, sans passer par Rétro ou
+Salon. Ajouté sous une forme différente de ce qui a été retiré :
+
+- **Une bascule, `"cle": "mode-jeu"`**, allumée ou éteinte, icône `i-etincelle` (`i-eclair`,
+  utilisée par l'ancien « Mode S », **n'existe pas** dans `Glyphes.js` — vérifié avant de la
+  reprendre, elle aurait rendu une étoile vide).
+- **`regler("mode", <chaîne>)` n'est pas touché.** C'est le contrat que `s-retro-rapide`,
+  `s-salon-rapide` et `s-salon-session` appellent directement, avec `"jeu"`/`"travail"` en
+  texte. `_basculer_mode_jeu(actif)` est une fonction à part qui traduit un booléen vers ce
+  même `_regler_mode()` — jamais l'inverse : envoyer un booléen à `regler("mode", …)` rend
+  maintenant `(False, "mode inconnu")` proprement, plutôt que de planter.
+- **La lecture revient, minimale.** `_mode_jeu()` ne relit que le profil `tuned-adm` actif
+  (« accelerator-performance » = allumé) — jamais un fichier d'état à part, même principe que
+  le Wi-Fi ou le tailnet dans ce fichier. Si un script extérieur a posé ce profil sans passer
+  par l'étoile, elle le reflète quand même.
+
+**Une régression trouvée et corrigée avant de committer.** `_mode_jeu()` appelle
+`tuned-adm active`, mesuré à **~200 ms** sur cette machine — un chiffre que rien dans
+`_prechauffer()` n'attendait puisqu'aucune sonde de ce coût n'existait plus depuis le retrait du
+2026-09-20 matin. Sans son propre fil, `rapides()` est repassé de ~250 à **~440 ms** à froid, en
+série après tout le reste — exactement le défaut que toute la passe du jour visait à supprimer.
+Corrigé en donnant à `mode-jeu` son propre fil dans `_prechauffer()`, aux côtés de luminosite,
+egaliseur, et materiel+wifi : **245-276 ms mesurés ensuite, trois processus neufs, 10 entrées**
+— revenu au chiffre d'avant, une seule entrée en plus.
+
+**Éprouvé avant de committer :**
+
+```
+_mode_jeu(), sans stub, sur la vraie machine   -> {'actif': False}   (profil throughput-...)
+regler("mode-jeu", True)  -> profil accelerator-performance, GPU haut, effets coupes,
+                              Android arrete (doublures, jamais la vraie session)
+regler("mode-jeu", False) -> le contraire
+regler("mode", "jeu"/"travail")                -> inchange, meme doublures, meme resultat
+regler("mode", True)                           -> (False, "mode inconnu"), pas de plantage
+```
+
+Balayage par motif (33), `verifier-constellation.py` (9 articles/222 px, 35 slots, aucun
+avertissement), `verifier-tuiles.py` et `verifier-iptv.py` rejoués après le correctif — tous
+verts.
+
+**Ce que cet addendum ne prouve pas.**
+
+- **Aucun clic réel sur l'étoile « Mode Jeu ».** Elle est prouvée par appel direct du Python et
+  par le type « bascule », déjà exercé ailleurs dans le leurre de construction (le Wi-Fi) —
+  jamais vue à l'écran, jamais survolée, jamais cliquée.
+- **Rien de ceci n'est commité ni dans l'image.** La session vivante (celle qu'on vient de
+  mesurer ci-dessus) ne porte pas encore la bascule — elle a démarré sur `669d899`, avant cet
+  ajout.
+- **`_regler_mode` a été exercé pour de vrai, mais pas par la nouvelle bascule.** Les mesures
+  ci-dessus passent toutes par des doublures sur `_regler_energie`/`_regler_gpu`/
+  `_regler_effets_kwin`/`_arreter_android` ; aucun clic sur l'étoile n'a encore fait tourner le
+  vrai `tuned-adm profile accelerator-performance` sur cette machine.
+
 ### Ce qui a été écarté, et il faut le dire
 
 - « Une rafale de listes identiques reconstruit toutes les tuiles » : **réfuté** (Qt

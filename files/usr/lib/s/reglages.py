@@ -362,18 +362,21 @@ def _regler_ddc(code_vcp, valeur):
 
 
 # --------------------------------------------------------------------------
-# Le mode Jeu — ce que Salon et Retro appliquent en entrant, defont en sortant
+# Le mode Jeu — ce que Salon et Retro appliquent en entrant, defont en sortant,
+# et qu'une etoile permet aussi de demander a la main
 # --------------------------------------------------------------------------
 #
-# CE N'EST PLUS UN REGLAGE DE LA BARRE LATERALE. Le 2026-09-01 l'utilisateur
-# avait demande trois modes interchangeables (Travail, Jeu, Art) ; le
-# 2026-09-20, invite a choisir les options a retirer, il a repondu « enleve
-# tout sauf retroarch », et « Mode S », « Energie » et « Android : affichage »
-# ont quitte la barre. Ce qui RESTE est le mecanisme, parce que ce qu'il garde
-# en depend : s-retro-rapide, s-salon-rapide et s-salon-session appellent
-# regler("mode", "jeu") en entrant et regler("mode", "travail") en sortant.
-# Sans lui, RetroArch et Salon perdraient le profil de performance a l'entree
-# et le retour au profil normal a la sortie.
+# LE 2026-09-01 l'utilisateur avait demande trois modes interchangeables
+# (Travail, Jeu, Art) ; le 2026-09-20, invite a choisir les options a retirer,
+# il a repondu « enleve tout sauf retroarch », et « Mode S » (le panneau
+# « choix » a trois etats), « Energie » et « Android : affichage » ont quitte
+# la barre. Le meme jour, il a demande a garder « le passage au mode jeu » :
+# ce n'est donc plus le panneau a trois etats d'avant, mais une simple
+# bascule — « Mode Jeu », allume ou eteint — sur l'entree « mode-jeu » de
+# rapides()/regler(). L'entree « mode », elle, reste un dispatch par CHAINE
+# ("jeu"/"travail") : c'est ce que s-retro-rapide, s-salon-rapide et
+# s-salon-session appellent directement en entrant et en sortant, et il ne
+# faut jamais lui faire attendre un booleen a la place.
 #
 # Il tient en quatre leviers, chacun deja reel separement :
 #
@@ -388,8 +391,13 @@ def _regler_ddc(code_vcp, valeur):
 # GameMode (build_files/49-jeu.sh) s'auto-active par jeu via D-Bus des qu'il
 # est installe — rien a piloter ici, seulement a poser.
 #
-# « ART » A DISPARU AVEC LE REGLAGE : plus aucun geste ne pouvait le demander.
-# Et il n'y a plus de lecture de l'etat courant — la barre ne l'affiche plus.
+# « ART » RESTE ABSENT : plus aucun geste ne peut le demander, la bascule
+# n'a que deux etats. LA LECTURE DE L'ETAT, elle, revient — mais minimale :
+# _mode_jeu() ne relit que le profil tuned-adm actif (« accelerator-
+# performance » = allume), jamais un fichier d'etat ecrit a part, meme
+# principe que le reste de ce fichier (le tailnet, le Wi-Fi...). Si un
+# script exterieur a pose ce profil sans passer par ici, l'etoile le
+# refletera quand meme — c'est le comportement voulu.
 
 _GPU_MIN = "/sys/class/drm/card0/gt_min_freq_mhz"
 _GPU_MAX = "/sys/class/drm/card0/gt_max_freq_mhz"
@@ -473,7 +481,40 @@ def _regler_mode(cle):
         ok_a = True
     ok = ok_e and ok_g and ok_k and ok_a
     detail = noms[cle] if ok else "%s (partiel)" % noms[cle]
+    # Quel que soit qui a appele _regler_mode — la bascule de la barre,
+    # ou s-retro-rapide/s-salon-rapide/s-salon-session directement — le
+    # profil tuned a change. Sans cet oubli, un clic juste apres un lancement
+    # de Retro rapide montrerait l'ancien etat jusqu'a la prochaine ouverture
+    # de la barre laterale.
+    _oublier("mode-jeu")
     return ok, detail
+
+
+def _mode_jeu():
+    """L'etat de la bascule, lu sur le profil tuned reellement actif.
+
+    Jamais un fichier a part : le meme principe que le reste de ce fichier
+    (voir le Wi-Fi, le tailnet...). Rend None si tuned-adm est absent — la
+    barre n'affiche alors pas la bascule, plutot que d'en montrer une qui ne
+    reflete rien.
+    """
+    if not _outil("tuned-adm"):
+        return None
+    code, sortie = _lire(["tuned-adm", "active"], delai=12)
+    if code != 0:
+        return None
+    profil = sortie.split(":")[-1].strip()
+    return {"actif": profil == "accelerator-performance"}
+
+
+def _basculer_mode_jeu(actif):
+    """La bascule manuelle de la barre laterale — cle « mode-jeu ».
+
+    Distincte de regler("mode", "jeu"/"travail") en CHAINE, que Retro et
+    Salon appellent directement : celle-ci prend un booleen, comme toute
+    autre bascule de ce fichier, et se contente de traduire vers l'autre.
+    """
+    return _regler_mode("jeu" if actif else "travail")
 
 
 # --------------------------------------------------------------------------
@@ -940,7 +981,10 @@ def _prechauffer():
     les relance, que l'utilisateur travaille ou joue. Chiffrees une a une :
     egaliseur 219 ms, luminosite 213, materiel 58, wifi 32 ; les autres sont sous
     15 ms. (Le profil d'energie, 240 ms, le contraste, 174, et les deux modes
-    ont quitte la barre le 2026-09-20 : il ne reste que dix sondes.)
+    ont quitte la barre le 2026-09-20 — puis « mode-jeu » y est revenu la meme
+    soiree, sous forme de bascule : « tuned-adm active » coute a lui seul
+    ~200 ms, mesure sur cette machine, et sans son propre fil il repasserait
+    tout rapides() a environ 440 ms, en serie apres tout le reste.)
 
     UN FIL PAR SONDE LENTE, sauf « materiel » et « wifi » qui partagent le leur
     (58 + 32 ms : moins que la plus lente des autres, un fil de plus ne gagnerait
@@ -957,6 +1001,7 @@ def _prechauffer():
         (("luminosite", lambda: _ddc(10)),),
         (("egaliseur", _egaliseur),),
         (("materiel", _materiel), ("wifi", _wifi)),
+        (("mode-jeu", _mode_jeu),),
     )
 
     def travailler(groupe):
@@ -1062,6 +1107,17 @@ def rapides():
                        "type": "bascule", "actif": an["actif"],
                        "detail": an["etat"].lower() or "arrete"})
 
+    # LA SEULE TRACE DE « MODE S » QUI REVIENT, ET SOUS UNE AUTRE FORME —
+    # demande explicite de l'utilisateur le 2026-09-20, le meme jour ou le
+    # panneau a trois etats est parti. Une bascule, pas un choix : allumee,
+    # le profil de performance (GPU au plafond, effets coupes, Android
+    # arrete) ; eteinte, le profil normal.
+    mj = _cache("mode-jeu", _mode_jeu)
+    if mj is not None:
+        sortie.append({"cle": "mode-jeu", "nom": "Mode Jeu", "ico": "i-etincelle",
+                       "type": "bascule", "actif": mj["actif"],
+                       "detail": "actif" if mj["actif"] else "normal"})
+
     if _outil("spectacle"):
         sortie.append({"cle": "capture", "nom": "Capturer", "ico": "i-image",
                        "type": "action", "actif": True, "detail": "selection"})
@@ -1114,6 +1170,8 @@ def regler(cle, valeur):
     # (« jeu » en entrant, « travail » en sortant) — voir le mode Jeu plus haut.
     if cle == "mode":
         return _regler_mode(str(valeur))
+    if cle == "mode-jeu":
+        return _basculer_mode_jeu(bool(valeur))
     if cle == "android":
         return _basculer_android(bool(valeur))
     if cle == "capture":
