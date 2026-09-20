@@ -11994,6 +11994,21 @@ d'une règle numéro 0.
 *Et « utilise les skills » désigne ces quatre-là — jamais ceux livrés avec
 Claude Code.*
 
+**Addendum, 2026-09-20 — les rôles n'ont plus besoin d'être demandés, jamais.**
+Demande de l'utilisateur, mot pour mot : « skills toujours actifs, je ne veux
+plus avoir à le demander ». La règle 0 dit déjà que les quatre rôles (cinq avec
+le Voyeur, ajouté le 2026-08-26) se chargent à l'ouverture de session — ce qui
+manquait, c'était l'engagement à s'y tenir sans qu'une phrase déclencheuse
+(« charge les skills », « utilise les skills », « load wizard ») soit
+nécessaire. **Ce n'est plus une invocation ponctuelle : c'est le mode de
+travail par défaut**, sur toute tâche de ce dépôt, à chaque session, sans
+exception et sans qu'on ait à le redemander. Chercher avant d'écrire, ranger ce
+qui a tourné, contourner plutôt que renoncer, juger l'image plutôt que
+l'intention, dissequer l'écran avant de conclure — cette discipline s'applique
+d'elle-même. L'utilisateur peut toujours nommer un rôle précis pour qu'il
+prenne la main sur un point donné ; son silence n'est plus une raison de
+s'en passer.
+
 **1. Sur ostree, tout ce qui est modifiable est un lien vers `/var` — et `/var`
 n'entre pas dans l'image.** `/opt`, `/usr/local`, `/home`, `/root`, `/srv`,
 `/mnt`. C'est le principe unique derrière l'échec de Vivaldi, celui de npm, et
