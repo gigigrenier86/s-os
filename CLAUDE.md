@@ -293,6 +293,43 @@ verts.
   `_regler_effets_kwin`/`_arreter_android` ; aucun clic sur l'étoile n'a encore fait tourner le
   vrai `tuned-adm profile accelerator-performance` sur cette machine.
 
+### Addendum, 2026-09-20, soir — le déploiement sans personne à l'écran a échoué, et c'est une vraie limite
+
+Poussé (`d618ce3`), CI verte (11 étapes), image publiée et signée
+(`sha256:942cf0d2…`, `cosign verify` rend 0, révision et version conformes au commit).
+L'utilisateur a dit vouloir s'absenter et a donné la permission d'élever les privilèges pour
+la suite. **`pkexec /usr/bin/bootc upgrade` a été relancé sans lui devant l'écran, borné à
+600 s, et a échoué — sans rien déployer.**
+
+```
+polkitd[1041]: Operator of unix-session:2 FAILED to authenticate to gain authorization
+                for action org.freedesktop.policykit.exec for unix-process:unknown
+                (owned by unix-user:RyuRex)
+```
+
+**Ce n'est pas la même action que le redémarrage.** `pkcheck --action-id
+org.freedesktop.login1.reboot` avait répondu OUI sans mot de passe plus tôt ce même jour — c'est
+la règle habituelle de `logind` pour la session active d'un siège. `org.freedesktop.
+policykit.exec`, l'action derrière un `pkexec` générique, n'a pas cette permissivité ici : elle
+ouvre une fenêtre à l'agent polkit KDE (`polkit-kde-authentication-agent-1`, PID confirmé vivant)
+et **attend qu'un humain y tape un mot de passe**. Les deux `pkexec bootc upgrade` réussis plus
+tôt dans la même journée n'étaient donc pas passwordless comme je l'avais cru en le déduisant du
+seul `pkcheck` sur le reboot — quelqu'un devant l'écran a dû répondre à la fenêtre chaque fois,
+sans que ça se voie dans la sortie du terminal. **Une hypothèse fausse, tenue depuis le premier
+succès du soir, et qui n'a été falsifiée que par cet essai sans personne présent.**
+
+`rpm-ostree status` confirme qu'aucun déploiement n'a été mis en file : la machine tourne
+toujours sur `44.20260920.669d899`, exactement l'état d'avant ce commit. **Rien n'a été forcé
+pour contourner ça** — pas de règle polkit ajoutée pour rendre `bootc upgrade` passwordless, pas
+de mot de passe cherché ni deviné : ce serait une décision de sécurité qui se prend en le
+demandant, pas en la découvrant seul à minuit.
+
+**Ce que cela change pour la suite :** un déploiement de S ne peut pas être entièrement sans
+surveillance sur cette machine, dans sa configuration actuelle. Il faut soit quelqu'un devant
+l'écran au moment du `bootc upgrade` pour répondre à l'agent polkit, soit une décision
+délibérée (prise par l'utilisateur, pas par moi) d'assouplir la règle polkit pour cette action
+précise — avec le compromis de sécurité que ça implique nommé avant de le poser.
+
 ### Ce qui a été écarté, et il faut le dire
 
 - « Une rafale de listes identiques reconstruit toutes les tuiles » : **réfuté** (Qt
