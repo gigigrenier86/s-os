@@ -97,7 +97,7 @@ def _sauver_geles(portees):
         pass
 
 
-MODES = ("non", "reduire", "geler")
+MODES = ("non", "geler")
 MODE_DEFAUT = "geler"
 
 # LE DELAI ENTRE « range-la » ET « endors-le ». Le gel est immediat et brutal :
@@ -145,6 +145,12 @@ def _lire_mode():
         valeur = str(noyau.charger_reglages().get("veille", MODE_DEFAUT))
     except Exception:
         return MODE_DEFAUT
+    # « reduire » A ETE RETIRE LE 2026-09-20. Qui l'avait choisi l'avait fait
+    # pour que ses programmes CONTINUENT de tourner : le renvoyer au defaut
+    # « geler » les arreterait en silence, le contraire de ce qu'il demandait.
+    # « non » est le seul repli qui ne gele rien.
+    if valeur == "reduire":
+        return "non"
     return valeur if valeur in MODES else MODE_DEFAUT
 
 
@@ -159,12 +165,15 @@ class Fenetres(QObject):
     importe combien de fenetres — economie d'energie max, seulement un petit
     cache pour ouverture rapide ».
 
-    Trois modes, parce que geler n'est pas sans consequence et qu'un reglage
+    Deux modes, parce que geler n'est pas sans consequence et qu'un reglage
     qu'on ne peut pas reculer est un piege :
 
         « non »      rien ne change, l'ancien comportement
-        « reduire »  une seule fenetre debout a la fois, les autres se rangent
-        « geler »    en plus, leur programme s'ARRETE — defaut
+        « geler »    une seule fenetre debout a la fois : les autres se rangent
+                     et leur programme s'ARRETE — defaut
+
+    UN TROISIEME MODE, « reduire » (ranger sans arreter), A ETE RETIRE LE
+    2026-09-20 sur demande de l'utilisateur, dont le reglage reel etait « non ».
 
     ON REAGIT AU CHANGEMENT DE FENETRE ACTIVE, PAS AU CLIC SUR LA BARRE. C'est
     la difference entre un correctif et une regle : Alt+Tab, un clic sur une
@@ -182,9 +191,9 @@ class Fenetres(QObject):
 
     CE QUE LE GEL COUTE, ET IL FAUT LE DIRE. Un programme arrete ne fait plus
     RIEN : pas de musique, pas de telechargement, pas de compilation, pas de
-    message recu. C'est le sens de « economie d'energie max », et c'est aussi
-    la raison du mode « reduire », pour le jour ou une de ces choses comptera
-    plus que la batterie.
+    message recu. C'est le sens de « economie d'energie max » ; « non » est la
+    porte de sortie pour le jour ou une de ces choses comptera plus que la
+    batterie.
     """
 
     changees = Signal(str)
@@ -193,6 +202,10 @@ class Fenetres(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._liste = []
+        # LA DERNIERE LISTE ENVOYEE A LA BARRE, TELLE QU'ELLE EST PARTIE. Voir
+        # recevoir() : kwin renvoie tout a chaque evenement, et la plupart ne
+        # changent rien de ce que la barre affiche.
+        self._dernier_envoi = None
         self._bus = None
         self._compteur = 0
         self._mode = _lire_mode()
@@ -280,16 +293,12 @@ class Fenetres(QObject):
             noyau.sauver_reglage("veille", valeur)
         except Exception:
             pass
-        # ON DEGELE DES QU'ON QUITTE « geler », PAS SEULEMENT POUR « non ».
-        # Choisir « ranger les autres » se fait precisement pour que les
-        # programmes CONTINUENT de tourner : ne relacher qu'a « non »
-        # laisserait arretes pour toujours ceux qui l'etaient deja, et
-        # retournerait en silence la raison meme du choix.
+        # QUITTER « geler » RELACHE TOUT CE QUI ETAIT ARRETE : sans cela, choisir
+        # « non » laisserait figes pour toujours les programmes deja endormis.
         if valeur != "geler":
             self._tout_degeler()
         self.modeChange.emit(valeur)
         return {"non": "Veille des fenetres desactivee",
-                "reduire": "Une seule fenetre debout a la fois",
                 "geler": "Veille : les fenetres rangees s'arretent"}[valeur]
 
     @Slot(str, bool)
@@ -782,7 +791,18 @@ class Fenetres(QObject):
         ids_actuels = {f.get("id") for f in self._toutes}
         self._fermetures.intersection_update(ids_actuels)
         self._replis_voulus.intersection_update(ids_actuels)
-        self.changees.emit(json.dumps(self._liste))
+        # ON NE PREVIENT LA BARRE QUE SI QUELQUE CHOSE A CHANGE POUR ELLE. Le
+        # rapporteur de kwin renvoie TOUTE la liste a chaque evenement, y compris
+        # ceux qui concernent une fenetre que la barre ne liste pas — la barre
+        # elle-meme, la barre laterale, le bureau, un panneau utilitaire : chaque
+        # clic dans la barre active « S - barre » et en produit un, sans que la
+        # liste montrable ait bouge d'un octet. Chaque envoi coute un JSON.parse
+        # et une reevaluation de toutes les liaisons qui lisent la liste.
+        charge = json.dumps(self._liste)
+        if charge == self._dernier_envoi:
+            return
+        self._dernier_envoi = charge
+        self.changees.emit(charge)
 
     def arreter(self):
         """A l'extinction : on relache tout, et on retient ce qu'on a vu.

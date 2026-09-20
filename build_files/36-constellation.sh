@@ -76,6 +76,12 @@ bash -n /usr/bin/s-salon-session
 bash -n /usr/bin/s-salon-rapide
 bash -n /usr/bin/s-retro-rapide
 python3 -m py_compile /usr/bin/s-constellation /usr/lib/s/noyau.py
+# LE CACHE DISQUE DE QML DOIT RESTER COUPE. Qt ne l'ecrit jamais pour des sources
+# a date epoch 0 (tout /usr sur ostree) mais relit sans verifier celui qu'un essai
+# a date reelle a laisse dans ~/.cache : la coquille executait la barre et le
+# bureau du 7 septembre, neuf commits QML plus tard. Voir s-constellation.
+grep -qF 'os.environ["QML_DISK_CACHE"] = "none"' /usr/bin/s-constellation \
+    || { echo "ECHEC : s-constellation ne coupe plus le cache disque de QML — un ancien cache perime pourrait servir a la place du QML deploye." >&2; exit 1; }
 rm -rf /usr/bin/__pycache__ /usr/lib/s/__pycache__ /root/.cache 2>/dev/null || true
 echo "  syntaxe       : session, coquille, coquille native et noyau analyses"
 
@@ -144,6 +150,15 @@ echo "  scene         : $(ls "$QML" | wc -l) fichiers en place"
 # construction s'arrete si le moteur QML se plaint une seule fois.
 python3 /ctx/build_files/verifier-constellation.py "$QML" \
     || { echo "ECHEC : la scene de Constellation ne tient pas debout." >&2; exit 1; }
+
+# CE QUE LA SCENE FAIT QUAND KWIN PARLE, PAS SEULEMENT QU'ELLE CHARGE. Une
+# nouvelle de kwin dont un titre change ne doit reconstruire aucune tuile de la
+# barre, et le ciel ne doit animer que s'il n'est cache par aucune fenetre.
+# Mesure du 2026-09-19 : sans ces deux garanties, 40 changements de titre
+# creaient 240 tuiles et trois fenetres devant le ciel laissaient ses 46 etoiles
+# animer pour rien. Le controle COMPTE, il ne chronometre pas.
+python3 /ctx/build_files/verifier-tuiles.py "$QML" \
+    || { echo "ECHEC : les tuiles de la barre sont reconstruites a chaque nouvelle de kwin, ou le ciel anime cache." >&2; exit 1; }
 
 # --- Le greeter ne propose plus que S -------------------------------------
 echo "  sessions trouvees :"

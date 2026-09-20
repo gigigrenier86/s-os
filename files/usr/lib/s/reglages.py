@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 
 
@@ -356,43 +357,45 @@ def _regler_ddc(code_vcp, valeur):
     valeur = max(PLANCHER_ECRAN, min(100, int(valeur)))
     code, sortie = _lire(["ddcutil", "setvcp", str(code_vcp), str(valeur)], delai=12)
     _oublier("luminosite")
-    _oublier("contraste")
     return (code == 0), (sortie.strip().splitlines()[-1][:120] if code and sortie
                          else "%d %%" % valeur)
 
 
 # --------------------------------------------------------------------------
-# Mode S — un seul reglage qui en bascule plusieurs a la fois
+# Le mode Jeu — ce que Salon et Retro appliquent en entrant, defont en sortant
 # --------------------------------------------------------------------------
 #
-# DEMANDE DE L'UTILISATEUR LE 2026-09-01 : trois modes interchangeables,
-# « pour optimiser au maximum chaque aspect » — Travail (bureautique/code/IA),
-# Jeu, Art (dessin/rendu/creation). Aucun de ces trois mots ne designe un
-# outil de la machine ; chacun designe une COMBINAISON de leviers deja
-# separement reels :
+# CE N'EST PLUS UN REGLAGE DE LA BARRE LATERALE. Le 2026-09-01 l'utilisateur
+# avait demande trois modes interchangeables (Travail, Jeu, Art) ; le
+# 2026-09-20, invite a choisir les options a retirer, il a repondu « enleve
+# tout sauf retroarch », et « Mode S », « Energie » et « Android : affichage »
+# ont quitte la barre. Ce qui RESTE est le mecanisme, parce que ce qu'il garde
+# en depend : s-retro-rapide, s-salon-rapide et s-salon-session appellent
+# regler("mode", "jeu") en entrant et regler("mode", "travail") en sortant.
+# Sans lui, RetroArch et Salon perdraient le profil de performance a l'entree
+# et le retour au profil normal a la sortie.
 #
-#   - le profil tuned-adm (deja cable pour trois autres profils dans
-#     « energie » ci-dessus — on reutilise _regler_energie, jamais duplique) ;
+# Il tient en quatre leviers, chacun deja reel separement :
+#
+#   - le profil tuned-adm ;
 #   - la frequence plancher du GPU Intel (root, via pkexec — /sys est en
 #     0644/root ici, mesure sur cette machine) ;
 #   - les effets du compositeur kwin (jamais « le compositing » lui-meme :
 #     SOUS WAYLAND, kwin_wayland EST le compositeur, il n'y a rien a
 #     desactiver comme sous X11 — seuls les EFFETS individuels se coupent) ;
-#   - GameMode (build_files/49-jeu.sh), qui s'auto-active par jeu via D-Bus
-#     des qu'il est installe — rien a piloter ici, seulement a poser.
+#   - Android, arrete en Jeu.
 #
-# LE SIGNAL DE LECTURE EST LE PROFIL TUNED, JAMAIS UN FICHIER D'ETAT ECRIT
-# A PART. Meme principe que « mode-android » (qui relit une propriete
-# Android plutot que de se souvenir d'un choix) : un reglage qui ment sur
-# l'etat reel de la machine est pire qu'un reglage absent. Travail et Art
-# partagent le meme profil tuned (« throughput-performance-bazzite ») — on
-# les distingue par la frequence GPU, elle aussi relue en direct.
+# GameMode (build_files/49-jeu.sh) s'auto-active par jeu via D-Bus des qu'il
+# est installe — rien a piloter ici, seulement a poser.
+#
+# « ART » A DISPARU AVEC LE REGLAGE : plus aucun geste ne pouvait le demander.
+# Et il n'y a plus de lecture de l'etat courant — la barre ne l'affiche plus.
 
 _GPU_MIN = "/sys/class/drm/card0/gt_min_freq_mhz"
 _GPU_MAX = "/sys/class/drm/card0/gt_max_freq_mhz"
 _GPU_RPN = "/sys/class/drm/card0/gt_RPn_freq_mhz"  # le plancher materiel reel
 
-_MODES = [("travail", "Travail"), ("jeu", "Jeu"), ("art", "Art")]
+_MODES = [("travail", "Travail"), ("jeu", "Jeu")]
 
 # Effets kwin coupes en mode Jeu — identifiants verifies sur cette machine
 # (« Id » dans /usr/share/kwin-wayland/builtin-effects/*.json et
@@ -411,14 +414,6 @@ def _lire_int_sysfs(chemin):
             return int(f.read().strip())
     except (OSError, ValueError):
         return None
-
-
-def _gpu_pinne_haut():
-    """None si illisible (carte differente demain), sinon vrai/faux."""
-    mn, mx = _lire_int_sysfs(_GPU_MIN), _lire_int_sysfs(_GPU_MAX)
-    if mn is None or mx is None:
-        return None
-    return mn >= mx
 
 
 def _regler_gpu(pinner_haut):
@@ -457,26 +452,6 @@ def _regler_effets_kwin(actifs):
     return ok, ("effets actifs" if actifs else "effets reduits")
 
 
-def _mode():
-    en = _energie()
-    if en is None:
-        return None
-    gpu_haut = _gpu_pinne_haut()
-    profil = en["profil"]
-    if profil == "accelerator-performance":
-        cle = "jeu"
-    elif profil == "throughput-performance-bazzite" and gpu_haut is True:
-        cle = "art"
-    elif profil == "throughput-performance-bazzite" and gpu_haut is False:
-        cle = "travail"
-    else:
-        # Un profil touche a la main ailleurs (reglage « Energie »), ou une
-        # machine sans le meme GPU : aucun des trois modes ne correspond, et
-        # on le dit plutot que de deviner lequel s'en rapproche le plus.
-        cle = None
-    return {"mode": cle}
-
-
 def _regler_mode(cle):
     noms = dict(_MODES)
     if cle not in noms:
@@ -487,11 +462,6 @@ def _regler_mode(cle):
         ok_k, msg_k = _regler_effets_kwin(False)
         code_a, _s = _arreter_android()
         ok_a = (code_a == 0)
-    elif cle == "art":
-        ok_e, msg_e = _regler_energie("throughput-performance-bazzite")
-        ok_g, msg_g = _regler_gpu(True)
-        ok_k, msg_k = _regler_effets_kwin(True)
-        ok_a, msg_a = True, None
     else:  # travail
         ok_e, msg_e = _regler_energie("throughput-performance-bazzite")
         ok_g, msg_g = _regler_gpu(False)
@@ -500,9 +470,7 @@ def _regler_mode(cle):
         # JEU. Rallumer tout un monde sans qu'on le demande serait plus
         # surprenant que de le laisser eteint — le reglage « Android »
         # existant s'en charge, a la main.
-        ok_a, msg_a = True, None
-    _oublier("mode")
-    _oublier("energie")
+        ok_a = True
     ok = ok_e and ok_g and ok_k and ok_a
     detail = noms[cle] if ok else "%s (partiel)" % noms[cle]
     return ok, detail
@@ -667,40 +635,19 @@ def _appliquer_materiel():
 
 
 # --------------------------------------------------------------------------
-# L'energie — tuned, et non power-profiles-daemon
+# Le profil d'energie — tuned, et non power-profiles-daemon
 # --------------------------------------------------------------------------
 #
 # BAZZITE EMPLOIE TUNED. « powerprofilesctl » n'est PAS sur cette machine —
-# mesure du 2026-08-26 — et le chercher aurait donne un reglage absent alors
-# que la machine sait parfaitement changer de profil. Elle tournait sur
-# « balanced-bazzite » au moment du releve.
-
-_PROFILS = [
-    ("balanced-bazzite", "Equilibre"),
-    ("throughput-performance", "Performance"),
-    ("balanced-battery-bazzite", "Economie"),
-]
-
-
-def _energie():
-    if not _outil("tuned-adm"):
-        return None
-    code, sortie = _lire(["tuned-adm", "active"], delai=12)
-    if code != 0:
-        return None
-    actuel = sortie.split(":")[-1].strip()
-    connus = [c for c, _ in _PROFILS]
-    return {"profil": actuel,
-            "nom": dict(_PROFILS).get(actuel, actuel),
-            "connu": actuel in connus}
-
+# mesure du 2026-08-26. Seul le mode Jeu ci-dessus pose un profil ; le reglage
+# « Energie » qui laissait l'utilisateur en choisir un a ete retire (voir plus
+# haut), avec la lecture du profil courant qu'il etait seul a appeler.
 
 def _regler_energie(profil):
     if not _outil("tuned-adm"):
         return False, "aucun profil d'energie"
     code, sortie = _lire(["tuned-adm", "profile", profil], delai=25)
-    _oublier("energie")
-    return (code == 0), (sortie.strip()[:120] or dict(_PROFILS).get(profil, profil))
+    return (code == 0), (sortie.strip()[:120] or profil)
 
 
 # --------------------------------------------------------------------------
@@ -738,54 +685,6 @@ def _basculer_tailscale(actif):
     _oublier("tailscale")
     return (code == 0), (sortie.strip().splitlines()[-1][:120] if sortie
                          else ("tailnet rejoint" if actif else "tailnet quitte"))
-
-
-# LE FICHIER DE PROPRIETES ANDROID, PARTAGE PAR LES FONCTIONS CI-DESSOUS.
-# Meme mecanisme cote Python que « s_android_etat »/« s_android_prop_lire »
-# dans files/usr/lib/s/partage-android.sh (voir ce fichier pour les mesures
-# du 2026-08-29 : etat par systemd et non lxc-info, waydroid.prop en clair,
-# root:root 0644) — deux langages differents pour deux appelants differents
-# (une couture bash, ce module Python), pas de bibliotheque commune entre
-# les deux mondes dans ce depot.
-_PROP_ANDROID = "/var/lib/waydroid/waydroid.prop"
-
-# Petit script autonome, execute par un python3 SEPARE sous pkexec — jamais
-# dans CE processus, qui n'a pas les droits d'ecrire un fichier root:root.
-# Remplace la cle si elle existe deja, l'ajoute sinon ; ecriture atomique
-# (fichier temporaire puis os.replace) pour qu'une coupure ne laisse jamais
-# le fichier a moitie ecrit.
-_SCRIPT_ECRIRE_PROP_ANDROID = """
-import sys, os
-chemin, cle, valeur = sys.argv[1:4]
-try:
-    with open(chemin, encoding="utf-8") as f:
-        lignes = f.read().splitlines()
-except FileNotFoundError:
-    lignes = []
-vue = False
-for i, ligne in enumerate(lignes):
-    if ligne.split("=", 1)[0] == cle:
-        lignes[i] = cle + "=" + valeur
-        vue = True
-        break
-if not vue:
-    lignes.append(cle + "=" + valeur)
-tmp = chemin + ".tmp"
-with open(tmp, "w", encoding="utf-8") as f:
-    f.write("\\n".join(lignes) + "\\n")
-os.replace(tmp, chemin)
-"""
-
-
-def _lire_prop_android(cle):
-    try:
-        with open(_PROP_ANDROID, encoding="utf-8") as f:
-            for ligne in f:
-                if ligne.split("=", 1)[0] == cle:
-                    return ligne.split("=", 1)[1].strip()
-    except OSError:
-        return None
-    return None
 
 
 def _android():
@@ -842,66 +741,6 @@ def _basculer_android(actif):
     code, sortie = _arreter_android()
     _oublier("android")
     return (code == 0), (sortie.strip()[:120] or "Android arrete")
-
-
-# LE MODE D'AFFICHAGE D'ANDROID — DEMANDE DE L'UTILISATEUR (reponse 14 de
-# l'entretien du 2026-08-27) : « je prefere avoir le choix » entre fenetre et
-# plein ecran, plutot qu'un mode impose une fois pour toutes dans s-android.
-#
-# CE RELEVE NE DEPEND PLUS DE LA SESSION VIVANTE — CHANGEMENT DU 2026-08-29.
-# Avant, « waydroid prop get » exigeait la session (sans elle : « WayDroid
-# session is stopped » plutot qu'une vraie valeur), donc ce reglage restait
-# invisible tant qu'Android etait eteint. Ce n'est plus un appel a un outil
-# externe : c'est la lecture directe de waydroid.prop, le fichier
-# qu'android-lancer.sh bind-monte tel quel dans le conteneur — la meme
-# verite que le conteneur lira au prochain demarrage, qu'il tourne ou non en
-# ce moment.
-#
-# CE RELEVE NE DECIDE TOUJOURS RIEN A CHAUD. Le carnet du 2026-08-25 l'a
-# mesure : « persist.waydroid.multi_windows » ne prend qu'au PROCHAIN
-# demarrage du conteneur, jamais a chaud. Changer ce reglage redemarre donc
-# le conteneur — tout ce qui y tournait se ferme, exactement comme changer
-# de moniteur redemarrerait un serveur d'affichage.
-def _mode_android():
-    valeur = _lire_prop_android("persist.waydroid.multi_windows")
-    if valeur is None:
-        return None
-    return {"fenetre": valeur.lower() == "true"}
-
-
-def _regler_mode_android(mode):
-    outil = _outil("pkexec")
-    if not outil:
-        return False, "pkexec n'est pas sur cette machine"
-    fenetre = (mode == "fenetre")
-    code, _sortie = _lire(
-        [outil, "/usr/bin/python3", "-c", _SCRIPT_ECRIRE_PROP_ANDROID,
-         _PROP_ANDROID, "persist.waydroid.multi_windows",
-         "true" if fenetre else "false"], delai=10)
-    if code != 0:
-        return False, "reglage refuse"
-    _oublier("mode-android")
-    # NE PREND EFFET QU'AU PROCHAIN DEMARRAGE : redemarrer si le conteneur
-    # tourne deja, sinon passer par s-android — meme geste que
-    # « _basculer_android(True) », pour les memes raisons : il verse aussi
-    # les proprietes et la mise en veille, pas seulement le conteneur.
-    etat = _android()
-    if etat and etat.get("actif"):
-        code, _s = _lire(["systemctl", "--no-ask-password", "restart",
-                          "s-android.service"], delai=30)
-        if code != 0:
-            _lire([outil, "systemctl", "restart", "s-android.service"], delai=30)
-    else:
-        geste = "/usr/bin/s-android"
-        if os.path.isfile(geste):
-            try:
-                subprocess.Popen([geste, "--silencieux"], start_new_session=True,
-                                 stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL)
-            except OSError as err:
-                return False, str(err)
-    return True, ("Android en fenetres (redemarrage...)" if fenetre
-                 else "Android en plein ecran (redemarrage...)")
 
 
 def _capturer():
@@ -1093,6 +932,49 @@ def _lancer_retro_rapide():
 # Ajouter un reglage ne demande donc rien a la barre — c'est ce qui permet d'en
 # mettre autant que la machine en offre.
 
+def _prechauffer():
+    """Lance EN PARALLELE les sondes qui coutent plus de trente millisecondes.
+
+    Quatorze sondes en serie prenaient 1,2 s a froid — 2,4 s mesurees le
+    2026-09-19 sur la machine chargee — et chaque ouverture de la barre laterale
+    les relance, que l'utilisateur travaille ou joue. Chiffrees une a une :
+    egaliseur 219 ms, luminosite 213, materiel 58, wifi 32 ; les autres sont sous
+    15 ms. (Le profil d'energie, 240 ms, le contraste, 174, et les deux modes
+    ont quitte la barre le 2026-09-20 : il ne reste que dix sondes.)
+
+    UN FIL PAR SONDE LENTE, sauf « materiel » et « wifi » qui partagent le leur
+    (58 + 32 ms : moins que la plus lente des autres, un fil de plus ne gagnerait
+    rien). ddcutil parle en I2C a l'ecran, un bus qui n'aime pas les acces
+    simultanes (le carnet du 2026-09-18 le dit) : « luminosite » est aujourd'hui
+    son seul appelant ici, donc rien ne peut le lancer deux fois en meme temps —
+    si un second reglage d'ecran revenait, il devrait rejoindre CE fil.
+
+    Le resultat n'est pas rendu : il est dans _CACHE, et la suite de rapides()
+    n'a plus qu'a le lire. Une sonde encore en cours passe le delai est rattrapee
+    par l'appel sequentiel normal — plus lent, jamais faux.
+    """
+    groupes = (
+        (("luminosite", lambda: _ddc(10)),),
+        (("egaliseur", _egaliseur),),
+        (("materiel", _materiel), ("wifi", _wifi)),
+    )
+
+    def travailler(groupe):
+        for cle, calcul in groupe:
+            try:
+                _cache(cle, calcul)
+            except Exception:  # noqa: BLE001 — une sonde ne doit pas en emporter une autre
+                pass
+
+    fils = [threading.Thread(target=travailler, args=(g,), daemon=True)
+            for g in groupes]
+    for fil in fils:
+        fil.start()
+    limite = time.monotonic() + 8.0
+    for fil in fils:
+        fil.join(max(0.0, limite - time.monotonic()))
+
+
 def rapides():
     """L'etat de tout ce que S sait regler, ici et maintenant.
 
@@ -1101,6 +983,7 @@ def rapides():
     faux pour un adaptateur qui n'existe pas.
     """
     sortie = []
+    _prechauffer()
 
     son = _cache("volume", _volume)
     if son is not None:
@@ -1135,13 +1018,6 @@ def rapides():
                        "max": lum["max"], "actif": True,
                        "detail": "%d %%" % lum["valeur"]})
 
-    con = _cache("contraste", lambda: _ddc(12))
-    if con is not None:
-        sortie.append({"cle": "contraste", "nom": "Contraste", "ico": "i-grille",
-                       "type": "glissiere", "valeur": con["valeur"],
-                       "max": con["max"], "actif": True,
-                       "detail": "%d %%" % con["valeur"]})
-
     w = _cache("wifi", _wifi)
     if w is not None:
         sortie.append({"cle": "wifi", "nom": "Wi-Fi", "ico": "i-reseau",
@@ -1166,46 +1042,25 @@ def rapides():
                        "type": "bascule", "actif": ts["actif"],
                        "detail": ts["adresse"] or ts["etat"]})
 
+    # LE PANNEAU MATERIEL N'APPARAIT QUE S'IL Y A QUELQUE CHOSE A APPLIQUER. Son
+    # seul geste lance s-pilotes --appliquer ; sans mise a jour, c'est un bouton
+    # qui ne fait rien, et il disait « 10 appareil(s), a jour » en permanence —
+    # sur cette machine, en BIOS legacy, fwupd n'en trouve jamais. Comme le reste
+    # de ce fichier (« un reglage dont le materiel manque n'est PAS dans la
+    # liste »), l'entree est absente plutot que grisee, et elle sert alors de
+    # signal : elle monte quand une mise a jour attend. La verification
+    # hebdomadaire de s-pilotes.timer continue de prevenir par une bulle.
     mat = _cache("materiel", _materiel)
-    if mat is not None:
-        if mat["maj"] > 0:
-            detail = "%d appareil(s), %d mise(s) a jour" % (mat["appareils"], mat["maj"])
-        else:
-            detail = "%d appareil(s), a jour" % mat["appareils"]
+    if mat is not None and mat["maj"] > 0:
+        detail = "%d appareil(s), %d mise(s) a jour" % (mat["appareils"], mat["maj"])
         sortie.append({"cle": "materiel", "nom": "Materiel", "ico": "i-disque",
                        "type": "action", "actif": True, "detail": detail})
-
-    en = _cache("energie", _energie)
-    if en is not None:
-        sortie.append({"cle": "energie", "nom": "Energie", "ico": "i-alim",
-                       "type": "choix", "valeur": en["profil"],
-                       "actif": True, "detail": en["nom"],
-                       "choix": [{"cle": c, "nom": n} for c, n in _PROFILS]})
-
-    md = _cache("mode", _mode)
-    if md is not None:
-        noms = dict(_MODES)
-        sortie.append({"cle": "mode", "nom": "Mode S", "ico": "i-eclair",
-                       "type": "choix", "valeur": md["mode"] or "",
-                       "actif": True,
-                       "detail": noms.get(md["mode"], "personnalise"),
-                       "choix": [{"cle": c, "nom": n} for c, n in _MODES]})
 
     an = _cache("android", _android)
     if an is not None:
         sortie.append({"cle": "android", "nom": "Android", "ico": "i-tel",
                        "type": "bascule", "actif": an["actif"],
                        "detail": an["etat"].lower() or "arrete"})
-
-    mode = _cache("mode-android", _mode_android)
-    if mode is not None:
-        sortie.append({"cle": "mode-android", "nom": "Android : affichage",
-                       "ico": "i-tel", "type": "choix",
-                       "valeur": "fenetre" if mode["fenetre"] else "plein",
-                       "actif": True,
-                       "detail": "Fenetres" if mode["fenetre"] else "Plein ecran",
-                       "choix": [{"cle": "fenetre", "nom": "Fenetres"},
-                                 {"cle": "plein", "nom": "Plein ecran"}]})
 
     if _outil("spectacle"):
         sortie.append({"cle": "capture", "nom": "Capturer", "ico": "i-image",
@@ -1246,8 +1101,6 @@ def regler(cle, valeur):
         return _basculer_webcam(bool(valeur))
     if cle == "luminosite":
         return _regler_ddc(10, valeur)
-    if cle == "contraste":
-        return _regler_ddc(12, valeur)
     if cle == "wifi":
         return _basculer_wifi(bool(valeur))
     if cle == "bluetooth":
@@ -1256,14 +1109,13 @@ def regler(cle, valeur):
         return _basculer_tailscale(bool(valeur))
     if cle == "materiel":
         return _appliquer_materiel()
-    if cle == "energie":
-        return _regler_energie(str(valeur))
+    # « mode » N'EST PLUS DANS rapides() : aucune etoile ne le propose. Il reste
+    # ici parce que s-retro-rapide, s-salon-rapide et s-salon-session l'appellent
+    # (« jeu » en entrant, « travail » en sortant) — voir le mode Jeu plus haut.
     if cle == "mode":
         return _regler_mode(str(valeur))
     if cle == "android":
         return _basculer_android(bool(valeur))
-    if cle == "mode-android":
-        return _regler_mode_android(str(valeur))
     if cle == "capture":
         return _capturer()
     if cle == "dev-pont":

@@ -8,6 +8,253 @@ Interface en français.
 
 ---
 
+## 2026-09-19 — « Constellation n'est pas fluide » : le QML qui tournait n'était pas celui de l'image, et deux animations ne s'arrêtaient jamais
+
+Demande de l'utilisateur, juste après le redémarrage sur `f53a291` : « constellation
+est pas fluide, vérifie tout et patch les erreurs ou manques […] fluide comme une
+rivière, aucunes options inutiles ». Les cinq rôles chargés. Rien n'est commité ni
+dans l'image à l'heure où j'écris.
+
+État de départ, relevé avant tout : image `f53a291` bootée, `s-windows.service`
+actif et **sans boucle** (le correctif d'hier tient : zéro « Scheduled restart »
+côté session ; la seule relance de la nuit est `systemd-journald` à 02:10, sans
+rapport), zéro unité en échec.
+
+### Ce qui a été mesuré sur la coquille vivante (avant de toucher à rien)
+
+`s-constellation` avait consommé **18 241 s de processeur en 62 080 s de vie**, soit
+~29 % d'un cœur en permanence, et `kwin_wayland` 13 %. Par fil, PURPLE et Lineage II
+ouverts devant : fil de rendu 15,5 %, fil principal 9 %, fil pilote Mesa apparié 4 %,
+second rendu 4 %. Un bureau au repos ne devrait pas coûter ça. Ni `strace` ni `perf`
+sur la machine, et `gdb` aurait figé la coquille le temps de charger les symboles :
+je n'ai rien attaché au processus vivant.
+
+### Le banc, et ce qu'il a fallu pour qu'il ne mente pas
+
+`scratchpad/mesurer.py` + `mesure.sh` (jetables) : la **vraie scène**, le vrai
+`noyau.composer_etoiles()` (46 étoiles placées, 15 épinglées), dans un `kwin_wayland
+--virtual` sur un **bus privé** et une config copiée — rien n'atteint la session.
+Trois corrections avant de lire un seul chiffre : il avait hérité du rendu logiciel
+du contrôle de construction (pas de fil de rendu séparé), il n'avait que 5 étoiles,
+et son premier scénario « liste identique » ne prouvait rien — **Qt compare un
+tableau `Repeater` par valeur** (`QQuickRepeater::setModel` sort si `dataSource ==
+model`) : une rafale de listes strictement identiques ne reconstruit rien. Le vrai
+cas est un seul champ d'une seule fenêtre qui change.
+
+| scénario (client seul) | avant | après |
+|---|---|---|
+| ciel visible, aucune fenêtre | 8,9 % | 9,2 % (inchangé, voir plus bas) |
+| trois fenêtres maximisées devant le ciel | **8,8 %** | **0,0 %** |
+| une fenêtre en plein écran | **3,1 %** | **0,0 %** |
+| 40 changements de titre, six fenêtres | **240 tuiles créées**, 17,0 % | **0 tuile créée**, 0,6 % |
+
+Le `kwin` virtuel passe de 52 % à 11–14 % : compositeur **logiciel**, chiffre relatif
+seulement — je n'ai pas re-mesuré le vrai `kwin` (13 % avant).
+
+### Les causes, dans l'ordre de ce qu'elles pesaient
+
+**1. La barre et le bureau qui tournaient n'étaient pas ceux de l'image.** Qt range le
+QML compilé dans `~/.cache/S/Constellation/qmlcache` et ne le valide que par la **date
+de modification** du source. Or tout `/usr` d'une image ostree porte la date epoch 0
+(`1969-12-31` à l'écran). Reproduit en isolation, quatre cas : (A) source à date
+récente → cache écrit ; (B) contenu et taille changés, date remise à 0 → **Qt exécute
+l'ANCIENNE version** ; (C) sources à date 0 des deux côtés → bonne version, et **zéro
+fichier de cache écrit**. Qt n'écrit donc jamais dans `/usr`, mais relit sans vérifier
+ce qu'un essai à date réelle y a laissé. Sur la machine : le processus vivant avait en
+mémoire (`/proc/PID/maps`) deux `.qmlc` écrits le **2026-09-07 à 18:39:59** (64 996 o et
+122 524 o) — la barre et le bureau — et `etoileOption`, `teinteEtoile`, `survolOption`,
+`reglagesDemandes`, `titreAffiche` **n'y figurent pas**, alors que le `Barre.qml` déployé
+les porte. Neuf commits QML (8, 10 et 11 septembre) ont suivi. Le journal de la coquille
+le trahissait : `Barre.qml:455:29: Unable to assign [undefined] to bool` alors que la ligne
+fautive est la **465** dans le fichier installé — dix lignes d'écart, le fichier
+compilé n'était pas celui-là. Prouvé pour ces deux fichiers seulement.
+
+**2. L'étoile de la barre animait sa couleur en boucle infinie, sans condition**
+(`SequentialAnimation on teinteEtoile`, « tout le temps »). Elle alimentait quatre
+liaisons **et un `Glyphe`, qui est un `Canvas` repeint à chaque changement de
+couleur** : soixante repeints et envois de texture par seconde, jour et nuit, dans la
+fenêtre de barre (1920×472). C'était le plancher de 3,1 % avec un jeu en plein écran.
+
+**3. La garde `vivant` ne coupait la dérive des 46 étoiles que pour un VRAI plein
+écran.** `fenetres.js` agrandit chaque fenêtre à sa naissance sans la passer en plein
+écran : un navigateur ou un logiciel Windows cachaient le ciel entier pendant que ses
+92 animations tournaient à 60 images/s (8,8 % avec trois fenêtres devant, identique au
+ciel visible).
+
+**4. Toute nouvelle de kwin dont un champ changeait recréait toutes les tuiles de la
+barre** (`ouvertures = JSON.parse(...)` → `Repeater` réinitialisé) : icônes rechargées,
+survol et animations remis à zéro, à chaque titre de page et à chaque clic de focus.
+Python ré-émettait en plus la liste à chaque événement, y compris ceux d'une fenêtre que
+la barre ne liste pas (elle-même, le bureau) — chaque clic dans la barre en produit un.
+
+**5. Le minuteur de 15 s** (`relire()`) analysait **309 `.desktop`** sur le fil graphique
+(29 ms à chaud, 215 à froid — 77 ms sur 88 de profil dans `lire_desktop`) **et
+réassignait `donnees` sans comparer**, donc recréait les 46 étoiles du ciel toutes les
+quinze secondes. Un commentaire d'`Astre.qml` le documentait déjà (« sauts visibles »)
+et le contournait par un déphasage déterministe sans supprimer la cause.
+
+**6. La barre latérale** relançait ~30 sous-processus à chaque ouverture (1,2 s en série
+à froid, jusqu'à 2,4 s mesurées, `tuned-adm active` **lancé deux fois**) et remplaçait
+son tableau de réglages en bloc : un volume de 131 à 130 recréait toutes les étoiles au
+moment où l'on commençait à s'en servir — la glissière ouverte visait une étoile qui
+n'existait plus (mesuré : 6 changements de valeur → 30 étoiles recréées).
+
+Plus petits : l'horloge se réveillait chaque seconde pour ne changer qu'à la minute ;
+`font.italic: modelData.reduite` produisait l'avertissement `[undefined] to bool`.
+
+### Ce qui a été fait
+
+- **Cache disque de QML coupé** dans `s-constellation` et `s-iptv`
+  (`os.environ["QML_DISK_CACHE"] = "none"`, avant tout import de Qt). Mesuré :
+  `QML_DISK_CACHE=none` et un `QML_DISK_CACHE_PATH` neuf servent tous deux le bon
+  contenu. Coût : **~70 ms au démarrage** (200 ms sans cache, 132 avec un cache
+  chaud) — et en production il n'y avait de toute façon aucun cache valide à gagner.
+  Cache périmé **purgé** sur cette machine (`~/.cache/S/Constellation/qmlcache`, 668 Ko).
+- **Étoile de la barre** : la couleur est une phase (0 à 4) animée en **pause** tant que
+  l'étoile n'est ni survolée ni ouverte ; départ tiré au sort (comme la barre latérale).
+  Une animation en pause n'est pas cadencée : 0,0 % mesuré.
+- **`vivant`** = aucune fenêtre non réduite ouverte : le ciel ne vit que s'il est regardé.
+- **Tuiles de la barre** : un `ListModel` mis à jour **sur place, par identifiant**
+  (insertion, retrait, `move`, `setProperty` champ par champ) ; la largeur glisse
+  (160 ms) et une tuile nouvelle apparaît en fondu. Le champ s'appelle `wid` : `id` est
+  réservé.
+- **`fenetres.py`** ne ré-émet plus une liste identique à la précédente.
+- **`noyau.lire_desktop`** : cache par (date, taille), copie rendue à chaque appel.
+  `composer_etoiles` : **29 → 5 ms à chaud**. **`relire()`** ne réassigne que si le JSON
+  a changé.
+- **Barre latérale** : le `Repeater` regarde les **clés** (Qt compare par valeur : il ne
+  se réinitialise que si l'ensemble des réglages change) et chaque étoile relit sa donnée
+  par clé. `reglages.rapides()` : sondes lentes **en parallèle** — `luminosite` et
+  `contraste` dans le **même** fil (ddcutil parle en I2C, bus qui n'aime pas les accès
+  simultanés), `energie` puis `mode` dans le même fil, `_mode` réutilise le profil déjà
+  lu : **1 200–2 400 ms → ~409 ms** à froid (le chemin critique prévu : le groupe I2C).
+- **Horloge** alignée sur la minute ; `=== true` sur les booléens des tuiles.
+- **Contrôle permanent** `build_files/verifier-tuiles.py`, câblé dans
+  `36-constellation.sh` : il **compte** (des délégués créés, un booléen lu), il ne
+  chronomètre pas. Éprouvé **dans les deux sens** : sur l'ancien QML il relève cinq
+  défauts (30 tuiles recréées par 10 titres, focus, fermeture, **38 tuiles pour une seule
+  ouverture**, ciel qui anime caché) et reproduit l'avertissement `[undefined] to bool`
+  du journal, plus 30 étoiles de réglage recréées ; sur le corrigé, il passe. Il échoue
+  franchement si son `Repeater` (`objectName: "tuilesOuvertes"`) est introuvable.
+  Gardes `grep -qF` sur `QML_DISK_CACHE` dans `36-constellation.sh` et `40-coutures.sh` :
+  le balayage par motif passe de 31 à **33** contrôles, tous verts.
+
+### Options : ce qui a été retiré, et ce qui est laissé à l'utilisateur
+
+**Retiré** — seul ce qui était *prouvablement* inutile ici : le panneau **Matériel** de
+la barre latérale ne s'affiche plus que s'il y a une mise à jour à appliquer. Son seul
+geste lance `s-pilotes --appliquer` ; sans mise à jour c'est un bouton sans effet, et sur
+cette machine (BIOS legacy) `fwupd` n'en trouve jamais — il affichait « 10 appareil(s), à
+jour » en permanence. Il remonte tout seul le jour où une mise à jour attend ; la
+vérification hebdomadaire de `s-pilotes.timer` prévient toujours par une bulle.
+
+**Laissé, parce que l'utilisateur l'a demandé ou que l'avis lui revient** — candidats :
+**Énergie** et **Mode S** pilotent tous deux le profil `tuned` (Mode S le relit pour
+s'afficher : les deux s'enchevêtrent) ; **Android : affichage** (l'option « Fenêtres »
+rend le trou vidéo mesuré le 2026-08-25 et redémarre Android) ; le mode de veille
+**« réduire »** (le réglage réel est `non`) ; **Rétro rapide** (aucune ROM, aucune
+manette : un menu RetroArch vide) ; **Contraste** (a servi à noircir l'écran le
+2026-08-26) ; les paramètres morts `marge_haut`/`marge_bas` de `bornerLaterale`.
+*Tranché le lendemain : voir l'addendum ci-dessous.*
+
+### Addendum, 2026-09-20 — « enlève tout sauf retroarch »
+
+Réponse de l'utilisateur à la question qui fermait la passe (« lesquelles des candidates
+veux-tu retirer ? »), mot pour mot : **« enlève tout sauf retroarch »**. Cinq candidats sur
+six partent ; **Rétro rapide** reste.
+
+**Retiré :**
+
+- **Énergie** et **Mode S** (Travail / Jeu / Art) de la barre latérale.
+- **Android : affichage** — son option « Fenêtres » rendait le trou vidéo mesuré le
+  2026-08-25 ; `s-android` pose `multi_windows=false` à chaque démarrage et plus rien ne le
+  contredit.
+- **Contraste** (`ddcutil`, VCP 12). La luminosité reste, avec son plancher de 10 %.
+- Le mode de veille **« ranger les autres »** du menu du clic droit de la barre des tâches.
+  Restent « aucune » et « arrêter les programmes ». **Une valeur `reduire` déjà écrite dans
+  `reglages.json` est lue comme « non »** : la renvoyer au défaut « geler » aurait arrêté les
+  programmes de quelqu'un qui l'avait choisie précisément pour qu'ils continuent de tourner.
+
+**Ce qui reste, et pourquoi.** `reglages.regler("mode", "jeu" | "travail")` n'est plus
+atteignable depuis une étoile, mais **Rétro rapide en dépend** — comme Salon rapide et la
+session Salon : `s-retro-rapide` l'appelle en entrant (`jeu` : profil `accelerator-performance`,
+fréquence GPU au plafond, effets kwin coupés, Android arrêté) et en sortant (`travail`). Le
+retirer avec le reste aurait fait ouvrir RetroArch sans son profil de performance, et sans
+jamais revenir au normal. Restent donc `_regler_mode`, `_regler_energie`, `_regler_gpu`,
+`_regler_effets_kwin` et `_arreter_android`. Sont partis avec les étoiles : la **lecture** du
+profil (`_energie`, `_mode`, `_gpu_pinne_haut`), la liste `_PROFILS`, le mode **Art** (plus
+aucun geste ne pouvait le demander), l'écriture de `waydroid.prop` (`_regler_mode_android`,
+son script `pkexec`, `_lire_prop_android`) et les deux références à « contraste » du plancher
+QML. Non touchés : `marge_haut`/`marge_bas` de `bornerLaterale` (code mort, pas une option).
+
+**Mesuré :**
+
+- `rapides()` à froid : **~250 ms**, 9 entrées sur cette machine (trois processus neufs : 253,
+  249 et 248 ms) — contre ~409 ms et 13 entrées avant ce retrait, 1,2 à 2,4 s au début de la
+  passe. Il ne reste que dix sondes.
+- `verifier-constellation.py` : le menu de la barre a **9 articles pour 222 px** (10 et 256
+  avant) ; `verifier-tuiles.py`, `verifier-iptv.py` et le balayage par motif (33 contrôles) verts.
+  Le leurre du contrôle portait « Énergie » comme seul exemple du panneau « choix » ; il
+  porte maintenant « Pont dev », le seul « choix » qui reste dans la vraie barre.
+- **Les deux sens du mode Jeu — ce que Retro et Salon appellent — sont éprouvés avec des
+  doublures** : `regler("mode", "jeu")` déclenche exactement profil de performance, GPU haut,
+  effets coupés, Android arrêté ; `"travail"` les défait ; `"art"` est refusé. Volontairement
+  pas contre la vraie session : le 2026-09-10, un essai « pour vérifier » avait basculé la
+  session réelle, Android compris.
+
+**Un défaut du banc, trouvé en chemin.** `grimoire/veille-eprouver-le-gel.sh` construisait
+`Fenetres()` sans fixer le mode : il relisait le VRAI réglage de la session. Sur cette machine
+il vaut « non », donc `_geler` sortait aussitôt et le premier contrôle échouait pour une raison
+sans rapport avec le gel. Le mode est posé (« geler ») ; les deux passages du banc qui
+utilisaient « reduire » utilisent « non » ; le banc passe. Ce défaut est indépendant du
+retrait — il était là avant.
+
+**Ce que cet addendum ne prouve pas.**
+
+- **Rien n'est commité ni dans l'image.** La session vivante affiche encore les quatre étoiles
+  et le mode de veille retirés.
+- **Aucune barre ouverte à l'écran** : la scène charge sans avertissement et `rapides()` rend
+  les bonnes clés, mais personne n'a vu la colonne sans ces étoiles, ni le menu à neuf articles.
+- **Rétro rapide n'a pas été lancé.** Seul son appel au mode Jeu est éprouvé, par doublures.
+  `s-retro-rapide` lui-même n'a jamais tourné pour de vrai : seul le test de faisabilité
+  imbriqué du 2026-09-10 a fait tourner gamescope et RetroArch.
+- **Le panneau « choix » de la barre n'est plus exercé par la vraie barre** que si un projet de
+  `~/Projets` porte un `.s-dev.json` — aucun sur cette machine à cet instant.
+
+### Ce qui a été écarté, et il faut le dire
+
+- « Une rafale de listes identiques reconstruit toutes les tuiles » : **réfuté** (Qt
+  compare par valeur). Le vrai déclencheur est un seul champ qui change.
+- Attacher `gdb` pour compter les trames : écarté avant essai (gèle la coquille).
+- Le 52 % du `kwin` virtuel : compositeur logiciel, ignoré.
+
+### Ce que cette passe ne prouve pas
+
+- **Rien n'est dans l'image.** La session vivante exécute toujours la barre et le bureau
+  du 7 septembre. Après un `bootc upgrade` et un redémarrage, deux témoins :
+  `grep -c qmlc /proc/$(pgrep -x s-constellation)/maps` doit rendre **0**, et
+  `ps -o cputimes` de `s-constellation` doit cesser de croître au repos.
+- **Le banc est un kwin virtuel logiciel.** Les chiffres du client se comparent entre
+  eux ; ils ne prédisent pas le CPU réel de `kwin` ni du GPU.
+- **Aucun survol ni clic réel.** La reprise de l'animation de l'étoile au survol n'a pas
+  été vue (le banc n'a pas de pointeur) ; seul le repos à 0,0 % est mesuré.
+- **Le ciel visible reste à ~9 % du client** (rendu 5,4 %, principal 2 %, pilote Mesa
+  1 %) : c'est l'état où on le regarde, la dérive coûte des images pleines. À trancher :
+  la mettre en pause après une minute sans mouvement du pointeur — la machine se pilote
+  souvent depuis le téléphone, écran sur un bureau vide. Non fait : demande un signal
+  d'activité que je ne peux pas éprouver sans vraie souris.
+- **Les autres fichiers QML** (`Astre`, `Tuile`, `BarreLaterale`…) n'ont pas été ouverts
+  un par un pour savoir s'ils tournaient périmés.
+- **Une tuile qui disparaît n'a pas d'animation de sortie** (un `Repeater` ne le permet
+  pas) ; les voisines glissent, c'est tout.
+- **`rapides()` en parallèle** n'a été mesuré que sur une machine au repos, jamais sous
+  un jeu. Depuis le retrait de Contraste, `ddcutil` n'a plus qu'un appelant : la contrainte
+  d'ordre I2C sur laquelle reposait le regroupement est sans objet.
+- **À faire au commit** : `git update-index --chmod=+x build_files/verifier-tuiles.py` en
+  tout dernier geste, sans `git add` derrière (piège du bit d'exécution, déjà payé).
+
+---
+
 ## 2026-09-18, soir — l'audit à cinq rôles : le Windows résident bouclait depuis la mise à jour, et « zéro unité en échec » mentait
 
 Demande de l'utilisateur, juste après le redémarrage sur `b0f140a` : « regarde en

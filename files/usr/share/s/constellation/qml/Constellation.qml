@@ -35,16 +35,23 @@ ApplicationWindow {
     property int fenetresInactives: 0
 
     // ── CONSTELLATION VIVANTE — L'INTERRUPTEUR COMMUN ─────────────────────
-    // Meme source, meme condition, que celles deja ecrites deux fois plus bas
-    // pour la barre et la barre laterale (« elle s'efface pendant un jeu »).
     // Tout mouvement CONTINU du chantier vivant (derive des etoiles,
-    // respiration du fond, reaction au son) se gate sur ce seul booleen :
-    // quand un jeu tourne plein ecran, personne ne voit le ciel — geler ces
-    // animations rend au jeu le CPU/GPU qu'elles auraient coute, sans rien
-    // perdre visuellement. Un seul endroit a lire pour savoir si « vivant »
-    // doit bouger, plutot que de repeter la condition a chaque signal.
+    // respiration du fond, reaction au son) se gate sur ce seul booleen. Un
+    // seul endroit a lire pour savoir si « vivant » doit bouger.
+    //
+    // LE CIEL NE VIT QUE S'IL EST REGARDE — c'est-a-dire quand AUCUNE fenetre
+    // n'est ouverte devant lui. La garde d'avant ne le coupait que pour une
+    // fenetre en VRAI plein ecran : or fenetres.js agrandit toute fenetre des sa
+    // naissance sans la passer en plein ecran, donc un navigateur, un
+    // terminal ou un logiciel Windows cachaient le ciel entier pendant que ses
+    // 46 etoiles continuaient de derive a soixante images par seconde — deux
+    // animations par etoile, dans une fenetre plein ecran que kwin doit
+    // recomposer a chaque image. Mesure du 2026-09-19, banc de fluidite, vrai
+    // ciel de cette machine : 8,9 % de CPU avec le ciel visible, 8,8 % avec
+    // trois fenetres devant (rien ne changeait), 3,1 % avec un plein ecran.
+    // Une fenetre REDUITE ne cache rien : elle ne compte pas.
     readonly property bool vivant: !barreTaches.ouvertures.some(function (f) {
-        return f.plein === true && f.reduite !== true && f.active === true;
+        return f.reduite !== true;
     })
 
     visible: true
@@ -95,8 +102,21 @@ ApplicationWindow {
         return m;
     }
 
+    // L'INVENTAIRE N'EST REASSIGNE QUE S'IL A CHANGE. « donnees » alimente les
+    // Repeater du ciel et de la barre : lui donner un nouvel objet, meme
+    // identique, leur fait detruire et recreer leurs delegues — les 46 etoiles
+    // et leurs animations toutes les quinze secondes, avec le survol et
+    // l'echelle remis a zero. Le compte se fait sur le JSON : Qt compare les
+    // objets par identite, pas par valeur.
+    property string empreinteDonnees: ""
+    property string empreinteOuvertures: ""
     function relire() {
-        donnees = pont.etoiles();
+        var nouvelles = pont.etoiles();
+        var empreinte = JSON.stringify(nouvelles);
+        if (empreinte === empreinteDonnees)
+            return;
+        empreinteDonnees = empreinte;
+        donnees = nouvelles;
         liens.requestPaint();
     }
 
@@ -740,6 +760,12 @@ ApplicationWindow {
     Connections {
         target: typeof fenetres !== "undefined" ? fenetres : null
         function onChangees(liste) {
+            // Python ne renvoie deja plus une liste identique ; ce test tient
+            // quand meme : un « ouvertures » reassigne reevalue « vivant », les
+            // menus et chaque liaison qui le lit.
+            if (liste === bureau.empreinteOuvertures)
+                return;
+            bureau.empreinteOuvertures = liste;
             barreTaches.ouvertures = JSON.parse(liste);
         }
         function onModeChange(mode) {
@@ -1835,7 +1861,7 @@ ApplicationWindow {
                     required property var modelData
                     Layout.fillWidth: true
                     // Le coche marque l'associee ACTUELLE — meme convention
-                    // que les trois modes de veille du menu des fenetres.
+                    // que les deux modes de veille du menu des fenetres.
                     text: (modelData.defaut ? "✓  " : "     ") + modelData.nom
                     onTriggered: {
                         bureau.dire(pont.ouvrirAvec(ouvrirAvec.cible.id, modelData.fichier));

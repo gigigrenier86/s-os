@@ -96,10 +96,14 @@ FAUX_REGLAGES = [
     # que des reglages libres n'exercerait jamais cette branche.
     {"cle": "wifi", "nom": "Wi-Fi", "ico": "i-reseau", "type": "bascule",
      "actif": True, "verrouille": True, "detail": "Net gigi"},
-    {"cle": "energie", "nom": "Energie", "ico": "i-alim", "type": "choix",
-     "valeur": "balanced", "actif": True, "detail": "Equilibre",
-     "choix": [{"cle": "balanced", "nom": "Equilibre"},
-               {"cle": "perf", "nom": "Performance"}]},
+    # LE SEUL « CHOIX » QUI RESTE DANS LA VRAIE BARRE, et seulement quand un
+    # projet de ~/Projets porte un .s-dev.json. « Energie », « Mode S » et
+    # « Android : affichage » l'ont quittee le 2026-09-20 ; sans celui-ci, le
+    # panneau « choix » de la barre ne serait plus exerce du tout par la scene.
+    {"cle": "dev-pont", "nom": "Pont dev", "ico": "i-code", "type": "choix",
+     "valeur": "", "actif": True, "detail": "2 projet(s)",
+     "choix": [{"cle": "alpha", "nom": "alpha"},
+               {"cle": "beta", "nom": "beta"}]},
     {"cle": "capture", "nom": "Capturer", "ico": "i-image", "type": "action",
      "actif": True, "detail": "selection"},
 ]
@@ -376,12 +380,13 @@ def main():
     # qu'un Menu vide est un Menu valide. Sans ce controle, « fermer la
     # fenetre » aurait pu n'exister que dans le fichier : la scene se serait
     # verifiee verte, et le menu se serait ouvert vide chez l'utilisateur.
-    # DIX, ET LE COMPTE INCLUT LES SEPARATEURS : cinq articles ecrits a la
-    # main (ranger, veille immediate, fermer, forcer l'arret, menage), TROIS
+    # NEUF, ET LE COMPTE INCLUT LES SEPARATEURS : cinq articles ecrits a la
+    # main (ranger, veille immediate, fermer, forcer l'arret, menage), DEUX
     # poses par le Repeater — les modes de veille, la partie qu'on verifie
     # vraiment — et deux traits. « count » compte tout ce que le Menu porte.
-    # « Forcer l'arret » ajoute le 2026-08-30 : neuf devient dix.
-    ARTICLES_ATTENDUS = 10
+    # « Forcer l'arret » ajoute le 2026-08-30 : neuf devient dix ; « ranger les
+    # autres » retire le 2026-09-20 : dix redevient neuf.
+    ARTICLES_ATTENDUS = 9
     manque_articles = {"valeur": 0, "trouve": False}
     # La hauteur du menu une fois ouvert, et celle qu'il demande. Voir le
     # controle plus bas : c'est la mesure qui manquait le 2026-08-26.

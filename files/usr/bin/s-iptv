@@ -26,6 +26,11 @@ import subprocess
 import sys
 import threading
 
+# CACHE DISQUE DE QML COUPE — meme raison, mesuree, que dans s-constellation :
+# les sources de /usr ont toutes la date epoch 0, Qt n'y ecrit aucun cache et
+# relit sans verifier celui qu'un essai a date reelle a laisse dans ~/.cache.
+os.environ["QML_DISK_CACHE"] = "none"
+
 _ICI = os.path.dirname(os.path.abspath(__file__))
 for _essai in (os.environ.get("S_NOYAU"), "/usr/lib/s",
                os.path.join(_ICI, "..", "lib", "s")):

@@ -97,6 +97,11 @@ def etat(attendu, quoi):
 A = "{aaaaaaaa-0000-0000-0000-000000000001}"
 B = "{bbbbbbbb-0000-0000-0000-000000000002}"
 f = fenetres.Fenetres()
+# LE MODE SE POSE ICI, IL NE SE LIT PAS. Fenetres() relit le VRAI reglage de la
+# session ; sur une machine ou l'utilisateur a choisi « non » (c'est le cas de
+# celle-ci), « _geler » sortait aussitot et le premier controle échouait pour
+# une raison qui n'avait rien a voir avec le gel. Constate le 2026-09-20.
+f._mode = "geler"
 f._liste = [
     {"id": A, "titre": "Le banc", "active": False, "reduite": True, "pid": pid},
     {"id": B, "titre": "Sans pid", "active": True, "reduite": False, "pid": 0},
@@ -128,8 +133,8 @@ f._liste[0]["reduite"] = False
 f._geler({A});   etat(False, "fenêtre remontée entre-temps -> intacte")
 f._liste[0]["reduite"] = True
 
-f._mode = "reduire"
-f._geler({A});   etat(False, "mode « reduire » -> ne gèle rien")
+f._mode = "non"
+f._geler({A});   etat(False, "mode « non » -> ne gèle rien")
 f._mode = "geler"
 
 f._geler({A});   etat(True,  "ré-endormie")
@@ -192,8 +197,9 @@ for mauvais in ("pas un nombre", 3.5e300, None, [], {}):
         rates.append("pid illisible %r -> %r" % (mauvais, rendu))
 print("  %-52s %s" % ("un pid illisible rend None sans lever", True))
 
-# « geler » -> « reduire » doit relâcher : on choisit « ranger les autres »
-# précisément pour que les programmes CONTINUENT de tourner.
+# « geler » -> « non » doit relâcher : sans cela, choisir « aucune veille »
+# laisserait figés pour toujours les programmes déjà endormis. (Le mode
+# « reduire », qui servait ici, a été retiré le 2026-09-20.)
 #
 # On neutralise l'écriture du réglage : le banc ne doit pas changer le mode de
 # veille de la vraie session sur cette machine.
@@ -203,7 +209,7 @@ g = fenetres.Fenetres()
 g._liste = [{"id": A, "active": False, "reduite": True, "pid": pid}]
 g._mode = "geler"
 g._geler({A});          etat(True,  "endormie, mode « geler »")
-g.reglerMode("reduire"); etat(False, "passage à « reduire » -> relâchée")
+g.reglerMode("non");     etat(False, "passage à « non » -> relâchée")
 g.arreter()
 
 # Un jeton posé pendant que la veille est coupée doit être consommé quand même,

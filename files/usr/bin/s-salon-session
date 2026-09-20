@@ -49,9 +49,10 @@ if ! command -v steam >/dev/null 2>&1; then
     exit 1
 fi
 
-# LE PROFIL EST REPRIS, JAMAIS REECRIT — meme mecanisme que le reglage
-# « Mode S » de la barre laterale de Constellation (reglages.py::_regler_mode,
-# 2026-09-01). Un echec ici degrade la session (pas de bascule de
+# LE PROFIL EST REPRIS, JAMAIS REECRIT — c'est le mode Jeu de
+# reglages.py::_regler_mode (2026-09-01), que la barre laterale de Constellation
+# ne propose plus depuis le 2026-09-20 : il ne sert plus qu'a Salon et Retro.
+# Un echec ici degrade la session (pas de bascule de
 # performance) mais ne doit jamais l'empecher de demarrer ou de rendre la
 # main au greeter : brancher une manette et jouer compte plus que le profil
 # tuned, et rester coince en Salon compte plus que le profil Travail.

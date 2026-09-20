@@ -146,8 +146,7 @@ Item {
             // Le pont borne deja a dix pour cent : sans le meme plancher a
             // l'ecran, la jauge descendrait a zero pendant que la machine
             // reste a dix, et l'anneau mentirait jusqu'a la relecture.
-            var plancher = (etoile.reglage.cle === "luminosite"
-                            || etoile.reglage.cle === "contraste") ? 10 : 0;
+            var plancher = (etoile.reglage.cle === "luminosite") ? 10 : 0;
             var pas = evenement.angleDelta.y > 0 ? 5 : -5;
             var v = Math.max(plancher, Math.min(m, etoile.valeurVue + pas));
             etoile.valeurLocale = v;

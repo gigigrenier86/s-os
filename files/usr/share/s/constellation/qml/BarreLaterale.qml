@@ -66,6 +66,22 @@ Window {
     // train de jouer a un jeu par exemple ».
     property bool efface: false
     property var reglages: []
+
+    // LE REPEATER REGARDE LES CLES, PAS LES REGLAGES. Chaque ouverture de la
+    // barre relance les sondes et remplace « reglages » en entier ; un Repeater
+    // dont le tableau change — d'UNE valeur, un volume qui passe de 131 a 130 —
+    // detruit et recree TOUTES ses etoiles, au moment precis ou l'on commence a
+    // s'en servir : la glissiere ouverte visait une etoile qui n'existait plus.
+    // Un tableau de cles, lui, ne change que si l'ENSEMBLE des reglages change
+    // (Qt compare deux tableaux par valeur), et chaque etoile relit sa donnee
+    // par cle : elle se met a jour sur place, sans etre recreee.
+    readonly property var cles: reglages.map(function (r) { return r.cle; })
+    function reglageDe(cle) {
+        for (var i = 0; i < reglages.length; i++)
+            if (reglages[i].cle === cle)
+                return reglages[i];
+        return ({});
+    }
     // Le reglage survole, dont on ecrit le nom a gauche. Null quand aucun.
     property var survole: null
 
@@ -222,12 +238,15 @@ Window {
 
             Repeater {
                 objectName: "repeaterReglages"
-                model: laterale.reglages
+                model: laterale.cles
 
                 delegate: EtoileReglage {
-                    required property var modelData
+                    // La cle du reglage ; « donnee » est sa valeur COURANTE,
+                    // relue chaque fois que « reglages » est remplace.
+                    required property string modelData
                     required property int index
-                    reglage: modelData
+                    readonly property var donnee: laterale.reglageDe(modelData)
+                    reglage: donnee
                     diametre: 46
                     teinteImposee: index < laterale.teintes.length
                                    ? laterale.teintes[index] : Theme.texte
@@ -237,29 +256,29 @@ Window {
                     onHoveredChanged: {
                         if (hovered)
                             laterale.survole = {
-                                "nom": modelData.nom || "",
-                                "detail": modelData.detail || "",
+                                "nom": donnee.nom || "",
+                                "detail": donnee.detail || "",
                                 "y": mapToItem(laterale.contentItem, 0, 0).y - 0
                             };
                         else if (laterale.survole
-                                 && laterale.survole.nom === (modelData.nom || ""))
+                                 && laterale.survole.nom === (donnee.nom || ""))
                             laterale.survole = null;
                     }
 
                     onBascule: {
-                        if (modelData.type === "action")
-                            laterale.reglageAction(modelData.cle);
+                        if (donnee.type === "action")
+                            laterale.reglageAction(donnee.cle);
                         else
-                            laterale.reglageBascule(modelData.cle,
-                                                    !(modelData.actif === true));
+                            laterale.reglageBascule(donnee.cle,
+                                                    !(donnee.actif === true));
                     }
                     onValeurDemandee: function (v) {
-                        laterale.reglageValeur(modelData.cle, v);
+                        laterale.reglageValeur(donnee.cle, v);
                     }
-                    onChoixDemande: choix.ouvrirPour(modelData,
+                    onChoixDemande: choix.ouvrirPour(donnee,
                                                      mapToItem(laterale.contentItem, 0, 0).y)
                     onGlissiereDemandee: glissiere.ouvrirPour(
-                        modelData, mapToItem(laterale.contentItem, 0, 0).y, this)
+                        donnee, mapToItem(laterale.contentItem, 0, 0).y, this)
                 }
             }
         }
@@ -295,7 +314,7 @@ Window {
         function ouvrirPour(reglage, hauteur, source) {
             cle = reglage.cle || "";
             maximum = reglage.max || 100;
-            plancher = (cle === "luminosite" || cle === "contraste") ? 10 : 0;
+            plancher = (cle === "luminosite") ? 10 : 0;
             valeur = reglage.valeur || 0;
             etoile = source || null;
             y = Math.max(8, Math.min(laterale.height - height - 8, hauteur - 4));

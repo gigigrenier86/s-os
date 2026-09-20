@@ -658,6 +658,10 @@ python3 -c "import ast; ast.parse(open('/usr/bin/s-iptv').read())" \
 # « --version » imprimait la version de mpv au lieu de s'ouvrir comme un flux.
 grep -q '"--", url' /usr/bin/s-iptv \
     || { echo "ECHEC : s-iptv n'isole plus l'adresse du flux par « -- » — une playlist pourrait injecter des options dans mpv." >&2; exit 1; }
+# Meme raison que s-constellation : un cache QML perime, laisse par un essai a
+# date reelle, serait relu sans verification a la place du QML deploye.
+grep -qF 'os.environ["QML_DISK_CACHE"] = "none"' /usr/bin/s-iptv \
+    || { echo "ECHEC : s-iptv ne coupe plus le cache disque de QML." >&2; exit 1; }
 test -s /usr/share/s/iptv/qml/Principal.qml \
     || { echo "ECHEC : Principal.qml absent — s-iptv n'aurait aucune fenetre." >&2; exit 1; }
 python3 /ctx/build_files/verifier-iptv.py /usr/share/s/iptv/qml \

@@ -6,7 +6,8 @@ set -euxo pipefail
 # ==========================================================================
 #
 # DEMANDE DE L'UTILISATEUR LE 2026-09-01, POUR LE MODE « Jeu » DE LA BARRE
-# LATERALE (/usr/lib/s/reglages.py::_regler_mode). Le mode « Jeu » bascule
+# LATERALE (/usr/lib/s/reglages.py::_regler_mode — la barre ne le propose plus
+# depuis le 2026-09-20, Salon et Retro l'appliquent). Le mode « Jeu » bascule
 # deja tuned-adm, la frequence GPU et les effets kwin — GameMode (Feral
 # Interactive) est le complement qui manquait : une bibliotheque
 # (libgamemodeauto.so) que Proton et la plupart des jeux Steam chargent

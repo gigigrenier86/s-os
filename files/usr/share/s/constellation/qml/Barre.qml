@@ -58,6 +58,63 @@ Window {
     // Meme patron que menuDemande, qui lui a toujours marche.
     property var ouvertures: []
 
+    // ══ LES TUILES SONT UN MODELE MIS A JOUR SUR PLACE, PAS UN TABLEAU REFAIT ═
+    // « ouvertures » est remplace en entier a chaque nouvelle de kwin, et un
+    // Repeater dont le tableau change — ne fut-ce que d'UN champ d'UNE fenetre —
+    // detruit et recree TOUTES ses tuiles : icones rechargees, survol et echelle
+    // remis a zero, animation coupee net. Or un navigateur change de titre a
+    // chaque page et le focus change a chaque clic.
+    //
+    // MESURE DU 2026-09-19, banc de fluidite, vrai Barre.qml : 40 nouvelles de
+    // kwin dont seul le titre d'une des six fenetres change → 240 tuiles creees
+    // (40 x 6), le client a 17 % de CPU pendant la rafale. Une rafale de listes
+    // strictement IDENTIQUES ne reconstruit rien : Qt compare les tableaux par
+    // valeur — c'est ce qui a fait croire, un moment, que le defaut n'existait
+    // pas. Le cas reel n'est jamais identique.
+    //
+    // Ici on compare par IDENTIFIANT et on ne touche que ce qui differe : une
+    // fenetre qui s'ouvre est inseree, une qui se ferme est retiree, un titre
+    // qui change n'est qu'une propriete reecrite dans la tuile qui existe deja.
+    // Le champ s'appelle « wid » et non « id » : « id » est reserve par QML.
+    ListModel { id: modeleOuvertures }
+
+    function ligneDeTuile(f) {
+        return {
+            wid: String(f.id || ""),
+            classe: String(f.classe || ""),
+            titre: String(f.titre || ""),
+            // « === true » : un champ absent doit valoir faux, pas provoquer
+            // « Unable to assign [undefined] to bool » (releve dans le journal
+            // du demarrage de la coquille).
+            active: f.active === true,
+            reduite: f.reduite === true
+        };
+    }
+
+    function synchroniserOuvertures() {
+        var liste = barre.ouvertures || [];
+        var m = modeleOuvertures;
+        for (var i = 0; i < liste.length; i++) {
+            var ligne = ligneDeTuile(liste[i]);
+            var j = i;
+            while (j < m.count && m.get(j).wid !== ligne.wid)
+                j++;
+            if (j === m.count) {
+                m.insert(i, ligne);
+                continue;
+            }
+            if (j !== i)
+                m.move(j, i, 1);
+            var actuelle = m.get(i);
+            for (var cle in ligne)
+                if (actuelle[cle] !== ligne[cle])
+                    m.setProperty(i, cle, ligne[cle]);
+        }
+        while (m.count > liste.length)
+            m.remove(m.count - 1);
+    }
+    onOuverturesChanged: synchroniserOuvertures()
+
     // LE NOM D'UNE EPINGLEE S'AFFICHE AU-DESSUS D'ELLE, JAMAIS DESSUS.
     // L'infobulle de Qt se posait PAR-DESSUS la pastille — il n'y a pas la
     // place de la mettre en dessous, la barre touche le bas de l'ecran — et
@@ -375,16 +432,29 @@ Window {
             clip: true
 
             Repeater {
-                model: barre.ouvertures
+                // Nomme pour que build_files/verifier-tuiles.py le retrouve et
+                // compte ses delegues : c'est le seul temoin fiable qu'une
+                // nouvelle de kwin ne reconstruit pas toutes les tuiles.
+                objectName: "tuilesOuvertes"
+                model: modeleOuvertures
                 delegate: Rectangle {
-                    required property var modelData
+                    id: tuile
+                    // Les roles du ListModel arrivent en proprietes requises :
+                    // c'est ce qui laisse une tuile vivre pendant que sa fenetre
+                    // change de titre ou de focus.
+                    required property int index
+                    required property string wid
+                    required property string classe
+                    required property string titre
+                    required property bool active
+                    required property bool reduite
                     // Par identifiant d'abord (le cas courant : la classe
                     // d'une fenetre est presque toujours l'id de son
                     // .desktop) — par classe partagee ensuite, pour les
                     // lanceurs qui reutilisent le meme moteur qu'un autre
                     // (S Web sur Vivaldi). Voir appParClasse.
-                    readonly property var app: bureau.appParId(modelData.classe)
-                                                || bureau.appParClasse(modelData.classe)
+                    readonly property var app: bureau.appParId(tuile.classe)
+                                                || bureau.appParClasse(tuile.classe)
 
                     // La largeur se partage, avec un plancher et un plafond :
                     // douze fenetres ouvertes ne doivent pas rendre les titres
@@ -392,8 +462,18 @@ Window {
                     width: Math.max(46, Math.min(210,
                         (ouvertes.width - (barre.ouvertures.length - 1) * 6)
                         / Math.max(1, barre.ouvertures.length)))
+                    // LES TUILES GLISSENT AU LIEU DE SAUTER quand une fenetre
+                    // s'ouvre ou se ferme : les voisines se partagent la place
+                    // en une fraction de seconde, comme une riviere qui se
+                    // repartit, plutot que de se redessiner d'un coup.
+                    Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
                     height: 34
                     radius: 8
+
+                    // Une tuile nouvelle apparait en fondu.
+                    opacity: 0
+                    Behavior on opacity { NumberAnimation { duration: 180 } }
+                    Component.onCompleted: opacity = 1
 
                     scale: tapF.pressed ? 0.96 : 1.0
                     Behavior on scale {
@@ -404,11 +484,11 @@ Window {
                     }
 
                     color: tapF.pressed ? Theme.verre3
-                         : (modelData.active ? Theme.verre2
+                         : (tuile.active ? Theme.verre2
                                              : (survolF.hovered ? Qt.rgba(1,1,1,0.045)
                                                                 : "transparent"))
                     border.color: tapF.pressed ? Theme.bordVif
-                                : (modelData.active ? Theme.bord : "transparent")
+                                : (tuile.active ? Theme.bord : "transparent")
                     border.width: 1
                     Behavior on color { ColorAnimation { duration: 100 } }
 
@@ -422,7 +502,7 @@ Window {
                         height: parent.height - 12
                         radius: 1
                         color: parent.app ? Theme.teinte(parent.app.src) : Theme.texte3
-                        opacity: modelData.active ? 1 : 0.55
+                        opacity: tuile.active ? 1 : 0.55
                     }
 
                     Row {
@@ -456,13 +536,13 @@ Window {
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             width: parent.width - 17 - 7 - 18
-                            text: barre.titreAffiche(modelData.titre)
-                            color: modelData.active ? Theme.texte : Theme.texte2
+                            text: barre.titreAffiche(tuile.titre)
+                            color: tuile.active ? Theme.texte : Theme.texte2
                             font.family: Theme.police
                             font.pixelSize: 12
                             // Une fenetre reduite se lit en italique : c'est le
                             // seul etat qu'on ne devine pas en regardant l'ecran.
-                            font.italic: modelData.reduite
+                            font.italic: tuile.reduite
                             elide: Text.ElideRight
                             visible: parent.parent.width > 90
                         }
@@ -470,13 +550,12 @@ Window {
 
                     HoverHandler { id: survolF; cursorShape: Qt.PointingHandCursor }
                     ToolTip.visible: survolF.hovered && width <= 90
-                    ToolTip.text: barre.titreAffiche(modelData.titre)
+                    ToolTip.text: barre.titreAffiche(tuile.titre)
                     ToolTip.delay: 400
 
                     TapHandler {
                         id: tapF
-                        onTapped: barre.activation(modelData.id,
-                                                   modelData.active === true)
+                        onTapped: barre.activation(tuile.wid, tuile.active)
                     }
 
                     // ── LE CLIC DROIT, QUI N'EXISTAIT PAS ─────────────────
@@ -489,7 +568,7 @@ Window {
                         acceptedButtons: Qt.RightButton
                         onTapped: function (point) {
                             menuFenetre.ouvrirPour(
-                                modelData,
+                                { id: tuile.wid },
                                 parent.mapToItem(null, point.position.x, 0).x);
                         }
                     }
@@ -659,14 +738,13 @@ Window {
             SeparateurMenu { }
 
             // ── Le mode de veille, reglable la ou il se voit ───────────────
-            // TROIS ARTICLES PLUTOT QU'UN SOUS-MENU. Le style « Basic » ne
+            // DEUX ARTICLES PLUTOT QU'UN SOUS-MENU. Le style « Basic » ne
             // peint rien de lui-meme (voir ArticleMenu.qml) : un sous-menu
             // demanderait d'habiller une seconde fois le fond, la fleche et
-            // le survol, pour trois lignes qu'on lit d'un coup d'oeil.
+            // le survol, pour deux lignes qu'on lit d'un coup d'oeil.
             Repeater {
                 model: [
                     { cle: "non", nom: "Veille : aucune" },
-                    { cle: "reduire", nom: "Veille : ranger les autres" },
                     { cle: "geler", nom: "Veille : arreter les programmes" }
                 ]
                 delegate: ArticleMenu {
@@ -997,12 +1075,19 @@ Window {
                 text: "--"
             }
 
+            // ELLE NE SE REVEILLE QU'AU CHANGEMENT DE MINUTE. L'affichage est
+            // « HH:mm » : un tic par seconde reecrivait soixante fois le meme
+            // texte et reveillait la coquille, donc le compositeur, pour rien.
+            // Apres chaque tic on vise le debut de la minute suivante (+ 50 ms
+            // pour tomber franchement APRES le changement, jamais avant).
             Timer {
                 interval: 1000; running: true; repeat: true; triggeredOnStart: true
                 onTriggered: {
                     var maintenant = new Date();
                     horloge.text = Qt.formatTime(maintenant, "HH:mm");
                     dateDuJour.text = calendrier.formaterDateCourte(maintenant);
+                    interval = 60000 - (maintenant.getSeconds() * 1000
+                                        + maintenant.getMilliseconds()) + 50;
                 }
             }
 
@@ -1021,7 +1106,23 @@ Window {
         // ── L'étoile option (réglages rapides) ──────────────────────────────
         // Placée à côté de l'heure, pile sous la colonne des réglages.
         // Un clic fait monter la barre de réglages au-dessus de la barre des tâches.
-        // Fondu chromatique infini : bleu → rouge → vert → jaune tout le temps.
+        //
+        // SA COULEUR COULE QUAND ON L'APPROCHE, PAS TOUT LE TEMPS. Elle
+        // parcourait bleu → rouge → vert → jaune en boucle infinie, sans
+        // condition, pour toute la vie de la session. Or la barre est TOUJOURS
+        // visible, et cette couleur alimente quatre liaisons ET un Glyphe — un
+        // Canvas, repeint et renvoye au GPU a CHAQUE changement de couleur :
+        // soixante repeints par seconde, jour et nuit, pour une etoile de 32
+        // pixels que personne ne regarde. Mesure du 2026-09-19 sur le banc de
+        // fluidite : c'est le plancher de 3,1 % de CPU qui restait meme avec un
+        // jeu en plein ecran.
+        //
+        // La phase (0 a 4, une teinte par unite) est UNE seule propriete animee,
+        // en pause tant que rien ne la regarde : une animation en pause n'est
+        // pas cadencee, donc le compositeur n'est plus reveille. Elle repart la
+        // ou elle s'etait arretee, sans saut. Le point de depart est tire au sort
+        // — comme les couleurs de la barre laterale a chaque ouverture — pour
+        // que l'etoile au repos ne soit pas toujours bleue.
         Rectangle {
             id: etoileOption
             width: 32
@@ -1031,36 +1132,24 @@ Window {
             anchors.rightMargin: 14
             anchors.verticalCenter: parent.verticalCenter
 
-            // Les 4 teintes de S (bleu, rouge, vert, jaune) animées en boucle continue
-            property color teinteEtoile: Theme.windows
+            readonly property var teintes: [Theme.windows, Theme.linux, Theme.android, Theme.fichier]
+            readonly property real depart: Math.random() * 4
+            property real phase: 0
+            readonly property color teinteEtoile: {
+                var p = (phase + depart) % 4;
+                var i = Math.floor(p);
+                var t = p - i;
+                var a = teintes[i], b = teintes[(i + 1) % 4];
+                return Qt.rgba(a.r + (b.r - a.r) * t,
+                               a.g + (b.g - a.g) * t,
+                               a.b + (b.b - a.b) * t, 1);
+            }
 
-            SequentialAnimation on teinteEtoile {
+            NumberAnimation on phase {
+                from: 0; to: 4; duration: 10000
                 loops: Animation.Infinite
                 running: true
-                ColorAnimation {
-                    from: Theme.windows  // bleu (#4da6ff)
-                    to: Theme.linux      // rouge (#ff4d4d)
-                    duration: 2500
-                    easing.type: Easing.InOutSine
-                }
-                ColorAnimation {
-                    from: Theme.linux    // rouge (#ff4d4d)
-                    to: Theme.android    // vert (#4dff88)
-                    duration: 2500
-                    easing.type: Easing.InOutSine
-                }
-                ColorAnimation {
-                    from: Theme.android  // vert (#4dff88)
-                    to: Theme.fichier    // jaune (#ffd24d)
-                    duration: 2500
-                    easing.type: Easing.InOutSine
-                }
-                ColorAnimation {
-                    from: Theme.fichier  // jaune (#ffd24d)
-                    to: Theme.windows    // bleu (#4da6ff)
-                    duration: 2500
-                    easing.type: Easing.InOutSine
-                }
+                paused: !(survolOption.hovered || barre.reglagesOuverts)
             }
 
             color: tapOption.pressed ? Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.28)

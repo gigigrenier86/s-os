@@ -59,10 +59,13 @@ Item {
 
     // LE DEPHASAGE DOIT ETRE DETERMINISTE, JAMAIS Math.random(). Le Repeater
     // du ciel (Constellation.qml, « model: { ... return sortie; } ») recree
-    // TOUS ses delegues a chaque relire() (Timer 15 s, epinglage,
-    // suppression...) — un dephasage tire au hasard se retirerait au sort a
-    // chaque fois, et donnerait des sauts visibles. Derive de app.id, il
-    // redonne le meme dephasage apres recreation.
+    // TOUS ses delegues des que l'inventaire CHANGE (epinglage, suppression,
+    // installation, lancement...) — un dephasage tire au hasard se retirerait
+    // au sort a chaque fois, et donnerait des sauts visibles. Derive de app.id,
+    // il redonne le meme dephasage apres recreation. Depuis le 2026-09-19 le
+    // minuteur de quinze secondes ne recree plus rien tant que rien n'a change
+    // (voir relire()) : avant, le ciel entier repartait a zero toutes les
+    // quinze secondes.
     readonly property int dephasage: {
         var s = app.id || "";
         var somme = 0;

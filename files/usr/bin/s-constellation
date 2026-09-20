@@ -25,6 +25,29 @@ import os
 import sys
 import threading
 
+# LE CACHE DISQUE DE QML EST COUPE, ET C'EST UN CORRECTIF, PAS UN REGLAGE DE
+# VITESSE. Qt range le QML compile dans ~/.cache et ne le valide QUE par la date
+# de modification du source. Or « /usr » d'une image ostree porte partout la
+# meme date (epoch 0, « 1969-12-31 » a l'ecran) : Qt n'y ecrit donc jamais de
+# cache — mesure du 2026-09-19, source a date 0 : zero fichier ecrit — mais il
+# LIT, sans le verifier, tout cache deja present. Il suffit qu'un seul essai
+# ait ete fait avec des fichiers a date reelle (un « usr-overlay », une copie du
+# depot) pour que ce cache serve ensuite POUR TOUJOURS, quel que soit le
+# contenu deploye par les images suivantes.
+#
+# C'est exactement ce qui est arrive : le 7 septembre a 18 h 39, deux essais ont
+# ecrit le cache de la barre et du bureau. Le processus vivant avait ces deux
+# caches en memoire (/proc/PID/maps), et ni « etoileOption » ni « teinteEtoile »
+# n'apparaissent dans celui de la barre alors que le Barre.qml deploye les porte :
+# la barre et le bureau qui tournaient etaient ceux du 7 septembre, neuf commits
+# QML plus tard. (Prouve pour ces deux fichiers ; les autres n'ont pas ete
+# ouverts un par un.) Reproduit en isolation : un source de contenu et de taille
+# differents, a date 0, sert l'ANCIENNE version.
+#
+# Sans cache, le chargement de la scene coute ~200 ms au lieu de ~130 ms avec un
+# cache chaud — soixante-dix millisecondes, une fois par session.
+os.environ["QML_DISK_CACHE"] = "none"
+
 # Le noyau vit dans /usr/lib/s. On accepte aussi une copie de travail a cote de
 # ce fichier : c'est la seule facon d'essayer la coquille sans reconstruire une
 # image de plusieurs gigaoctets.

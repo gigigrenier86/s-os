@@ -105,7 +105,40 @@ def dossiers_applications():
     return sortie
 
 
+# LE CACHE DE LECTURE. L'inventaire est relu toutes les quinze secondes sur le
+# fil graphique de la coquille ; sur cette machine il analyse 309 fichiers, dont
+# presque aucun ne change d'un passage au suivant. Mesure du 2026-09-19 : 29 ms
+# a chaud — deux images entieres pendant lesquelles la barre et le bureau ne
+# repondent plus —, dont 77 sur 88 ms de profil dans cette seule fonction.
+#
+# La cle est le chemin, la garde est (date de modification, taille) : un
+# lanceur reecrit par une installation change l'une des deux et se relit. Le
+# cache vit dans le processus, donc une mise a jour d'image (qui exige un
+# redemarrage) ne peut jamais en laisser un perime. Chaque appel recoit une
+# COPIE : trois appelants lisent le resultat et rien ne garantit qu'aucun ne le
+# modifiera un jour.
+_CACHE_DESKTOP = {}
+
+
 def lire_desktop(chemin):
+    try:
+        st = os.stat(chemin)
+    except OSError:
+        _CACHE_DESKTOP.pop(chemin, None)
+        return None
+    signature = (st.st_mtime_ns, st.st_size)
+    connu = _CACHE_DESKTOP.get(chemin)
+    if connu is not None and connu[0] == signature:
+        return dict(connu[1])
+    champs = _analyser_desktop(chemin)
+    if champs is None:
+        _CACHE_DESKTOP.pop(chemin, None)
+        return None
+    _CACHE_DESKTOP[chemin] = (signature, champs)
+    return dict(champs)
+
+
+def _analyser_desktop(chemin):
     """Un analyseur minimal, volontairement : on ne lit que [Desktop Entry].
 
     Les groupes suivants sont des « actions » (Nouvelle fenetre, Navigation
@@ -1463,7 +1496,8 @@ def composer_etoiles():
 # premier matin, et qu'aucun de ces fichiers n'aurait expliquee.
 
 # « veille » est le mode de mise au repos des fenetres, ajoute le
-# 2026-08-26 : « non », « reduire » ou « geler ». Il vit ici, avec les
+# 2026-08-26 : « non » ou « geler » (« reduire » a ete retire le 2026-09-20,
+# fenetres._lire_mode le lit comme « non »). Il vit ici, avec les
 # autres reglages du bureau, plutot que dans fenetres.py — un reglage
 # range a cote du code qui l'utilise est un reglage que personne ne
 # trouve. Voir /usr/lib/s/veille.py pour ce que « geler » veut dire.
