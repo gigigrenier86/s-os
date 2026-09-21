@@ -423,16 +423,56 @@ class Pont(QObject):
             self.reglagesPrets.emit(json.dumps(liste))
         threading.Thread(target=travail, daemon=True).start()
 
+    # LES REGLAGES QUI PEUVENT DURER DES SECONDES NE TIENNENT PLUS LA COQUILLE.
+    # Bornes par leur delai dans reglages.py, ils n'en gelaient pas moins la
+    # boucle d'evenements — souris, barre et bulles comprises — tant qu'ils
+    # tournaient : releve du 2026-09-20 sur une vraie application du Mode Jeu —
+    # premiers messages de tuned a 36,9 s apres l'allumage, pkexec du GPU a
+    # 41,3 s, arret d'Android fini a 45,3 s — la coquille est restee figee
+    # ~8 a 9 s (temps du journal, pas un chronometre pose sur le clic). Tailscale et la webcam passent par
+    # pkexec, dont la fenetre attend un humain, et ne sont bornes que par leur
+    # delai (45 s, 10 s) : c'est la borne, pas une mesure. Ce sont tous des
+    # interrupteurs : un second clic pendant le premier n'a rien a ajouter, il
+    # est refuse plutot que mis en file — deux profils appliques en meme temps
+    # se disputeraient les memes leviers. Les reglages rapides (volume,
+    # luminosite, Wi-Fi…) restent synchrones : ils sont en rafale et le
+    # dernier doit gagner.
+    _CLES_LENTES = frozenset(("mode-jeu", "android", "tailscale", "webcam",
+                              "egaliseur", "dev-pont"))
+    _verrou_lent = threading.Lock()
+    reglageFait = Signal(str)
+
+    def _regler_lent(self, cle, valeur):
+        try:
+            try:
+                ok, dit = reglages.regler(cle, valeur)
+            except Exception as err:  # noqa: BLE001
+                dit = "reglage impossible : %s" % err
+        finally:
+            self._verrou_lent.release()
+        self.reglageFait.emit(dit)
+        self.rafraichirReglages()
+
     @Slot(str, "QVariant", result=str)
     def reglerRapide(self, cle, valeur):
         """Applique un reglage. Rend la phrase a afficher.
 
-        CELUI-CI EST SYNCHRONE, ET C'EST VOULU : l'utilisateur vient de cliquer,
-        il attend une reponse. Les gestes longs — tailscale, le profil
-        d'energie — sont bornes par leur propre delai dans reglages.py, jamais
-        laisses sans fin. Le blocage sans limite est le defaut que « s_root » a
-        ferme le 2026-08-26 pour les neuf pkexec de S.
+        Un reglage rapide est SYNCHRONE : l'utilisateur vient de cliquer, il
+        attend une reponse, et la phrase revient tout de suite. Un reglage lent
+        (voir _CLES_LENTES) rend « en cours » aussitot et sa vraie phrase
+        arrive par reglageFait. Le blocage sans limite est le defaut que
+        « s_root » a ferme le 2026-08-26 pour les neuf pkexec de S.
         """
+        if cle in self._CLES_LENTES:
+            if not self._verrou_lent.acquire(blocking=False):
+                return "un reglage est deja en cours"
+            try:
+                threading.Thread(target=self._regler_lent, args=(cle, valeur),
+                                 daemon=True).start()
+            except BaseException:
+                self._verrou_lent.release()
+                raise
+            return "application du reglage..."
         try:
             ok, dit = reglages.regler(cle, valeur)
         except Exception as err:  # noqa: BLE001

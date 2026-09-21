@@ -20,6 +20,7 @@
 import logging
 import sys
 import threading
+import time
 
 import gbinder
 from gi.repository import GLib
@@ -40,10 +41,12 @@ TRANSACTION_LIRE = 2
 
 arret_demande = False
 boucle_courante = None
+echec_signale = False
+DELAI_REPRISE = 1
 
 
 def ajouter_service():
-    global boucle_courante
+    global boucle_courante, echec_signale
     try:
         gestionnaire = gbinder.ServiceManager("/dev/" + BINDER_DRIVER, "aidl3", "aidl3")
     except TypeError:
@@ -86,10 +89,19 @@ def ajouter_service():
     presence()
     statut = gestionnaire.add_presence_handler(presence)
     if statut:
+        echec_signale = False
         boucle_courante.run()
         gestionnaire.remove_handler(statut)
     else:
-        logging.error("echec add_presence_handler: %s", statut)
+        # /dev/binder n'existe pas encore (binderfs ne se monte qu'avec
+        # s-android.service) : sans cette pause, main() rappelle aussitot
+        # cette fonction et la boucle tourne a plein processeur, sans fin sur
+        # une machine ou Android ne demarre jamais. Le premier echec seul est
+        # journalise.
+        if not echec_signale:
+            logging.error("echec add_presence_handler: %s -- nouvel essai chaque seconde", statut)
+            echec_signale = True
+        time.sleep(DELAI_REPRISE)
 
 
 def main():

@@ -29,6 +29,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 import gbinder
 from gi.repository import GLib
@@ -47,6 +48,8 @@ DELAI_DOUBLON = 3.0
 
 arret_demande = False
 boucle_courante = None
+echec_signale = False
+DELAI_REPRISE = 1
 
 
 def _notification_doublon(cle):
@@ -121,7 +124,7 @@ def _afficher(app, titre, corps, icone_b64):
 
 
 def ajouter_service():
-    global boucle_courante
+    global boucle_courante, echec_signale
     try:
         gestionnaire = gbinder.ServiceManager("/dev/" + BINDER_DRIVER, "aidl3", "aidl3")
     except TypeError:
@@ -179,10 +182,21 @@ def ajouter_service():
     presence()
     statut = gestionnaire.add_presence_handler(presence)
     if statut:
+        echec_signale = False
         boucle_courante.run()
         gestionnaire.remove_handler(statut)
     else:
-        logging.error("échec add_presence_handler: %s", statut)
+        # /dev/binder n'existe pas encore (binderfs ne se monte qu'avec
+        # s-android.service) : sans cette pause, main() rappelle aussitot
+        # cette fonction et la boucle tourne a plein processeur — 5 618 lignes
+        # de journal en 0,3 s au demarrage du 2026-09-20, et sans fin sur une
+        # machine ou Android ne demarre jamais. Une seconde suffit : le
+        # peripherique apparait moins d'une seconde apres, et le premier echec
+        # seul est journalise.
+        if not echec_signale:
+            logging.error("échec add_presence_handler: %s — nouvel essai chaque seconde", statut)
+            echec_signale = True
+        time.sleep(DELAI_REPRISE)
 
 
 def main():

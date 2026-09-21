@@ -755,6 +755,11 @@ ApplicationWindow {
         function onReglagesPrets(json) {
             laterale.reglages = JSON.parse(json);
         }
+        // Un reglage lent a rendu « en cours » tout de suite ; sa vraie
+        // phrase arrive ici, quand il a fini.
+        function onReglageFait(dit) {
+            bureau.dire(dit);
+        }
     }
 
     Connections {

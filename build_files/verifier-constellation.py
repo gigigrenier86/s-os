@@ -244,6 +244,11 @@ class PontLeurre(QObject):
         # pas de mesurer la machine.
         self.reglagesPrets.emit(json.dumps(FAUX_REGLAGES))
 
+    # Le vrai pont rend « en cours » pour un reglage lent et emet cette phrase
+    # a la fin ; Constellation.qml l'ecoute. Sans ce signal, la Connections
+    # avertit — et le controle echoue, comme il doit.
+    reglageFait = Signal(str)
+
     @Slot(str, "QVariant", result=str)
     def reglerRapide(self, cle, valeur):
         return cle
