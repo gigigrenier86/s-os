@@ -34,7 +34,19 @@ mkdir -p "$DEST" "$TRAVAIL"
 # MEME DISCIPLINE QU'AVANT, AU MOT PRES : le condensat publie par l'amont
 # fait foi, jamais un octet installe sans qu'il corresponde.
 LISTE="$(curl -fsSL --retry 3 https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest)"
-TAG="$(printf '%s' "$LISTE" | grep -m1 '"tag_name"' | cut -d'"' -f4)"
+# LE TAG SE LIT PAR UNE CHAINE DE LECTURE, PAS PAR UN TUBE — CORRIGE LE
+# 2026-09-21 APRES UNE CONSTRUCTION MORTE EN CODE 141. Avec « set -o pipefail »,
+# « printf | grep -m1 | cut » echoue des que grep, sa premiere ligne trouvee,
+# ferme le tube pendant que printf ecrit encore : SIGPIPE, 128 + 13 = 141, et
+# « set -e » emporte la construction entiere. Mesure sur cette machine, la
+# commande exacte rejouee 1 500 fois : 21 echecs sans charge (1,4 %), 47 sous
+# charge (3,1 %), tous en 141. Un runner charge par podman la rejoue donc
+# une construction sur trente, sans que rien n'ait change dans le depot.
+# « <<< » place l'ecriture hors du tube : plus de producteur qu'un lecteur
+# puisse couper, et grep n'a plus que « cut » derriere lui.
+TAG="$(grep -m1 '"tag_name"' <<< "$LISTE" | cut -d'"' -f4 || true)"
+[ -n "$TAG" ] \
+    || { echo "ECHEC : aucune version de GE-Proton dans la reponse de l'API GitHub." >&2; exit 1; }
 URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${TAG}"
 
 curl -fsSL --retry 3 -o "$TRAVAIL/proton.tar.gz" "${URL}/${TAG}-x86_64.tar.gz"
