@@ -346,6 +346,196 @@ habituels (version bootée, cache QML à 0, repos processeur plat, aucune unité
 `activating`/`auto-restart`), et — nouveau cette fois — la présence de l'étoile « Mode Jeu »
 dans la barre latérale, jamais vue à l'écran jusqu'ici.
 
+### Addendum, 2026-09-20, nuit — « regarde tout, n'en crée pas » : `d618ce3` tient, deux défauts prouvés
+
+Demande de l'utilisateur, mot pour mot : « regarde tout tout tout pour voir les bugs potentiels,
+mais n'en crée pas, je veux que tout soit rapide, fonctionnel et fluide ». Les cinq rôles actifs
+d'office. Deux défauts sont sortis, **corrigés dans l'arbre de travail** ~~pas commités~~ —
+commités depuis (`271cc3a`), voir l'addendum suivant.
+
+**Les témoins de `d618ce3`, relevés sur la machine bootée** (`sha256:942cf0d2…`, image signée) :
+`grep -c qmlc /proc/<pid>/maps` rend **0** ; aucune unité en `activating`/`auto-restart`, système
+et session ; `s-constellation` a consommé **2 802 ticks en 5 506 s de vie, soit ~0,5 %** en moyenne
+(contre ~29 % avant la passe du 19), `kwin_wayland` 3,6 % — moyennes de vie sous une session où un
+jeu est ouvert, pas un repos chronométré. Le Mode Jeu est **actif sur la session vivante** : profil
+`accelerator-performance`, GPU plancher 1050, `AnimationDurationFactor=0` et les cinq effets kwin
+coupés, `s-android.service` inactif. `reglages.rapides()` du code **déployé** (`/usr/lib/s`) rend
+dix entrées en 317 ms, jeu ouvert, dont `mode-jeu` (bascule, `actif: True`) : l'étoile existe dans
+la donnée. **Elle n'a pas été vue à l'écran par moi**, et le journal ne dit pas si un clic ou un
+script Rétro/Salon a enclenché les leviers.
+
+**Défaut 1 — deux services Android tournaient à plein processeur tant que `/dev/binder`
+n'existait pas.** `android-notifications.py` et `android-presse-papiers.py` rappelaient
+`ajouter_service()` sans pause quand `add_presence_handler` échouait — c'est-à-dire tant que
+`dev-binderfs.mount` (tiré par `s-android.service`) n'avait pas monté le périphérique.
+`android-applications.py`, lui, dormait déjà `INTERVALLE` dans la même branche : c'est ce qui les
+distinguait.
+
+- **Sur la vraie session** : **5 618 lignes** `échec add_presence_handler` en **0,302 s**
+  (25,106 → 25,408 s après l'allumage), juste avant le montage de binderfs (25,19 s). Borné ici,
+  parce qu'Android démarre à chaque ouverture de session.
+- **Là où il ne l'est pas** : une machine où Android ne démarre jamais (aucune image — `s-android`
+  refuse alors sans monter le binder — ou un `s-android.service` en échec) verrait deux processus à
+  100 % et un journal inondé, indéfiniment. Mesuré sur des copies **hermétiques** visant un
+  périphérique inexistant (rien ne touche `/dev/binder` ni la session) :
+
+  | | avant | après |
+  |---|---|---|
+  | processeur sur 4 s | 3,4 + 0,5 s (**~100 %**) et 3,3 + 0,6 s | **0,12 s** |
+  | lignes de journal | **71 871** et **87 669** | **3 à 4** |
+
+- **Correctif** : `time.sleep(1)` dans la branche d'échec, échec journalisé **une fois par épisode**
+  (le drapeau retombe dès qu'une inscription réussit, donc une panne ultérieure se voit encore).
+  Éprouvé avec une doublure de `gbinder` scriptée (échecs aux appels 1, 2, 3 et 5, succès aux
+  autres) : **6 appels, 2 lignes, 4,1 s** — un épisode de trois échecs n'écrit qu'une ligne, la
+  reprise se fait, une nouvelle panne s'écrit de nouveau.
+
+**Défaut 2 — la coquille entière se figeait pendant un réglage lent.** `Pont.reglerRapide` était
+synchrone « et c'est voulu » (son docstring), donc la boucle d'événements — souris, barre, bulles —
+attendait la fin de `reglages.regler`. **Relevé au journal sur une vraie application du Mode Jeu**
+(le journal ne dit pas si un clic ou un script Rétro/Salon l'a déclenchée) : premiers messages de
+tuned à 36,9 s après l'allumage, `pkexec` du GPU à 41,3 s, arrêt d'Android fini à 45,3 s :
+**~8 à 9 s de coquille figée** (temps du journal, pas un chronomètre posé sur le clic). Tailscale,
+la webcam, l'égaliseur et l'arrêt d'Android ont le même défaut, avec pour bornes **45 s** et
+**10 s** — des bornes, pas des mesures ; le `pkexec` de tailscale et de la webcam attend en plus un
+humain dans une fenêtre d'agent polkit.
+
+- **Correctif** : six clés (`mode-jeu`, `android`, `tailscale`, `webcam`, `egaliseur`, `dev-pont`)
+  partent dans un fil détaché. Le slot rend « application du reglage... » tout de suite, la vraie
+  phrase revient par un signal `reglageFait` que `Constellation.qml` écoute (`bureau.dire`), puis
+  le panneau se relit. **Un verrou non bloquant** refuse un second réglage lent pendant le premier
+  (« un reglage est deja en cours ») : deux profils appliqués ensemble se disputeraient les mêmes
+  leviers. **Les réglages rapides restent synchrones** — volume, luminosité, Wi-Fi sont en rafale et
+  le dernier doit gagner ; une file ou un fil par appel aurait pu les réordonner.
+- **Éprouvé dans les deux sens.** Contre une doublure de `reglages.regler` (jamais le vrai — le
+  10 septembre, un essai « pour vérifier » avait basculé la session réelle) : **16 contrôles**
+  verts — retour en 0,000 s, second clic refusé sans appel, un volume passe pendant un réglage
+  lent (0,001 s), exécution hors du fil principal, verrou rendu après un succès **et** après une
+  exception, chemin rapide inchangé (synchrone, fil principal, aucun signal). **Le même test sur
+  l'ancien code échoue neuf contrôles** : retour après 0,800 s, exécution dans `MainThread`.
+  `verifier-constellation.py` : le leurre déclare `reglageFait` ; **sans cette ligne il échoue**
+  (« Detected function "onReglageFait" in Connections element… »). `verifier-constellation.py`
+  (9 articles/222 px, 35 slots), `verifier-tuiles.py`, `verifier-iptv.py` et le balayage par motif
+  (33 contrôles) : verts.
+
+**Examiné et écarté** — une piste fermée est un bon résultat :
+
+| Soupçon | Ce que la mesure a dit |
+|---|---|
+| Le noyau écrit `binder: … cannot find target node` et `transaction call to 0:0 failed … code 1599098439` (4 380 paires/boot) pendant qu'Android est arrêté | **Bruit, pas une panne.** `1599098439` = `0x5F504E47`, « _PNG » : le ping de présence que gbinder envoie au gestionnaire de services (nœud 0) tant que binderfs existe et qu'Android est éteint. **1 ligne/s en tout** (600 par dix minutes), les ticks des trois processus n'ont pas bougé. C'est ce qui les fait se réinscrire seuls au retour d'Android — non touché |
+| Erreurs PCIe de l'NVMe (`RxErr`, 4 ce démarrage, 23 et 61 aux deux précédents) | Corrigées par le matériel : lien **8,0 GT/s ×4 au maximum**, `BadTLP`/`BadDLLP`/`Timeout` à 0, aucun reset ni timeout NVMe, i915 sans reset. Physique de la couche liaison, sans effet mesuré. **Hypothèse** (contact ou intégrité du signal du connecteur M.2), **non traitée** ; ce qui la trancherait : le compteur sur plusieurs jours, et le journal d'erreurs NVMe (root) |
+| `Principal.qml:29 … Cannot call method 'playlists' of null` dans le journal après `verifier-iptv.py` | Tracé avec un gestionnaire de messages : il tombe **après** « FIN CONTROLES », au démantèlement (le `pont` Python meurt avant le moteur). Identique sur le QML du dépôt. Pas un défaut de la scène ; **non observé au lancement réel de `s-iptv`** |
+| Bruit de journal (tmpfiles ACL `tss`/`disk`, nommage des services D-Bus KDE, portail gtk « last-resort », BlueZ absent, `chcon` refusé par SELinux) | Tout vient de l'amont ou de matériel absent ; rien n'appartient à S |
+| Les autres boucles `while` | Revues une à une : seuls ces deux services tournaient à vide. `s-coquille` dort une seconde entre deux chutes et bascule au secours à la troisième |
+| Avertissement `Ignoring unknown option to QML_DISK_CACHE: "none"` | Inoffensif, une ligne par processus Qt. `none` n'est pas une option reconnue : rien n'est activé, donc pas de cache (effet prouvé le 2026-09-19). Non touché |
+
+**Ce que cet addendum ne prouve pas.**
+
+- ~~**Rien n'est commité ni dans l'image.**~~ **Commité (`271cc3a`, puis `bfc2874`) et dans
+  l'image publiée ; pas déployé** — voir l'addendum suivant. La session vivante tourne sur
+  `d618ce3`, sans les deux correctifs.
+- **Le vrai `reglages.regler` n'a pas tourné par le nouveau chemin** : ç'aurait basculé la session
+  de l'utilisateur, jeu ouvert. Le fil, le verrou, le signal et la scène sont prouvés séparément,
+  avec doublures ; **le clic complet — étoile, phrase « application… » pendant 2,6 s puis la vraie
+  phrase — n'a jamais été vu à l'écran**.
+- **L'étoile n'est pas optimiste** : elle garde l'ancien état jusqu'à la relecture qui suit la fin
+  du réglage (~8 à 9 s pour le Mode Jeu). Un second clic dans l'intervalle est **refusé** avec un
+  message — mais il l'est aussi pour n'importe quel *autre* réglage lent, le verrou étant commun
+  aux six. Choix délibéré, jamais essayé à la main.
+- **Le fil détaché n'a pas été essayé avec un vrai `pkexec`** (fenêtre d'agent polkit, mot de
+  passe attendu depuis un fil).
+- **La reprise du service Android quand `/dev/binder` apparaît n'a pas été essayée pour de vrai** :
+  créer un nœud dans `/dev` demande root. Elle est prouvée par la doublure de `gbinder` et par le
+  chemin hermétique, pas contre un vrai binder qui naît.
+- **La durée du gel est celle du journal**, jamais un chronomètre posé sur un clic.
+- **La luminosité (`ddcutil`, ~0,5 s par appel) reste synchrone** : la rendre asynchrone demande de
+  ne garder que la dernière valeur d'une rafale — plus de code, donc plus de risque, hors de ce
+  qu'on demandait. Candidats **non faits**, à la décision de l'utilisateur : appliquer les leviers du
+  Mode Jeu en parallèle (entre le premier message de tuned et le `pkexec` du GPU, ~4,4 s sur ~8,4 —
+  l'intervalle, pas une mesure de `tuned-adm` seul) ; l'attente ne bloque plus la coquille, elle
+  rallonge seulement le temps avant l'état final.
+
+### Addendum, 2026-09-21 — la CI de `271cc3a` est morte en code 141 : un SIGPIPE latent, 1,4 à 3 % de chances par construction
+
+Demande de l'utilisateur : « go » (commit et poussée des deux correctifs de la nuit). `271cc3a`
+poussé à 01:49 UTC ; **« Construire l'image » est mort à 410 s** (les trois constructions
+réussies relevées juste avant : 498 à 554 s), **image non publiée** — `:latest` est resté sur `d618ce3`,
+donc rien de cassé n'a atteint la machine ni le passage nocturne d'`uupd`.
+
+**Ce que le runner disait.** Rien de lisible : le journal renvoie 403 sans droits admin. Mais
+l'API publique des **annotations** d'un job (`/check-runs/<id du job>/annotations`) donne le
+code de sortie : **141**. C'est 128 + 13, **SIGPIPE** — un processus tué parce qu'il écrivait dans
+un tube dont le lecteur avait déjà fermé.
+
+**La ligne, et pourquoi elle échoue sans que rien n'ait changé.** `build_files/41-windows.sh:37` :
+
+```bash
+TAG="$(printf '%s' "$LISTE" | grep -m1 '"tag_name"' | cut -d'"' -f4)"
+```
+
+Sous `set -euxo pipefail`, `grep -m1` sort à sa première ligne trouvée — ici, tout en haut du JSON —
+pendant que `printf` écrit encore ; l'écriture suivante reçoit SIGPIPE, le tube rend 141, et
+`set -e` emporte la construction. **La taille du JSON n'y change rien** : celui de GE-Proton pèse
+44 329 octets, sous les 64 Kio d'un tube, et ça échoue quand même — une écriture dans un tube dont
+le lecteur est parti est un SIGPIPE quelle que soit la place restante.
+
+**Mesuré, la commande exacte rejouée 1 500 fois sur cette machine** : **21 échecs sans charge
+(1,4 %), 47 sous charge (3,1 %)**, six boucles occupées pour imiter un runner ; une autre série sous
+la même charge, 34 sur 1 500. **Tous en 141**, aucun autre code. La ligne date du 2026-08-20
+(`e117ac6`, Proton pré-cuit dans l'image) : elle jouait à pile ou face depuis un mois, à raison
+d'une construction sur trente à soixante-dix.
+
+**Le seul candidat, et c'est la raison de le retenir.** Les tubes du build à lecteur à sortie
+anticipée ont été relus un par un : tous les autres sont protégés — dans un `if`, derrière un
+`|| { … }`, ou avec `|| true` à l'intérieur de la substitution. Celui-ci est une **affectation nue**,
+seul cas où 141 monte jusqu'à `set -e`.
+
+**Le correctif (`bfc2874`)** : `TAG="$(grep -m1 '"tag_name"' <<< "$LISTE" | cut -d'"' -f4 || true)"`.
+Une chaîne de lecture place l'écriture hors du tube : `grep` n'a plus de producteur qu'un lecteur
+puisse couper. **Mesuré : 0 échec sur 8 000 essais**, sans et avec charge, la ligne du script
+extraite telle quelle ; l'ancienne forme, rejouée dans les mêmes conditions comme témoin, échoue
+encore à 2,3 %.
+
+**Une garde neuve, et elle n'était pas atteignable la première fois.** J'avais ajouté
+`[ -n "$TAG" ] || { echo ECHEC… ; exit 1; }` pour qu'une réponse d'API sans `tag_name` (limite de
+débit) dise ce qui s'est passé. Testée sur une réponse `{"message":"API rate limit exceeded"}`, elle
+**ne disait rien** : `grep` sort en 1 sans correspondance, `set -e` tue l'affectation avant la garde.
+C'est le succès silencieux, dans un code écrit pour l'éviter. Le `|| true` **à l'intérieur** de la
+substitution règle les deux cas ; le message s'affiche maintenant, code 1.
+
+**Résultat de la seconde CI : verte.** Run `35553122263`, onze étapes, « Construire l'image » 579 s,
+publiée et signée. Relevé depuis la machine :
+
+| | |
+|---|---|
+| Digest | `sha256:8569c587eef0181b7b7a6432e75e20db986eeb0d3a46376adac9c31c9c4d244f` |
+| `org.opencontainers.image.revision` | `bfc28740578af508c31221e123a68cad231c34d0` |
+| `org.opencontainers.image.version` | `44.20260921.bfc2874` |
+| `cosign verify --key /etc/pki/containers/s-os.pub` | **code 0**, signature vérifiée |
+
+**Ce que cet addendum ne prouve pas — et le premier point est le plus important.**
+
+- **Que la ligne 37 soit la ligne qui a tué `271cc3a`.** Le journal du runner reste illisible. Ce qui
+  la désigne : l'empreinte (141), et le fait qu'elle soit le seul tube du build à pouvoir le
+  produire. **Une seconde CI verte ne le confirme pas** : à 1,4–3 % de risque, elle serait passée
+  97 à 99 fois sur 100 avec ou sans le correctif. Ce que prouvent les mesures, c'est
+  que le défaut **existe** et que la forme corrigée **ne l'a pas** ; pas que c'est lui qui a frappé
+  ce jour-là.
+- **Que le contenu de `271cc3a` soit dans l'image que la machine fera tourner.** La construction
+  exécute `verifier-constellation.py` et `verifier-tuiles.py` sur les fichiers de l'image
+  (`36-constellation.sh`), et ils passent — mais l'image elle-même n'a pas été lancée ni ouverte.
+- **Le déploiement n'est pas fait.** La session vivante tourne toujours sur `d618ce3`. Deux voies :
+  `uupd`, dont le prochain passage est nocturne, ou `pkexec bootc upgrade` avec l'utilisateur devant
+  l'écran (polkit attend un humain, voir l'addendum du 2026-09-20 au soir). Le redémarrage attend
+  son accord : un jeu est ouvert.
+- **Les réserves de l'addendum précédent restent entières** : le clic complet sur une étoile lente,
+  le vrai `reglages.regler` par le nouveau chemin, `pkexec` depuis un fil.
+- **Des tubes voisins gardent une course silencieuse, dans l'autre sens** : quelques
+  `if rpm -ql … | grep -q …` (`36-constellation.sh:57`, `45-telephone.sh:80`) et
+  `40-coutures.sh:200` peuvent, si un fichier fautif existe et que la course tourne mal, rendre 141
+  et **sauter** leur contrôle au lieu de le faire échouer. Le défaut suppose qu'une faute soit déjà
+  présente ; non corrigé.
+
 ### Ce qui a été écarté, et il faut le dire
 
 - « Une rafale de listes identiques reconstruit toutes les tuiles » : **réfuté** (Qt
