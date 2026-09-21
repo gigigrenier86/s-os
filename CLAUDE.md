@@ -330,6 +330,22 @@ l'écran au moment du `bootc upgrade` pour répondre à l'agent polkit, soit une
 délibérée (prise par l'utilisateur, pas par moi) d'assouplir la règle polkit pour cette action
 précise — avec le compromis de sécurité que ça implique nommé avant de le poser.
 
+**Confirmé une heure plus tard, l'utilisateur de retour (« go je suis la ») :** le même
+`pkexec bootc upgrade`, relancé mot pour mot, a réussi en **27 s** de déploiement. La fenêtre
+polkit a donc bien été répondue par un humain cette fois — l'hypothèse de la section
+précédente tient, dans les deux sens :
+
+```
+Queued for next boot : ostree-image-signed:docker://ghcr.io/gigigrenier86/s-os:latest
+  Version : 44.20260920.d618ce3   Digest : sha256:942cf0d2…
+```
+
+Redémarrage programmé (`systemd-run --user --on-active=45s ... systemctl reboot`), même patron
+que le déploiement précédent. **Restent à relever au prochain démarrage** : les quatre témoins
+habituels (version bootée, cache QML à 0, repos processeur plat, aucune unité en
+`activating`/`auto-restart`), et — nouveau cette fois — la présence de l'étoile « Mode Jeu »
+dans la barre latérale, jamais vue à l'écran jusqu'ici.
+
 ### Ce qui a été écarté, et il faut le dire
 
 - « Une rafale de listes identiques reconstruit toutes les tuiles » : **réfuté** (Qt
