@@ -536,6 +536,29 @@ publiée et signée. Relevé depuis la machine :
   et **sauter** leur contrôle au lieu de le faire échouer. Le défaut suppose qu'une faute soit déjà
   présente ; non corrigé.
 
+### Addendum, 2026-09-21, plus tard — mis en file par `pkexec bootc upgrade`, pas encore redémarré
+
+L'utilisateur, devant l'écran (« okay vas y »), a répondu à la fenêtre polkit : `pkexec /usr/bin/bootc
+upgrade` a rendu 0 en **28 s** de déploiement — 29 couches, 3,7 Go. `rpm-ostree status` montre le
+déploiement en attente : **`44.20260921.bfc2874`, `sha256:8569c587…`**, le digest publié et signé de
+l'addendum précédent ; la machine tourne toujours sur `44.20260920.d618ce3` (`●`).
+
+**Ce que ça tranche d'une réserve de l'addendum précédent** : les fichiers du déploiement en
+attente (`/ostree/deploy/default/deploy/15104f10….0`) ont été comparés au dépôt — `s-constellation`,
+`android-notifications.py`, `android-presse-papiers.py` et `Constellation.qml` sont **identiques
+octet pour octet**, les trois scripts en `-rwxr-xr-x`. Le contenu de `271cc3a` est donc bien dans ce
+que la machine fera tourner au prochain démarrage.
+
+**Restent à relever après le redémarrage** (aucun n'est mesuré à cette heure) :
+
+- les quatre témoins habituels — version bootée, `grep -c qmlc /proc/<pid>/maps` à 0, repos
+  processeur plat, aucune unité en `activating`/`auto-restart` ;
+- **le journal de session** : `journalctl --user -b | grep -c add_presence_handler` doit rendre
+  **quelques lignes**, pas 5 618 ; les deux services Android à ~0 % de processeur ;
+- **un vrai clic sur « Mode Jeu »** : la phrase « application du reglage... » doit s'afficher, la
+  coquille rester vive (barre, souris) pendant ~8 s, puis la vraie phrase arriver — jamais vu à
+  l'écran jusqu'ici.
+
 ### Ce qui a été écarté, et il faut le dire
 
 - « Une rafale de listes identiques reconstruit toutes les tuiles » : **réfuté** (Qt
