@@ -384,8 +384,8 @@ ApplicationWindow {
         anchors.fill: parent
         focus: true
 
-        // LE NOMBRE MAGIQUE « 70 », NOMME — nettoyage du 2026-10-20. Cinq
-        // occurrences dispersees utilisaient le meme litteral pour
+        // LE NOMBRE MAGIQUE « 70 », NOMME — nettoyage du 2026-10-20. Six
+        // occurrences, en cinq endroits, utilisaient le meme litteral pour
         // convertir la fraction Y [0,1] d'une etoile en pixels, DISTINCT de
         // « barreTaches.hauteur » (52, la vraie hauteur de la barre, deja
         // utilisee plus bas pour detecter un lacher sur elle). On ne les
@@ -561,7 +561,7 @@ ApplicationWindow {
                 // l'autre.
                 var fs = bureau.donnees.fichiers || [];
                 var largeur = ciel.width > 0 ? ciel.width : 1920;
-                var hauteur = (ciel.height - 70) > 0 ? (ciel.height - 70) : 1010;
+                var hauteur = (ciel.height - ciel.margeBasCiel) > 0 ? (ciel.height - ciel.margeBasCiel) : 1010;
                 var marge = 70, pasX = 108, pasY = 100;
                 var parColonne = Math.max(1, Math.floor((hauteur - marge) / pasY));
                 var col = 0, lig = 0;
@@ -596,7 +596,7 @@ ApplicationWindow {
                 montrerNom: bureau.nomsToujours
                             || (modelData.app.src || "") === "fichier"
                 x: modelData.pos.x * ciel.width - diametre / 2
-                y: modelData.pos.y * (ciel.height - 70) - diametre / 2
+                y: modelData.pos.y * (ciel.height - ciel.margeBasCiel) - diametre / 2
 
                 // UN GLISSEMENT DETRUIT LES DEUX LIAISONS CI-DESSUS, ET IL
                 // FAUT LES REPOSER A LA MAIN. Le DragHandler a « target:
@@ -617,7 +617,7 @@ ApplicationWindow {
                         return modelData.pos.x * ciel.width - diametre / 2;
                     });
                     y = Qt.binding(function () {
-                        return modelData.pos.y * (ciel.height - 70) - diametre / 2;
+                        return modelData.pos.y * (ciel.height - ciel.margeBasCiel) - diametre / 2;
                     });
                 }
 
@@ -701,7 +701,7 @@ ApplicationWindow {
                     // et la prochaine relecture lui rendra une liaison fraiche.
                     pont.placer(app.id,
                                 (nx + diametre / 2) / ciel.width,
-                                (ny + diametre / 2) / (ciel.height - 70));
+                                (ny + diametre / 2) / (ciel.height - ciel.margeBasCiel));
 
                     // DEPLACEMENT EN BLOC — demande de l'utilisateur le
                     // 2026-08-28 : selectionner plusieurs etoiles ne servait
@@ -725,7 +725,7 @@ ApplicationWindow {
                                 || c.app.id === app.id) continue;
                             pont.placer(c.app.id,
                                         (c.x + c.diametre / 2) / ciel.width,
-                                        (c.y + c.diametre / 2) / (ciel.height - 70));
+                                        (c.y + c.diametre / 2) / (ciel.height - ciel.margeBasCiel));
                         }
                     }
                     liens.requestPaint();
