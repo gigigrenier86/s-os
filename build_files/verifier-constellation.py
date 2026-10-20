@@ -385,23 +385,38 @@ def main():
     # qu'un Menu vide est un Menu valide. Sans ce controle, « fermer la
     # fenetre » aurait pu n'exister que dans le fichier : la scene se serait
     # verifiee verte, et le menu se serait ouvert vide chez l'utilisateur.
-    # NEUF, ET LE COMPTE INCLUT LES SEPARATEURS : cinq articles ecrits a la
-    # main (ranger, veille immediate, fermer, forcer l'arret, menage), DEUX
-    # poses par le Repeater — les modes de veille, la partie qu'on verifie
-    # vraiment — et deux traits. « count » compte tout ce que le Menu porte.
+    # DIX, ET LE COMPTE INCLUT LES SEPARATEURS : six articles ecrits a la
+    # main (ranger, ajouter/retirer de la Constellation, veille immediate,
+    # fermer, forcer l'arret, menage), DEUX poses par le Repeater — les modes
+    # de veille, la partie qu'on verifie vraiment — et deux traits. « count »
+    # compte tout ce que le Menu porte.
     # « Forcer l'arret » ajoute le 2026-08-30 : neuf devient dix ; « ranger les
-    # autres » retire le 2026-09-20 : dix redevient neuf.
-    ARTICLES_ATTENDUS = 9
+    # autres » retire le 2026-09-20 : dix redevient neuf ; « Ajouter/Retirer
+    # de la Constellation » ajoute le 2026-10-20 : neuf redevient dix.
+    ARTICLES_ATTENDUS = 10
     manque_articles = {"valeur": 0, "trouve": False}
     # La hauteur du menu une fois ouvert, et celle qu'il demande. Voir le
     # controle plus bas : c'est la mesure qui manquait le 2026-08-26.
     articles = {"haut": 0.0, "implicite": 0.0}
 
     def ouvrir():
+        # LA BARRE LATERALE N'ETAIT JAMAIS DEPLOYEE ICI — correctif du
+        # 2026-10-20. Sans « rafraichirReglages() », « laterale.reglages »
+        # reste a « [] » et le Repeater de ses etoiles (« repeaterReglages »,
+        # BarreLaterale.qml) n'instancie jamais un seul delegue : c'est
+        # exactement la classe de defaut (une erreur de liaison qui ne se
+        # voit que dans un delegue de Repeater) que ce controle existe pour
+        # attraper ailleurs, et elle restait invisible pour tout le panneau
+        # de reglages. On appelle directement le leurre, comme le vrai pont
+        # le ferait a l'ouverture du panneau (voir « onOuverte » dans
+        # Constellation.qml).
+        pont.rafraichirReglages()
         for enfant in racine.findChildren(QObject):
             try:
                 if enfant.objectName() == "menuDemarrer":
                     enfant.setProperty("visible", True)
+                elif enfant.objectName() == "barreLaterale":
+                    enfant.setProperty("deploye", True)
                 elif enfant.objectName() == "menuFenetre":
                     # « cible » est desormais calcule depuis la liste des
                     # ouvertures : on pose l'identifiant, comme le fait
@@ -492,6 +507,28 @@ def main():
                   file=sys.stderr)
             plaintes.append("compte d'etoiles : %d au lieu de %d" % (vus, attendu))
 
+        # LE PANNEAU DE REGLAGES, JAMAIS EXERCE AVANT CE CONTROLE — correctif
+        # du 2026-10-20. Meme principe que « repeaterCiel » ci-dessus : « 0
+        # delegue instancie » et « aucun avertissement » se confondaient
+        # avant que « ouvrir() » n'appelle « pont.rafraichirReglages() ».
+        attendu_reglages = len(FAUX_REGLAGES)
+        vus_reglages = -1
+        for enfant in racine.findChildren(QObject):
+            try:
+                if enfant.objectName() == "repeaterReglages":
+                    vus_reglages = int(enfant.property("count"))
+                    break
+            except (RuntimeError, AttributeError, TypeError, ValueError):
+                pass
+        if vus_reglages < 0:
+            plaintes.append("le Repeater des reglages est introuvable")
+            vus_reglages = 0
+        if vus_reglages != attendu_reglages:
+            print("ECHEC : %d etoiles de reglage instanciees, %d attendues."
+                  % (vus_reglages, attendu_reglages), file=sys.stderr)
+            plaintes.append("compte d'etoiles de reglage : %d au lieu de %d"
+                             % (vus_reglages, attendu_reglages))
+
         for m in manquants:
             plaintes.append("slot absent du leurre : " + m)
 
@@ -505,6 +542,8 @@ def main():
         else:
             print("  scene QML     : chargee, menu ouvert, aucun avertissement")
             print("  ciel          : %d etoiles instanciees, dont 3 jaunes" % vus)
+            print("  reglages      : %d etoiles de reglage instanciees"
+                  % vus_reglages)
         app.quit()
 
     QTimer.singleShot(900, ouvrir)

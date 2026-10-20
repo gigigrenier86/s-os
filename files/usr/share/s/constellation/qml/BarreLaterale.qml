@@ -96,6 +96,10 @@ Window {
     signal reglageValeur(string cle, real valeur)
     signal reglageChoix(string cle, string valeur)
     signal reglageAction(string cle)
+    // LA BASCULE DU SON — correctif du 2026-10-20, voir EtoileReglage.qml.
+    // Distinct de reglageBascule : celui-ci enverrait un booleen a la
+    // place d'un pourcentage sur la cle "volume" de la glissiere.
+    signal reglageMuet(string cle)
     signal ouverte()
 
     objectName: "barreLaterale"
@@ -275,6 +279,7 @@ Window {
                     onValeurDemandee: function (v) {
                         laterale.reglageValeur(donnee.cle, v);
                     }
+                    onMuetDemande: laterale.reglageMuet(donnee.cle)
                     onChoixDemande: choix.ouvrirPour(donnee,
                                                      mapToItem(laterale.contentItem, 0, 0).y)
                     onGlissiereDemandee: glissiere.ouvrirPour(

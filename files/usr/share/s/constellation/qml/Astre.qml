@@ -26,6 +26,24 @@ Item {
     signal ouvrir()
     signal menuDemande(real ex, real ey)
     signal deplacee(real nx, real ny)
+    // DEPLACEMENT DE GROUPE EN DIRECT — correctif du 2026-10-20, releve par
+    // l'utilisateur : « les etoiles se deplacent mal ». « deplacee » (ci-
+    // dessus) ne tirait qu'AU LACHER : le reste d'une selection multiple
+    // restait figee pendant tout le glissement, puis sautait d'un coup. Ces
+    // deux signaux laissent Constellation.qml faire suivre les autres
+    // etoiles choisies A CHAQUE IMAGE, au lieu d'un seul saut final.
+    signal deplacementDebute()
+    signal deplaceeEnDirect(real dx, real dy)
+    // La position de depart de CE glissement precis — relue par
+    // Constellation.qml pour calculer le delta a chaque image, et par les
+    // AUTRES etoiles choisies pour savoir ou elles etaient avant de suivre.
+    property real xDepart: 0
+    property real yDepart: 0
+    // EXPOSE A « ciel » POUR QUE relire() SACHE NE JAMAIS RECONSTRUIRE LE
+    // CIEL PENDANT QU'UNE ETOILE EST TENUE PAR LA SOURIS — voir
+    // Constellation.qml::relire(). Un alias, jamais une copie : il doit
+    // rester vrai jusqu'a la derniere milliseconde du glissement.
+    readonly property alias enGlissement: glisser.active
 
     readonly property color teinte: Theme.teinte(app.src || "linux")
     readonly property bool exerce: (app.ep || 0) > 0
@@ -289,8 +307,24 @@ Item {
         id: glisser
         target: astre
         cursorShape: Qt.ClosedHandCursor
-        onActiveChanged: if (!active) astre.deplacee(astre.x, astre.y)
+        onActiveChanged: {
+            if (active) {
+                // LE POINT DE DEPART DE CE GLISSEMENT-CI. « x »/« y » sont
+                // deja les bons a cet instant : rien n'a encore ete deplace.
+                astre.xDepart = astre.x;
+                astre.yDepart = astre.y;
+                astre.deplacementDebute();
+            } else {
+                astre.deplacee(astre.x, astre.y);
+            }
+        }
     }
+
+    // LE DELTA DEPUIS « xDepart »/« yDepart », A CHAQUE IMAGE DU
+    // GLISSEMENT — pas accumule pas-a-pas, pour qu'une image manquee ne
+    // fasse jamais deriver le groupe de ce qu'il tient vraiment a l'ecran.
+    onXChanged: if (glisser.active) astre.deplaceeEnDirect(astre.x - astre.xDepart, astre.y - astre.yDepart)
+    onYChanged: if (glisser.active) astre.deplaceeEnDirect(astre.x - astre.xDepart, astre.y - astre.yDepart)
 
     // GLISSER-DEPOSE REEL VERS L'EXTERIEUR (2026-09-10). Jusqu'ici le
     // DragHandler ci-dessus ne faisait QUE deplacer astre.x/astre.y dans la

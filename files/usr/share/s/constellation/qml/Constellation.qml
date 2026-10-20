@@ -111,6 +111,29 @@ ApplicationWindow {
     property string empreinteDonnees: ""
     property string empreinteOuvertures: ""
     function relire() {
+        // NE JAMAIS RECONSTRUIRE LE CIEL PENDANT UN GLISSEMENT — correctif
+        // du 2026-10-20, releve par l'utilisateur : « les etoiles se
+        // deplacent mal ». Toute etoile deja affichee perd son identite de
+        // delegue des que « donnees » change (voir le commentaire
+        // au-dessus) : le Repeater detruit et recree TOUT. Le propre
+        // glissement de l'utilisateur ecrit deja dans placees.json
+        // (pont.placer, voir Astre.onDeplacee plus bas) SANS appeler
+        // relire() lui-meme, pour ne pas se faire ramener en arriere au
+        // lacher — mais la PROCHAINE relecture (ce minuteur de 15 s, ou
+        // n'importe quelle autre action qui appelle relire()) voit alors
+        // toujours une difference, et reconstruit tout le ciel au moment ou
+        // elle survient. Si cette difference survient PENDANT qu'une etoile
+        // est encore tenue par la souris, cette reconstruction detruit le
+        // delegue que le DragHandler tient en ce moment meme — l'etoile
+        // saute en arriere a sa derniere position persistee, sous le
+        // pointeur. On refuse donc de reconstruire tant qu'un glissement
+        // est actif ; le minuteur de 15 s rattrapera la relecture de
+        // lui-meme, une fois le glissement termine.
+        for (var g = 0; g < ciel.children.length; g++) {
+            var astreG = ciel.children[g];
+            if (astreG.app !== undefined && astreG.enGlissement === true)
+                return;
+        }
         var nouvelles = pont.etoiles();
         var empreinte = JSON.stringify(nouvelles);
         if (empreinte === empreinteDonnees)
@@ -361,6 +384,17 @@ ApplicationWindow {
         anchors.fill: parent
         focus: true
 
+        // LE NOMBRE MAGIQUE « 70 », NOMME — nettoyage du 2026-10-20. Cinq
+        // occurrences dispersees utilisaient le meme litteral pour
+        // convertir la fraction Y [0,1] d'une etoile en pixels, DISTINCT de
+        // « barreTaches.hauteur » (52, la vraie hauteur de la barre, deja
+        // utilisee plus bas pour detecter un lacher sur elle). On ne les
+        // unifie pas ici : chaque etoile deja placee a sa position ecrite
+        // sur cette base-la, et changer la valeur deplacerait d'un coup
+        // tout ce qui est deja pose, un changement qui merite d'etre vu a
+        // l'ecran avant d'etre fait. Seule la lisibilite est corrigee.
+        readonly property real margeBasCiel: 70
+
         // Capture universelle du clavier sur le bureau :
         // Quand l'utilisateur tape sur le clavier n'importe où sur le bureau,
         // sans avoir préalablement cliqué sur un champ ou un menu, on ouvre
@@ -592,6 +626,34 @@ ApplicationWindow {
                     pont.effacerBadge(app.id);
                     bureau.relire();
                 }
+                // DEPLACEMENT DE GROUPE EN DIRECT — correctif du 2026-10-20,
+                // releve par l'utilisateur : « les etoiles se deplacent
+                // mal ». Avant, le reste de la selection restait figee
+                // pendant tout le glissement et ne sautait qu'au lacher,
+                // d'un coup (voir onDeplacee ci-dessous). Astre.qml emet
+                // maintenant ce signal au tout DEBUT du glissement : chaque
+                // etoile choisie memorise ici sa propre position de depart,
+                // pour pouvoir suivre le delta de celle qu'on tient a
+                // chaque image plutot qu'au lacher seulement.
+                onDeplacementDebute: {
+                    if (!choisi) return;
+                    for (var i = 0; i < ciel.children.length; i++) {
+                        var c = ciel.children[i];
+                        if (c.app === undefined || !c.choisi) continue;
+                        c.xDepart = c.x;
+                        c.yDepart = c.y;
+                    }
+                }
+                onDeplaceeEnDirect: function (dx, dy) {
+                    if (!choisi) return;
+                    for (var i = 0; i < ciel.children.length; i++) {
+                        var c = ciel.children[i];
+                        if (c.app === undefined || !c.choisi
+                            || c.app.id === app.id) continue;
+                        c.x = c.xDepart + dx;
+                        c.y = c.yDepart + dy;
+                    }
+                }
                 onDeplacee: function (nx, ny) {
                     // GLISSER SUR LA BARRE EPINGLE, ET C'EST LE GESTE QUE TOUT
                     // LE MONDE ESSAIE EN PREMIER. Le clic droit le proposait
@@ -610,6 +672,21 @@ ApplicationWindow {
                         // On ne memorise PAS la position : l'etoile doit
                         // reprendre sa place au ciel, pas rester sous la barre.
                         replacer();
+                        // LE RESTE DU GROUPE A SUIVI EN DIRECT (voir
+                        // onDeplaceeEnDirect) MEME SI CE N'EST QUE CELLE-CI
+                        // QU'ON EPINGLE : sa position n'a jamais ete
+                        // persistee. On la remet donc EXACTEMENT ou elle
+                        // etait avant de relire — sinon « relire() » la
+                        // laisserait un instant a un endroit que rien n'a
+                        // jamais enregistre.
+                        if (choisi) {
+                            for (var k = 0; k < ciel.children.length; k++) {
+                                var cEp = ciel.children[k];
+                                if (cEp.app === undefined || !cEp.choisi
+                                    || cEp.app.id === app.id) continue;
+                                cEp.replacer();
+                            }
+                        }
                         bureau.relire();
                         return;
                     }
@@ -622,10 +699,6 @@ ApplicationWindow {
                     // l'utilisateur le 2026-08-26 — « plus du tout
                     // deplacables ». L'etoile reste donc ou la souris l'a mise,
                     // et la prochaine relecture lui rendra une liaison fraiche.
-                    var avantX = modelData.pos.x * ciel.width - diametre / 2;
-                    var avantY = modelData.pos.y * (ciel.height - 70) - diametre / 2;
-                    var dx = nx - avantX, dy = ny - avantY;
-
                     pont.placer(app.id,
                                 (nx + diametre / 2) / ciel.width,
                                 (ny + diametre / 2) / (ciel.height - 70));
@@ -637,13 +710,19 @@ ApplicationWindow {
                     // CHOISIES le suivent, comparees par identifiant plutot
                     // que par reference — un objet JS recree a chaque
                     // « relire » ne serait jamais « === » a lui-meme.
+                    //
+                    // LE GROUPE A DEJA SUIVI EN DIRECT PENDANT LE GLISSEMENT
+                    // (onDeplaceeEnDirect, plus haut) — correctif du
+                    // 2026-10-20. On ne fait plus ICI que PERSISTER la
+                    // position que chaque etoile choisie occupe DEJA a
+                    // l'ecran ; lui rajouter encore « dx »/« dy » la ferait
+                    // sauter une seconde fois, au-dela d'ou elle vient
+                    // d'etre lachee.
                     if (choisi) {
                         for (var i = 0; i < ciel.children.length; i++) {
                             var c = ciel.children[i];
                             if (c.app === undefined || !c.choisi
                                 || c.app.id === app.id) continue;
-                            c.x += dx;
-                            c.y += dy;
                             pont.placer(c.app.id,
                                         (c.x + c.diametre / 2) / ciel.width,
                                         (c.y + c.diametre / 2) / (ciel.height - 70));
@@ -717,7 +796,17 @@ ApplicationWindow {
             // bouton aurait l'air casse : il ouvrirait un menu invisible.
             if (typeof fenetres !== "undefined" && fenetres)
                 fenetres.activerBureau();
-            menuDemarrer.visible ? menuDemarrer.close() : menuDemarrer.open();
+            // TOUJOURS OUVRIR, JAMAIS BASCULER DEPUIS CE BOUTON — correctif
+            // du 2026-10-20. « menuDemarrer.visible » reste vrai tant que le
+            // menu n'a pas ete explicitement ferme, meme quand la course
+            // cote Python (voir le correctif de _corriger_bureau dans
+            // fenetres.py) a laisse la vraie fenetre le recouvrir sans que
+            // personne ne le voie : un second clic lisait alors ce
+            // « visible » perime et REFERMAIT un menu que personne n'avait
+            // jamais vu — d'ou « il faut cliquer deux fois ». Fermer reste
+            // possible : un clic sur le ciel vide le fait deja
+            // explicitement, un peu plus bas dans ce fichier.
+            menuDemarrer.open();
         }
         reglagesOuverts: laterale.deploye
         onReglagesDemandes: {
@@ -743,6 +832,13 @@ ApplicationWindow {
         }
         onReglageChoix: function (cle, valeur) {
             bureau.dire(pont.reglerRapide(cle, valeur));
+        }
+        // LA BASCULE DU SON — correctif du 2026-10-20. « cle » vaut
+        // "volume" (la cle de la glissiere) ; le dispatch Python attend
+        // "volume-muet" (reglages.py::regler), separe de "volume" pour ne
+        // jamais confondre un pourcentage et une bascule.
+        onReglageMuet: function (cle) {
+            bureau.dire(pont.reglerRapide(cle + "-muet", true));
         }
         onReglageAction: function (cle) {
             if (cle === "verrouiller") { bureau.dire(pont.session("verrouiller")); return; }
@@ -1407,6 +1503,18 @@ ApplicationWindow {
             String(cible.id || "").indexOf("fichier:") === 0
         readonly property bool estDossier: estFichier && (cible.dossier || 0) === 1
 
+        // « SUGGESTION DU CATALOGUE », PAS ENCORE INSTALLEE — correctif du
+        // 2026-10-20. noyau.py pose « catalogue: 1 » sur ces entrees-la
+        // (voir composer_etoiles) ; « Epingler »/« Placer sur le bureau »
+        // ecrivaient alors un identifiant « catalogue:<cle> » dans
+        // epingles.json/placees.json, et comme ni noyau.etoiles() ni ce
+        // menu ne connaissent cet id, le clic ne faisait jamais RIEN de
+        // visible — une entree orpheline en silence, pour toujours. Meme
+        // principe que « desinstallable » juste au-dessus : absent plutot
+        // que grise.
+        readonly property bool estCatalogue: cible !== null &&
+            (cible.catalogue || 0) === 1
+
         // « Désinstaller », demande le 2026-08-29. PAS UN BOOLEEN DEVINE : le
         // pont sait, lui, si un vrai desinstalleur existe (Android le sait
         // toujours ; Windows seulement s'il en trouve un pres du .exe ;
@@ -1455,6 +1563,9 @@ ApplicationWindow {
         SeparateurMenu { }
 
         ArticleMenu {
+            // Sans objet pour une suggestion du catalogue : voir estCatalogue.
+            visible: !menuContextuel.estCatalogue
+            height: visible ? implicitHeight : 0
             text: menuContextuel.epinglee ? "Retirer de la barre" : "Epingler a la barre"
             onTriggered: {
                 pont.epingler(menuContextuel.cible.id, !menuContextuel.epinglee);
@@ -1465,10 +1576,14 @@ ApplicationWindow {
         ArticleMenu {
             // Sans objet pour un fichier : il EST sur le bureau parce qu'il est
             // dans le dossier, et rien dans ce menu ne peut l'en sortir sans le
-            // deplacer pour de vrai.
-            visible: !menuContextuel.estFichier
+            // deplacer pour de vrai. Sans objet non plus pour une suggestion du
+            // catalogue : voir estCatalogue.
+            visible: !menuContextuel.estFichier && !menuContextuel.estCatalogue
             height: visible ? implicitHeight : 0
-            text: menuContextuel.posee ? "Retirer du bureau" : "Placer sur le bureau"
+            // LIBELLE HARMONISE AVEC « menuFenetre »/« menuEpinglee » DANS
+            // Barre.qml — correctif du 2026-10-20, les trois menus posaient
+            // le meme geste sous deux noms differents.
+            text: menuContextuel.posee ? "Retirer de la Constellation" : "Ajouter a la Constellation"
             onTriggered: {
                 if (menuContextuel.posee) {
                     pont.retirerDuBureau(menuContextuel.cible.id);

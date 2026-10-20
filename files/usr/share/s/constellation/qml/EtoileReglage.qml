@@ -30,6 +30,13 @@ Item {
     signal valeurDemandee(real v)
     signal choixDemande()
     signal glissiereDemandee()
+    // LA BASCULE DU SON, DISTINCTE DE « bascule() » CI-DESSUS — correctif du
+    // 2026-10-20. « bascule() » route deja vers reglageBascule(donnee.cle,
+    // !actif), et pour « volume » ca enverrait un booleen (0 ou 1) a
+    // _regler_volume comme s'il s'agissait d'un pourcentage — pas une
+    // bascule de sourdine. Le signal est donc separe, et le geste qui
+    // l'emet (plus bas) est le seul a l'appeler, jamais « bascule() ».
+    signal muetDemande()
 
     readonly property string forme: reglage.type || "bascule"
     readonly property bool allume: reglage.actif === true
@@ -117,6 +124,29 @@ Item {
         height: width
         nom: etoile.reglage.ico || "i-reglages"
         couleur: etoile.teinte
+
+        // LA BASCULE DU SON, SUR LE PETIT GLYPHE CENTRAL SEULEMENT —
+        // correctif du 2026-10-20, releve par l'utilisateur. « bascule »
+        // existait cote Python (_basculer_muet, dispatch "volume-muet")
+        // sans etre appelable depuis AUCUNE QML : le tap sur une jauge
+        // ouvre toujours sa glissiere (tapEtoile, juste au-dessus), jamais
+        // une bascule. Si le son est coupe par un autre moyen (touche
+        // materielle, une autre application), rien dans les reglages de S
+        // ne permettait de le remettre. Un second TapHandler, plus petit
+        // que celui de l'etoile entiere, laisse le reste de l'anneau
+        // ouvrir la glissiere comme avant — meme principe de deux zones
+        // qu'une icone de volume de bureau classique (clic = coupe/remet,
+        // glissement = change le niveau).
+        TapHandler {
+            enabled: etoile.estJauge && etoile.reglage.cle === "volume"
+            onTapped: function (evenement) {
+                etoile.muetDemande();
+                // SANS CECI, « tapEtoile » (sur l'etoile entiere) RECOIT LE
+                // MEME CLIC JUSTE APRES ET OUVRE LA GLISSIERE EN PLUS — meme
+                // piege et meme correctif que le clic droit d'Astre.qml.
+                evenement.accepted = true;
+            }
+        }
     }
 
     TapHandler {

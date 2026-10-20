@@ -517,8 +517,14 @@ Window {
                             Image {
                                 id: icoF
                                 anchors.fill: parent
-                                source: parent.parent.parent.app
-                                        ? (parent.parent.parent.app.img || "") : ""
+                                // « tuile.app », PAS UNE CHAINE DE « parent »
+                                // — nettoyage du 2026-10-20. Trois sauts de
+                                // parent (Image -> Item -> Row -> tuile)
+                                // fonctionnaient, mais casseraient en
+                                // silence (icones vides, sans avertissement)
+                                // au premier Item insere entre eux. L'id du
+                                // delegue, lui, resout partout dans ce bloc.
+                                source: tuile.app ? (tuile.app.img || "") : ""
                                 sourceSize.width: 34; sourceSize.height: 34
                                 fillMode: Image.PreserveAspectFit
                                 smooth: true
@@ -526,8 +532,7 @@ Window {
                             }
                             Glyphe {
                                 anchors.fill: parent
-                                nom: parent.parent.parent.app
-                                     ? (parent.parent.parent.app.ico || "i-boite") : "i-boite"
+                                nom: tuile.app ? (tuile.app.ico || "i-boite") : "i-boite"
                                 couleur: Theme.texte2
                                 visible: !icoF.visible
                             }
@@ -637,6 +642,22 @@ Window {
             }
             readonly property bool rangee: cible !== null && cible.reduite === true
 
+            // « AJOUTER A LA CONSTELLATION » DEPUIS UNE FENETRE OUVERTE —
+            // correctif du 2026-10-20. Le geste existait deja (menuContextuel
+            // dans Constellation.qml, pour une etoile du ciel ou une tuile
+            // du menu Demarrer) mais jamais depuis ICI, alors que c'est le
+            // premier endroit ou on cherche a epingler un logiciel qu'on
+            // vient d'ouvrir. « pont.placer »/« pont.retirerDuBureau » sont
+            // deja generiques — rien a changer cote Python, seulement a
+            // cabler ici. Sans objet si aucune etoile ne correspond a la
+            // classe de cette fenetre : meme recherche qu'une tuile ouverte
+            // emploie deja pour son icone, voir « tuile.app » plus haut.
+            readonly property var cibleApp: cible !== null
+                ? (bureau.appParId(cible.classe) || bureau.appParClasse(cible.classe))
+                : null
+            readonly property bool ciblePosee: cibleApp !== null &&
+                Object.prototype.hasOwnProperty.call(bureau.donnees.placees, cibleApp.id)
+
             // Une fenetre qui disparait pendant que son menu est ouvert
             // laisserait un menu qui ne vise plus rien.
             onCibleChanged: if (cible === null && visible) close()
@@ -685,6 +706,22 @@ Window {
                 text: menuFenetre.rangee ? "Afficher" : "Ranger"
                 onTriggered: barre.activation(menuFenetre.cibleId,
                                               !menuFenetre.rangee)
+            }
+
+            ArticleMenu {
+                visible: menuFenetre.cibleApp !== null
+                height: visible ? implicitHeight : 0
+                text: menuFenetre.ciblePosee
+                      ? "Retirer de la Constellation" : "Ajouter a la Constellation"
+                onTriggered: {
+                    if (menuFenetre.ciblePosee) {
+                        pont.retirerDuBureau(menuFenetre.cibleApp.id);
+                    } else {
+                        var p = bureau.placeLibre();
+                        pont.placer(menuFenetre.cibleApp.id, p.x, p.y);
+                    }
+                    bureau.relire();
+                }
             }
 
             ArticleMenu {
@@ -815,6 +852,26 @@ Window {
             ArticleMenu {
                 text: "Executer en root"
                 onTriggered: bureau.dire(pont.lancerEnRoot(menuEpinglee.cible.id))
+            }
+
+            // « AJOUTER A LA CONSTELLATION » — correctif du 2026-10-20, meme
+            // trou et meme correctif que « menuFenetre » plus haut dans ce
+            // fichier. « cible » est deja l'objet app complet pour une
+            // epinglee, donc rien a resoudre ici.
+            ArticleMenu {
+                readonly property bool posee: menuEpinglee.cible !== null &&
+                    Object.prototype.hasOwnProperty.call(
+                        bureau.donnees.placees, menuEpinglee.cible.id)
+                text: posee ? "Retirer de la Constellation" : "Ajouter a la Constellation"
+                onTriggered: {
+                    if (posee) {
+                        pont.retirerDuBureau(menuEpinglee.cible.id);
+                    } else {
+                        var p = bureau.placeLibre();
+                        pont.placer(menuEpinglee.cible.id, p.x, p.y);
+                    }
+                    bureau.relire();
+                }
             }
 
             SeparateurMenu { }

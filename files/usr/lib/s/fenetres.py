@@ -684,8 +684,7 @@ class Fenetres(QObject):
         reste entier sur un bureau reellement vide (« dernier_actif » y est
         alors absent, voir plus bas).
         """
-        voulu, self._bureau_voulu = self._bureau_voulu, False
-        if voulu or not dernier_actif:
+        if not dernier_actif:
             return
         # NE JAMAIS RESSUSCITER UNE FENETRE QU'ON VIENT DE MINIMISER OU FERMER.
         if repli or dernier_actif in self._fermetures or dernier_actif in self._replis_voulus:
@@ -696,6 +695,26 @@ class Fenetres(QObject):
                         if f.get("classe") == "s-constellation"
                         and f.get("titre") == "Constellation"), None)
         if not bureau or not bureau.get("active"):
+            return
+        # LE JETON NE SE CONSOMME QU'ICI, PAS EN TETE DE FONCTION — correctif
+        # du 2026-10-20, releve par l'utilisateur : « le menu Demarrer a
+        # besoin de deux clics ». Il etait consomme sur N'IMPORTE QUEL appel
+        # a cette fonction, donc sur le PREMIER evenement kwin qui suit
+        # activerBureau() — or un clic sur le bouton Demarrer en produit
+        # toujours un, SANS RAPPORT : la barre s'active nativement au clic,
+        # puis se corrige elle-meme vers « derniereFenetreReelle »
+        # (fenetres.js, estChromeS), et cette correction declenche sa propre
+        # nouvelle du compositeur avant que le script de activerBureau()
+        # n'ait eu le temps de rendre le bureau actif. Le jeton etait donc
+        # grille par un evenement sans rapport, et quand la vraie activation
+        # du bureau arrivait enfin, plus rien ne la protegeait : cette
+        # fonction remontait aussitot la vraie fenetre PAR-DESSUS le bureau
+        # qu'on venait de lever, cachant le menu Demarrer derriere elle. On
+        # ne le consomme donc qu'une fois qu'on SAIT DEJA que c'est bien le
+        # bureau qui vient de s'activer — les deux lignes au-dessus viennent
+        # de le confirmer, c'est la seule fois ou le jeton a un sens.
+        if self._bureau_voulu:
+            self._bureau_voulu = False
             return
         cible = next((f for f in self._liste if f.get("id") == dernier_actif),
                       None)
