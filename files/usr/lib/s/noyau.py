@@ -1152,6 +1152,157 @@ def _url_icone(chemin):
     return ("file://" + chemin) if chemin else ""
 
 
+# --------------------------------------------------------------------------
+# CE QUE LES THEMES WINDOWS ET ANDROID MONTRENT EN PLUS — ajoute le 2026-10-20
+# --------------------------------------------------------------------------
+
+def dossier_xdg(cle, repli):
+    """Un dossier declare dans user-dirs.dirs (« XDG_PICTURES_DIR »...).
+
+    MEME REGLE QUE dossier_bureau : un dossier ne se devine pas, il se
+    demande. « ~/Images » n'est vrai que sur une machine en francais.
+    """
+    fichier = os.path.join(
+        os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
+        "user-dirs.dirs")
+    try:
+        with open(fichier, "r", encoding="utf-8") as f:
+            for ligne in f:
+                ligne = ligne.strip()
+                if not ligne.startswith(cle + "="):
+                    continue
+                brut = ligne.split("=", 1)[1].strip().strip('"')
+                return os.path.expandvars(
+                    brut.replace("$HOME", os.path.expanduser("~")))
+    except OSError:
+        pass
+    return os.path.expanduser(repli)
+
+
+EXTENSIONS_IMAGES = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".jxl", ".avif")
+
+
+def images_utilisateur(nombre=10):
+    """Les images de l'utilisateur qui feraient un fond, les plus recentes d'abord.
+
+    UN SEUL NIVEAU DE SOUS-DOSSIERS : « Captures d'ecran », « Fonds » — pas la
+    photothèque entiere, qu'on parcourrait a chaque ouverture de la boite.
+    Les fichiers de moins de 20 Ko sont ecartes : une icone ou une miniature ne
+    fait pas un fond d'ecran.
+    """
+    racines = [dossier_xdg("XDG_PICTURES_DIR", "~/Images"),
+               os.path.expanduser("~/Images"), os.path.expanduser("~/Pictures")]
+    vues, trouvees = set(), []
+    for racine in racines:
+        racine = os.path.realpath(racine)
+        if racine in vues or not os.path.isdir(racine):
+            continue
+        vues.add(racine)
+        for dossier, sous, fichiers in os.walk(racine):
+            if dossier[len(racine):].count(os.sep) >= 1:
+                sous[:] = []
+            else:
+                sous[:] = [d for d in sous if not d.startswith(".")]
+            for nom in fichiers:
+                if nom.startswith(".") or not nom.lower().endswith(EXTENSIONS_IMAGES):
+                    continue
+                chemin = os.path.join(dossier, nom)
+                try:
+                    etat = os.stat(chemin)
+                except OSError:
+                    continue
+                if etat.st_size < 20 * 1024:
+                    continue
+                trouvees.append((etat.st_mtime, chemin, nom))
+    trouvees.sort(reverse=True)
+    return [{"chemin": c, "nom": n} for _, c, n in trouvees[:max(0, int(nombre))]]
+
+
+def _il_y_a(horodatage):
+    """« il y a 5 min », « hier », « 12 oct. » — a partir d'un ISO 8601."""
+    import datetime
+    try:
+        quand = datetime.datetime.fromisoformat(horodatage)
+    except (TypeError, ValueError):
+        return ""
+    if quand.tzinfo is None:
+        quand = quand.replace(tzinfo=datetime.timezone.utc)
+    ecart = datetime.datetime.now(datetime.timezone.utc) - quand
+    secondes = ecart.total_seconds()
+    if secondes < 60:
+        return "a l'instant"
+    if secondes < 3600:
+        return "il y a %d min" % (secondes // 60)
+    if secondes < 86400:
+        return "il y a %d h" % (secondes // 3600)
+    if secondes < 2 * 86400:
+        return "hier"
+    if secondes < 7 * 86400:
+        return "il y a %d jours" % (secondes // 86400)
+    mois = ["janv.", "fevr.", "mars", "avr.", "mai", "juin", "juil.", "aout",
+            "sept.", "oct.", "nov.", "dec."]
+    local = quand.astimezone()
+    return "%d %s" % (local.day, mois[local.month - 1])
+
+
+def fichiers_recents(nombre=6):
+    """Les derniers fichiers ouverts — les « Recommandes » du menu de Windows.
+
+    ON NE TIENT AUCUN JOURNAL ICI. KDE et GTK ecrivent deja chaque fichier ouvert
+    dans recently-used.xbel (la specification freedesktop « Recent Files ») ; on
+    le lit, et un fichier qui n'existe plus n'est pas montre. Les entrees ont
+    la forme d'une etoile jaune : le menu les ouvre, et le clic droit leur
+    propose les gestes de fichier, comme sur le bureau.
+    """
+    import xml.etree.ElementTree as ET
+    from urllib.parse import unquote, urlparse
+    chemin = os.path.join(
+        os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"),
+        "recently-used.xbel")
+    try:
+        arbre = ET.parse(chemin)
+    except (OSError, ET.ParseError):
+        return []
+    entrees = []
+    for signet in arbre.getroot().iter("bookmark"):
+        href = signet.get("href") or ""
+        if not href.startswith("file://"):
+            continue
+        fichier = unquote(urlparse(href).path)
+        quand = signet.get("modified") or signet.get("visited") or signet.get("added") or ""
+        entrees.append((quand, fichier))
+    entrees.sort(reverse=True)
+    sortie, vus = [], set()
+    for quand, fichier in entrees:
+        if fichier in vus:
+            continue
+        vus.add(fichier)
+        try:
+            etat = os.stat(fichier)
+        except OSError:
+            continue
+        est_dossier = os.path.isdir(fichier)
+        glyphe, icone = icone_de_fichier(fichier, est_dossier, int(etat.st_mtime),
+                                         etat.st_size)
+        sortie.append({
+            "id": "fichier:" + fichier,
+            "nom": os.path.basename(fichier.rstrip("/")) or fichier,
+            "src": "fichier",
+            "ico": glyphe,
+            "ep": 1,
+            "epingle": 0,
+            "img": _url_icone(icone),
+            "txt": fichier,
+            "compte": 0,
+            "chemin": fichier,
+            "dossier": 1 if est_dossier else 0,
+            "detail": _il_y_a(quand),
+        })
+        if len(sortie) >= max(0, int(nombre)):
+            break
+    return sortie
+
+
 def ouvrir_fichier(chemin):
     """Ouvre un fichier ou un dossier avec ce que la machine lui associe.
 
@@ -1501,7 +1652,25 @@ def composer_etoiles():
 # autres reglages du bureau, plutot que dans fenetres.py — un reglage
 # range a cote du code qui l'utilise est un reglage que personne ne
 # trouve. Voir /usr/lib/s/veille.py pour ce que « geler » veut dire.
-REGLAGES_DEFAUT = {"fond": "nebuleuse", "noms": False, "veille": "geler"}
+#
+# LES THEMES, AJOUTES LE 2026-10-20 — Constellation, Windows 11, tablette
+# Android. CHAQUE THEME GARDE SON PROPRE FOND, ET C'EST VOULU : passer de
+# Constellation a Windows puis revenir ne doit pas faire perdre la nebuleuse
+# qu'on avait choisie. « fond » reste la cle de Constellation, pour qu'une
+# machine mise a jour retrouve exactement son bureau d'avant.
+#
+# Un fond peut aussi etre « image:<chemin> » : une photo de l'utilisateur.
+# « teinte_* » est sa couleur dominante, mesuree une fois au choix — elle donne
+# l'accent de Windows et la graine de Material You quand ils sont automatiques.
+THEMES = ("constellation", "windows", "android")
+REGLAGES_DEFAUT = {"fond": "nebuleuse", "noms": False, "veille": "geler",
+                   "theme": "constellation",
+                   "fond_windows": "floraison", "fond_android": "formes",
+                   "sombre_windows": False, "sombre_android": False,
+                   "accent_windows": "", "graine_android": "",
+                   "teinte_windows": "", "teinte_android": "",
+                   "clair_windows": False, "clair_android": False,
+                   "ciel_vivant": True}
 
 
 def charger_reglages():
@@ -1517,6 +1686,16 @@ def charger_reglages():
                     reglages[cle] = lus[cle]
     except (OSError, ValueError):
         pass
+    # UN THEME INCONNU RETOMBE SUR CONSTELLATION, et chaque valeur reprend le
+    # type de son defaut : « sombre_windows: "oui" » ecrit a la main ne doit pas
+    # passer pour vrai d'un cote et faux de l'autre.
+    if reglages.get("theme") not in THEMES:
+        reglages["theme"] = "constellation"
+    for cle, defaut in REGLAGES_DEFAUT.items():
+        if isinstance(defaut, bool):
+            reglages[cle] = reglages[cle] is True
+        elif isinstance(defaut, str) and not isinstance(reglages[cle], str):
+            reglages[cle] = defaut
     return reglages
 
 

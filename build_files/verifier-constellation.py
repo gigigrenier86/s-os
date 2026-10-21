@@ -21,12 +21,14 @@ la meme forme — c'est la scene qu'on verifie, pas l'inventaire.
 import io
 import json
 import os
+import subprocess
 import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QUICK_BACKEND", "software")
 
-from PySide6.QtCore import QObject, QTimer, QUrl, Signal, Slot
+from PySide6.QtCore import (QObject, QTimer, QUrl, Signal, Slot, QMetaObject,
+                            Q_ARG, Qt)
 from PySide6.QtGui import QGuiApplication, QWindow
 from PySide6.QtQml import QQmlApplicationEngine
 
@@ -39,6 +41,13 @@ QML = sys.argv[1] if len(sys.argv) > 1 else "/usr/share/s/constellation/qml"
 # verdict sur un fichier qu'on n'a pas ecrit. Une heure a ete perdue ainsi le
 # 2026-08-26, a comparer deux scenes differentes en les croyant identiques.
 print("  scene verifiee : " + QML)
+
+# LE THEME VERIFIE — ajoute le 2026-10-20 avec les themes. Sans variable, le
+# controle se relance lui-meme une fois par theme (voir main) : chaque theme
+# charge ses propres pieces (sa barre, son menu, son panneau de reglages), et
+# une faute dans l'une d'elles ne se verrait qu'en ouvrant CE theme-la.
+THEMES = ("constellation", "windows", "android")
+THEME = os.environ.get("S_VERIF_THEME", "")
 
 FAUSSES = [
     {"id": "a", "nom": "Une application", "src": "linux", "ico": "i-globe",
@@ -169,7 +178,8 @@ class PontLeurre(QObject):
 
     @Slot(result="QVariant")
     def reglages(self):
-        return {"fond": "nebuleuse", "noms": False}
+        return {"fond": "nebuleuse", "noms": False,
+                "theme": THEME or "constellation"}
 
     @Slot(str, "QVariant")
     def reglerFond(self, cle, valeur):
@@ -273,6 +283,36 @@ class PontLeurre(QObject):
     def executerCommande(self, cmd, en_root=False, dans_terminal=True):
         return cmd
 
+    # CE QUE LES THEMES WINDOWS ET ANDROID MONTRENT EN PLUS. Des recents et des
+    # images, pour que leurs delegues soient instancies par le controle.
+    @Slot(int, result="QVariant")
+    def recents(self, nombre):
+        return [{"id": "fichier:/tmp/s-essai/note.txt", "nom": "note.txt",
+                 "src": "fichier", "ico": "i-notes", "img": "",
+                 "chemin": "/tmp/s-essai/note.txt", "dossier": 0,
+                 "detail": "il y a 5 min", "ep": 1, "epingle": 0, "compte": 0,
+                 "txt": "/tmp/s-essai/note.txt"}][:max(0, nombre)]
+
+    @Slot(int, result="QVariant")
+    def images(self, nombre):
+        return [{"chemin": "/tmp/s-essai/place.png", "nom": "place.png"}][:max(0, nombre)]
+
+    @Slot(result="QVariant")
+    def utilisateur(self):
+        return {"nom": "Essai", "avatar": ""}
+
+    @Slot(str, result="QVariant")
+    def analyserImage(self, chemin):
+        return {"teinte": "#3366cc", "clair": False}
+
+    # Le vrai pont repond par ce signal ; Constellation.qml l'ecoute — sans
+    # lui, la Connections avertirait, et le controle echouerait comme il doit.
+    imageChoisie = Signal(str)
+
+    @Slot()
+    def choisirImage(self):
+        pass
+
 
 def concordance_des_slots():
     """Le leurre declare-t-il tout ce que le vrai pont declare ?
@@ -351,7 +391,30 @@ def concordance_du_pont_fenetres():
 
 
 def main():
+    # SANS THEME DONNE, UN PASSAGE PAR THEME, chacun dans son propre
+    # processus : un moteur QML neuf, comme a l'ouverture d'une session.
+    if not THEME:
+        codes = []
+        for theme in THEMES:
+            print("  --- theme %s" % theme)
+            sys.stdout.flush()
+            env = dict(os.environ, S_VERIF_THEME=theme)
+            codes.append(subprocess.run([sys.executable, os.path.abspath(__file__), QML],
+                                        env=env).returncode)
+        return 0 if all(c == 0 for c in codes) else 1
+    return verifier_un_theme()
+
+
+def verifier_un_theme():
     app = QGuiApplication(sys.argv[:1])
+    # L'IMAGE QUE LE LEURRE PROPOSE COMME FOND DOIT EXISTER : la boite de
+    # personnalisation en fait une miniature, et une image introuvable est un
+    # avertissement — donc un echec, a juste titre, pour une vraie image.
+    from PySide6.QtGui import QImage, QColor
+    os.makedirs("/tmp/s-essai", exist_ok=True)
+    temoin = QImage(16, 9, QImage.Format_RGB32)
+    temoin.fill(QColor("#3366cc"))
+    temoin.save("/tmp/s-essai/place.png")
     moteur = QQmlApplicationEngine()
     plaintes = []
     moteur.warnings.connect(
@@ -392,8 +455,9 @@ def main():
     # compte tout ce que le Menu porte.
     # « Forcer l'arret » ajoute le 2026-08-30 : neuf devient dix ; « ranger les
     # autres » retire le 2026-09-20 : dix redevient neuf ; « Ajouter/Retirer
-    # de la Constellation » ajoute le 2026-10-20 : neuf redevient dix.
-    ARTICLES_ATTENDUS = 10
+    # de la Constellation » ajoute le 2026-10-20 : neuf redevient dix ;
+    # « Epingler a la barre », le meme jour avec les themes : dix devient onze.
+    ARTICLES_ATTENDUS = 11
     manque_articles = {"valeur": 0, "trouve": False}
     # La hauteur du menu une fois ouvert, et celle qu'il demande. Voir le
     # controle plus bas : c'est la mesure qui manquait le 2026-08-26.
@@ -413,7 +477,7 @@ def main():
         pont.rafraichirReglages()
         for enfant in racine.findChildren(QObject):
             try:
-                if enfant.objectName() == "menuDemarrer":
+                if enfant.objectName() in ("menuDemarrer", "personnaliser"):
                     enfant.setProperty("visible", True)
                 elif enfant.objectName() == "barreLaterale":
                     enfant.setProperty("deploye", True)
@@ -511,13 +575,15 @@ def main():
         # du 2026-10-20. Meme principe que « repeaterCiel » ci-dessus : « 0
         # delegue instancie » et « aucun avertissement » se confondaient
         # avant que « ouvrir() » n'appelle « pont.rafraichirReglages() ».
+        # HORS CONSTELLATION, DEUX REPEATER SE PARTAGENT LES REGLAGES : les
+        # tuiles et les curseurs. On additionne tous ceux dont le nom commence
+        # par « repeaterReglages » — un seul existe par mise en page.
         attendu_reglages = len(FAUX_REGLAGES)
         vus_reglages = -1
         for enfant in racine.findChildren(QObject):
             try:
-                if enfant.objectName() == "repeaterReglages":
-                    vus_reglages = int(enfant.property("count"))
-                    break
+                if enfant.objectName().startswith("repeaterReglages"):
+                    vus_reglages = max(0, vus_reglages) + int(enfant.property("count"))
             except (RuntimeError, AttributeError, TypeError, ValueError):
                 pass
         if vus_reglages < 0:
@@ -529,8 +595,45 @@ def main():
             plaintes.append("compte d'etoiles de reglage : %d au lieu de %d"
                              % (vus_reglages, attendu_reglages))
 
+        # LES PIECES PROPRES AU THEME, COMPTEES COMME LE RESTE. Hors
+        # Constellation, la barre groupe les applications : trois epinglees du
+        # leurre, aucune fenetre ouverte. Et chaque menu doit avoir instancie sa
+        # grille : un menu qui charge sans rien montrer charge sans un mot.
+        theme_ici = THEME or "constellation"
+        attendus_theme = {"constellation": [("grilleAppsConstellation", 3)],
+                          "windows": [("groupesBarre", 3), ("epinglesDemarrer", 3)],
+                          "android": [("groupesBarre", 3), ("grilleTiroir", 3)]}
+        for nom_obj, attendu_obj in attendus_theme[theme_ici]:
+            vu_obj = -1
+            for enfant in racine.findChildren(QObject):
+                try:
+                    if enfant.objectName() == nom_obj:
+                        vu_obj = int(enfant.property("count"))
+                        break
+                except (RuntimeError, AttributeError, TypeError, ValueError):
+                    pass
+            if vu_obj != attendu_obj:
+                print("ECHEC : %s porte %d element(s), %d attendus (theme %s)."
+                      % (nom_obj, vu_obj, attendu_obj, theme_ici), file=sys.stderr)
+                plaintes.append("%s : %d au lieu de %d" % (nom_obj, vu_obj, attendu_obj))
+            else:
+                print("  %-13s : %d elements" % (nom_obj[:13], vu_obj))
+
         for m in manquants:
             plaintes.append("slot absent du leurre : " + m)
+
+        # LE CHANGEMENT DE THEME EN DIRECT. C'est le geste de l'utilisateur :
+        # un clic, et la barre, le menu, le panneau et le bureau se remplacent
+        # dans la session ouverte. Chaque Loader detruit l'ancienne piece et
+        # charge la nouvelle — une faute qui ne se verrait qu'au changement,
+        # pas au demarrage, se voit ici.
+        theme_ici = THEME or "constellation"
+        for autre in [t for t in THEMES if t != theme_ici] + [theme_ici]:
+            QMetaObject.invokeMethod(racine, "appliquerTheme", Qt.DirectConnection,
+                                     Q_ARG("QVariant", autre))
+            app.processEvents()
+        print("  changement    : %s, en direct, sans redemarrer"
+              % " -> ".join([theme_ici] + [t for t in THEMES if t != theme_ici] + [theme_ici]))
 
         uniques = list(dict.fromkeys(plaintes))
         if uniques:
@@ -540,7 +643,8 @@ def main():
                 print("   " + p, file=sys.stderr)
             code["valeur"] = 1
         else:
-            print("  scene QML     : chargee, menu ouvert, aucun avertissement")
+            print("  scene QML     : chargee (theme %s), menu ouvert, aucun "
+                  "avertissement" % (THEME or "constellation"))
             print("  ciel          : %d etoiles instanciees, dont 3 jaunes" % vus)
             print("  reglages      : %d etoiles de reglage instanciees"
                   % vus_reglages)

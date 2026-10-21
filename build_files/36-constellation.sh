@@ -49,11 +49,17 @@ echo "  interprete    : $(python3 --version)"
 # un paquet de developpement et tirerait cmake et pkg-config dans une image de
 # bureau. Le premier permet en plus a la coquille d'appeler le noyau de S
 # DIRECTEMENT, dans le meme processus, sans pont ni port.
-dnf5 install -y python3-pyside6 ibm-plex-sans-fonts ibm-plex-mono-fonts
+# ROBOTO, POUR LE THEME ANDROID (ajoute le 2026-10-21 avec les themes). La
+# police d'Android est le premier signe qu'on y est ; sans elle, Theme.qml
+# retombe sur Noto Sans et le theme ressemble a un bureau Linux deguise. Paquet
+# Fedora, Apache-2.0 et CC0, 4,2 Mio. Celle de Windows (Segoe) n'a pas
+# d'equivalent libre dans les depots, et elle appartient a Microsoft : le
+# theme Windows la prend si l'utilisateur l'a, sinon Selawik, Open Sans, Noto.
+dnf5 install -y python3-pyside6 ibm-plex-sans-fonts ibm-plex-mono-fonts google-roboto-fonts
 
 # Regle 2 du carnet : une installation qui atterrit hors de /usr livrerait une
 # image creuse sans que rien ne le dise.
-if rpm -ql python3-pyside6 ibm-plex-sans-fonts ibm-plex-mono-fonts \
+if rpm -ql python3-pyside6 ibm-plex-sans-fonts ibm-plex-mono-fonts google-roboto-fonts \
    | grep -qE '^/(var|opt)/|^/usr/local/'; then
     echo "ECHEC : un paquet est pose hors de /usr." >&2
     exit 1
@@ -61,6 +67,7 @@ fi
 python3 -c 'import PySide6, PySide6.QtQuick; print("  PySide6       :", PySide6.__version__)'
 # Regle 5 : une ligne de rapport ne fait jamais tomber une image saine.
 echo "  polices       : $(fc-list 2>/dev/null | grep -ci 'IBM Plex' || true) fichiers IBM Plex" || true
+echo "  polices       : $(fc-list 2>/dev/null | grep -ci 'Roboto' || true) fichiers Roboto" || true
 
 # --- Les gestes de la session ---------------------------------------------
 # Le bit d'execution ne survit pas a un depot edite sous Windows ; on le repose
@@ -136,7 +143,11 @@ echo "  activation    : plasma_waitforname ecarte"
 # --- La scene QML ---------------------------------------------------------
 for f in Constellation.qml Theme.qml Astre.qml Tuile.qml Glyphe.qml Anneau.qml \
          Verre.qml Rangee.qml ArticleMenu.qml SeparateurMenu.qml Bulle.qml Barre.qml \
-         Fonds.js Glyphes.js qmldir; do
+         BarreLaterale.qml EtoileReglage.qml Session.qml \
+         FondEcran.qml FondFloute.qml Ombre.qml Panneau.qml IconeApp.qml CielVivant.qml \
+         CarteTheme.qml DemarrerConstellation.qml DemarrerWindows.qml TiroirAndroid.qml \
+         Personnaliser.qml AccueilAndroid.qml TuileReglage.qml CurseurReglage.qml \
+         Fonds.js Glyphes.js Couleurs.js qmldir; do
     [[ -s "$QML/$f" ]] || { echo "ECHEC : $QML/$f absent." >&2; exit 1; }
 done
 [[ -s /usr/share/s/constellation/glyphes/sphere.svg ]] \

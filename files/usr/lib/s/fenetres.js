@@ -547,8 +547,13 @@ function estConstellation(f) {
 // regles-kwin.py est la meme chaine, recopiee ici a la main puisque deux
 // scripts kwin independants (l'un en Python, l'autre en JS) ne partagent
 // rien.
+//
+// LE TITRE COMMENCE PAR « S - notification » DEPUIS LE 2026-10-20 : la bulle
+// change de titre avec le theme (« (bas) » pour Windows, « (haut) » pour
+// Android), c'est ce qui la fait changer de place — voir regles-kwin.py.
+// Comparer au titre exact rendrait ces deux-la invisibles a cette garde.
 function estBulleNotification(f) {
-    return estConstellation(f) && String(f.caption) === "S - notification";
+    return estConstellation(f) && String(f.caption).indexOf("S - notification") === 0;
 }
 
 // LA BARRE ET LA BARRE LATERALE NE DOIVENT JAMAIS GARDER L'ACTIVATION —

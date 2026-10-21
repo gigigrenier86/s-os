@@ -8,6 +8,95 @@ Interface en français.
 
 ---
 
+## 2026-10-20/21 — trois thèmes, et un ciel qui vit : Constellation, Windows 11, Android Material You
+
+Demande de l'utilisateur (orthographe rétablie) : « embellis-moi la constellation multipliée par 10 sans que ça
+coûte toute ma RAM, et crée-moi 2 autres thèmes, un semblable à Windows, un autre de style tablette
+Android, configurables (fond d'écran etc.) sans perdre de fonctionnalités ». Précisé par questions :
+**Windows 11**, **Material You / Pixel**, et pour Constellation le **« Ciel vivant »**. Rien n'est commité
+ni dans l'image à l'heure où j'écris.
+
+### Ce qui a été construit
+
+- **Un seul `Theme` dynamique** (`Theme.qml`, singleton) qui porte des *rôles* (verre, panneau, carte,
+  texte, accent, ombre, rayons, polices, durées) au lieu de couleurs. Les trois thèmes se changent **en
+  direct**, sans relancer la coquille. Les valeurs de Constellation sont **identiques à celles d'avant** :
+  rien ne bouge pour qui garde son thème.
+- **Seul le thème actif est instancié** — des `Loader` choisissent la barre, le menu Démarrer, le volet de
+  réglages et le dessin des étoiles. C'est ce qui tient la mémoire (mesures plus bas).
+- **Windows 11** : barre Mica centrée (marque S, pilule « Rechercher », icônes groupées par application avec
+  indicateur), menu Démarrer acrylique (Épinglé / Recommandé — les vrais fichiers récents de
+  `recently-used.xbel` —, Toutes les applications par lettre, recherche « Meilleure correspondance »,
+  pied avec compte et alimentation), volet de réglages rapides en tuiles + curseurs, bulles en bas à droite,
+  bureau en grille. Le logo à quatre carreaux et l'image « Bloom » appartiennent à Microsoft : ni l'un ni
+  l'autre n'est dans l'image.
+- **Android Material You** : horloge et recherche d'accueil, dock en pilule, tiroir d'applications à puces,
+  volet de réglages à curseurs épais et tuiles en pilule, bulles en haut. La palette est **calculée** à la
+  manière de Material (`Couleurs.js` : OKLCH, rôles « tonal spot ») depuis une graine — la couleur du fond
+  d'écran, ou une graine choisie.
+- **Ciel vivant** (`CielVivant.qml`) : trois profondeurs d'étoiles en parallaxe sur la souris, scintillement,
+  étoile filante toutes les 10 à 25 s, liens colorés entre étoiles posées.
+- **Personnaliser** (clic droit sur le fond, onglet Réglages du menu, ou roue du volet) : thème, neuf fonds
+  peints (`Fonds.js`), les images de l'utilisateur (`~/Images`, ou « Parcourir… » par `kdialog`), mode clair
+  ou sombre, accent de Windows, graine d'Android.
+- **Une image choisie comme fond est analysée une fois** (`Pont.analyserImage`, 10 à 190 ms) : sa couleur
+  dominante devient l'accent ou la graine en automatique, et **sa clarté décide de la couleur des noms
+  d'icônes** — sombres à halo clair sur un fond clair. Une image sans couleur franche (moins de 1 % de
+  l'image) rend une teinte vide et le thème retombe sur son défaut, comme Material le fait.
+- **Roboto** entre dans l'image (`36-constellation.sh`, paquet Fedora, Apache-2.0, 4,2 Mio, tout sous
+  `/usr` et `/etc` vérifié). Segoe n'a pas d'équivalent libre : le thème Windows la prend si elle est là,
+  sinon Selawik, Open Sans, Noto.
+
+### Mesuré — banc logiciel, écran 1920×1080, vraies applications de la machine, 10 s de repos
+
+| | processeur, ciel visible | mémoire au repos | menu ouvert |
+|---|---|---|---|
+| Constellation d'avant | 15,2 % | 150 Mo | 161 Mo |
+| nouvelle, ciel vivant coupé | 14,9 % | 159 Mo | 167 Mo |
+| **ciel vivant, premier jet (60 images/s)** | **66,7 %** | — | — |
+| ciel vivant retenu | **20,5 %** | 164 Mo | 179 Mo |
+| thème Windows | 0,0 % | 161 Mo | 165 Mo |
+| thème Android | 0,0 % | 172 Mo | 178 Mo |
+| n'importe lequel, derrière une fenêtre | **0,0 %** | — | — |
+
+**Le premier jet du ciel coûtait 66,7 %, et c'est la mesure qui l'a tué.** Les couches animées à 60 images/s
+rendaient tout l'écran sale à chaque image. Retenu : **une horloge à 20 Hz**, des couches **posées au pixel**
+(entre deux pixels rien ne change, donc rien ne se redessine — la dérive tombe à presque rien), et un
+scintillement **quantifié au seizième** — c'était lui presque tout le reste (34-38 % sans quantification).
+
+### Les pièges payés pendant la passe
+
+- **`shadowBlur` d'un Canvas est catastrophique en rendu logiciel** : 23 s pour peindre « floraison », 19,6 s
+  pour « ruban » en 1600×900 — le contrôle de construction semblait figé. Aucun `shadowBlur` dans tout le
+  dépôt désormais : ombres en marches décalées, et `Ombre.qml` en huit rectangles empilés.
+- **Le singleton `Session` est vide quand les enfants du bureau naissent** : leur `Component.onCompleted`
+  passe avant celui du bureau. Les menus reçoivent `menu` et `hote` par propriété, jamais par `Session` à la
+  création.
+- **La plateforme `offscreen` a un écran de 800 px** : la barre (qui suit `Screen.width`) semblait tronquée et
+  le dock décentré. Défaut du banc, pas du code — corrigé par un `configfile` d'écran 1920×1080.
+- **Une copie de la scène perd ses images relatives** (`../glyphes/sphere.svg`) : toutes les mesures faites
+  sur une copie, l'ancienne version comprise, étaient sous-estimées de 3 à 5 points. Le tableau ci-dessus a
+  été refait avec les images en place.
+
+### Éprouvé
+
+`verifier-constellation.py` (étendu : chaque thème dans son propre processus, bascule en direct
+constellation ↔ windows ↔ android, menus du thème instanciés, 40 slots au pont, 11 articles au menu de
+fenêtre), `verifier-tuiles.py` (aucune tuile recréée ; le ciel vivant s'arrête derrière une fenêtre),
+`verifier-iptv.py`, balayage par motif (**37** contrôles), `py_compile` — tous verts. Rendus composés des
+trois thèmes, clair et sombre, jugés à l'œil (scratchpad de la session).
+
+### Ce que cette passe ne prouve pas
+
+- **Rien n'a tourné sur la machine.** Aucun clic, aucun survol, aucune bascule de thème dans la vraie session.
+- **Les chiffres GPU n'existent pas** : tout est mesuré en rendu logiciel. Les relever après un vrai
+  démarrage (`ps -o cputimes` de `s-constellation`, ciel visible puis caché) est la première chose à faire.
+- **Les deux nouvelles règles kwin des bulles** (`S - notification (bas)` / `(haut)`, `regles-kwin.py`) n'ont
+  jamais été lues par un vrai kwin.
+- **« Parcourir… » (`kdialog`) n'a jamais été ouvert**, et `analyserImage` n'a été appelé que par un banc.
+- **Le thème Windows sans Segoe n'a été vu qu'avec les polices de repli** de cette machine.
+- **Rien n'est dans l'image** : il faut un commit, une construction, un `bootc upgrade` et un redémarrage.
+
 ## 2026-09-19 — « Constellation n'est pas fluide » : le QML qui tournait n'était pas celui de l'image, et deux animations ne s'arrêtaient jamais
 
 Demande de l'utilisateur, juste après le redémarrage sur `f53a291` : « constellation

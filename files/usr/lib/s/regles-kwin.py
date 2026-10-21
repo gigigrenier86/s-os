@@ -37,6 +37,13 @@ import sys
 # Le titre est le seul moyen de les distinguer, et il doit correspondre mot
 # pour mot au « title: » de Bulle.qml et de Barre.qml.
 TITRE_BULLE = "S - notification"
+# LA BULLE CHANGE DE PLACE AVEC LE THEME — depuis le 2026-10-20. Un titre par
+# place, une regle par titre : la bulle est cachee entre deux notifications, et
+# une fenetre cachee puis montree est NEUVE pour kwin, qui relit ses regles avec
+# le titre du moment. Rien a reecrire quand on change de theme. Ces titres
+# doivent valoir, mot pour mot, ceux de Bulle.qml.
+TITRE_BULLE_BAS = "S - notification (bas)"     # Windows : au-dessus de la barre
+TITRE_BULLE_HAUT = "S - notification (haut)"   # Android : en haut, au centre
 TITRE_BARRE = "S - barre"
 TITRE_LATERALE = "S - barre laterale"
 
@@ -50,6 +57,14 @@ TITRE_LATERALE = "S - barre laterale"
 
 LARGEUR_BULLE = 380
 MARGE_BULLE = 24
+# Windows : la fenetre a une hauteur FIXE et la carte s'y pose en bas (voir
+# Bulle.qml, « hauteurFixe ») — une fenetre qui grandirait vers le bas depuis un
+# coin fixe passerait sous la barre.
+LARGEUR_BULLE_BAS = 364
+HAUTEUR_BULLE_BAS = 220
+MARGE_BULLE_BAS = 12
+LARGEUR_BULLE_HAUT = 400
+MARGE_BULLE_HAUT = 12
 HAUTEUR_BARRE = 52
 # LA FENETRE DE LA BARRE EST PLUS HAUTE QUE LA BARRE, ET LA REGLE DOIT POSER LA
 # FENETRE. Le menu du clic droit est un Popup borne a sa fenetre : il lui faut
@@ -71,7 +86,7 @@ HAUTEUR_FENETRE_BARRE = HAUTEUR_BARRE + 420
 # gauche de celle-ci, dans le reste de la fenetre. Deux fichiers qui doivent
 # rester d'accord finissent par diverger — ce depot le repete depuis
 # « s-partage » — d'ou ce rappel plutot qu'un simple nombre.
-LARGEUR_LATERALE = 300
+LARGEUR_LATERALE = 360
 
 # LE RAPPORT QUI DECIDE DE LA MISE EN PAGE D'ANDROID, ET IL N'EST PAS COSMETIQUE.
 #
@@ -129,6 +144,22 @@ def regles(largeur, hauteur):
         "title": TITRE_BULLE,
         "position": "%d,%d" % (max(0, largeur - LARGEUR_BULLE - MARGE_BULLE),
                                MARGE_BULLE),
+    })
+
+    bulle_bas = dict(COMMUN)
+    bulle_bas.update({
+        "Description": "S - la bulle de notification, en bas a droite (Windows)",
+        "title": TITRE_BULLE_BAS,
+        "position": "%d,%d" % (max(0, largeur - LARGEUR_BULLE_BAS - MARGE_BULLE_BAS),
+                               max(0, hauteur - HAUTEUR_BARRE - MARGE_BULLE_BAS
+                                   - HAUTEUR_BULLE_BAS)),
+    })
+    bulle_haut = dict(COMMUN)
+    bulle_haut.update({
+        "Description": "S - la bulle de notification, en haut au centre (Android)",
+        "title": TITRE_BULLE_HAUT,
+        "position": "%d,%d" % (max(0, (largeur - LARGEUR_BULLE_HAUT) // 2),
+                               MARGE_BULLE_HAUT),
     })
 
     barre = dict(COMMUN)
@@ -240,7 +271,8 @@ def regles(largeur, hauteur):
         "minimizerule": "2",
     }
 
-    return {"s-bulle": bulle, "s-barre": barre, "s-laterale": laterale,
+    return {"s-bulle": bulle, "s-bulle-bas": bulle_bas, "s-bulle-haut": bulle_haut,
+            "s-barre": barre, "s-laterale": laterale,
             "s-android": android, "s-android-systeme": android_systeme}
 
 

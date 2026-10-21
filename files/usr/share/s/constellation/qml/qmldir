@@ -12,3 +12,17 @@ Barre 1.0 Barre.qml
 BarreLaterale 1.0 BarreLaterale.qml
 EtoileReglage 1.0 EtoileReglage.qml
 singleton Session 1.0 Session.qml
+FondEcran 1.0 FondEcran.qml
+FondFloute 1.0 FondFloute.qml
+Ombre 1.0 Ombre.qml
+Panneau 1.0 Panneau.qml
+IconeApp 1.0 IconeApp.qml
+CielVivant 1.0 CielVivant.qml
+CarteTheme 1.0 CarteTheme.qml
+DemarrerConstellation 1.0 DemarrerConstellation.qml
+DemarrerWindows 1.0 DemarrerWindows.qml
+TiroirAndroid 1.0 TiroirAndroid.qml
+Personnaliser 1.0 Personnaliser.qml
+AccueilAndroid 1.0 AccueilAndroid.qml
+TuileReglage 1.0 TuileReglage.qml
+CurseurReglage 1.0 CurseurReglage.qml

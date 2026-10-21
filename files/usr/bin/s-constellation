@@ -647,6 +647,137 @@ class Pont(QObject):
     def reglerFond(self, cle, valeur):
         noyau.sauver_reglage(cle, valeur)
 
+    # ---- Ce que les themes Windows et Android montrent en plus -------------
+    # Ajoute le 2026-10-20 avec les themes. Aucun ne cree de journal ni
+    # d'etat : ils LISENT ce que la machine tient deja.
+
+    @Slot(int, result="QVariant")
+    def recents(self, nombre):
+        """Les derniers fichiers ouverts : les « Recommandes » de Windows."""
+        return noyau.fichiers_recents(nombre)
+
+    @Slot(int, result="QVariant")
+    def images(self, nombre):
+        """Les images de l'utilisateur, pour en faire un fond."""
+        return noyau.images_utilisateur(nombre)
+
+    @Slot(result="QVariant")
+    def utilisateur(self):
+        """Le nom a afficher et l'avatar du compte, pour le pied du menu.
+
+        L'AVATAR EST CELUI QUE S POSE DEJA (s-corriger-machine le depose dans
+        AccountsService au demarrage) ; on prend aussi ~/.face.icon, que KDE
+        ecrit quand on choisit une image dans ses reglages.
+        """
+        import pwd
+        try:
+            entree = pwd.getpwuid(os.getuid())
+            login = entree.pw_name
+            nom = (entree.pw_gecos or "").split(",")[0].strip() or login
+        except KeyError:
+            login = nom = os.environ.get("USER", "")
+        avatar = ""
+        for candidat in (os.path.expanduser("~/.face.icon"),
+                         os.path.expanduser("~/.face"),
+                         "/var/lib/AccountsService/icons/" + login):
+            if os.path.isfile(candidat) and os.access(candidat, os.R_OK):
+                avatar = "file://" + candidat
+                break
+        return {"nom": nom, "avatar": avatar}
+
+    @Slot(str, result="QVariant")
+    def analyserImage(self, chemin):
+        """Ce qu'une image donne a un theme : sa couleur dominante (l'accent de
+        Windows, la graine de Material You, quand ils sont automatiques) et sa
+        clarte (la couleur du texte des icones posees dessus).
+
+        L'IMAGE EST DECODEE EN TOUT PETIT (72 pixels de cote) : QImageReader
+        sait reduire une JPEG a la volee, sans jamais la decoder en grand. On
+        compte ensuite les teintes, ponderees par leur saturation et leur
+        eclat — un ciel gris n'a pas de couleur a donner, une fleur rouge oui —
+        et l'on rend la teinte qui pese le plus, avec son eclat moyen. La
+        clarte, elle, est la luminance moyenne de TOUTE l'image : c'est elle que
+        le texte doit battre, pas la couleur qui domine.
+
+        UNE IMAGE SANS COULEUR FRANCHE REND UNE TEINTE VIDE, et le theme retombe
+        alors sur son defaut (le bleu de Windows, la graine de Material). C'est
+        ce que fait Material lui-meme : sous 1 % de l'image, une couleur ne
+        compte pas, et faute de candidate il rend son bleu. Rendre la moyenne
+        d'une photo grise aurait donne un accent gris a toute la coquille.
+        """
+        from PySide6.QtCore import QSize
+        from PySide6.QtGui import QColor, QImageReader
+        lecteur = QImageReader(chemin)
+        lecteur.setAutoTransform(True)
+        taille = lecteur.size()
+        if taille.isValid() and taille.width() > 0 and taille.height() > 0:
+            facteur = 72.0 / max(taille.width(), taille.height())
+            if facteur < 1:
+                lecteur.setScaledSize(QSize(max(1, int(taille.width() * facteur)),
+                                            max(1, int(taille.height() * facteur))))
+        image = lecteur.read()
+        if image.isNull():
+            print("s-constellation : image illisible pour sa couleur : %s"
+                  % lecteur.errorString(), file=sys.stderr)
+            return {"teinte": "", "clair": False}
+        cases = [[0.0, 0.0, 0.0, 0.0] for _ in range(24)]
+        compte = 0
+        luminance = 0.0
+        for y in range(image.height()):
+            for x in range(image.width()):
+                c = QColor(image.pixel(x, y))
+                r, v, b = c.redF(), c.greenF(), c.blueF()
+                compte += 1
+                luminance += 0.2126 * r + 0.7152 * v + 0.0722 * b
+                teinte, sat, eclat = c.hsvHueF(), c.hsvSaturationF(), c.valueF()
+                if teinte < 0 or sat < 0.18 or eclat < 0.18:
+                    continue
+                poids = sat * eclat
+                case = cases[int(teinte * 24) % 24]
+                case[0] += poids
+                case[1] += teinte * poids
+                case[2] += sat * poids
+                case[3] += eclat * poids
+        n = max(1, compte)
+        clair = (luminance / n) > 0.58
+        meilleure = max(cases, key=lambda k: k[0])
+        if meilleure[0] / n < 0.01:
+            return {"teinte": "", "clair": clair}
+        teinte = meilleure[1] / meilleure[0]
+        sat = min(1.0, meilleure[2] / meilleure[0] * 1.1)
+        eclat = max(0.35, min(0.90, meilleure[3] / meilleure[0]))
+        return {"teinte": QColor.fromHsvF(teinte, sat, eclat).name(), "clair": clair}
+
+    # « PARCOURIR » OUVRE LA VRAIE BOITE DE KDE, et non une boite ecrite ici :
+    # ses favoris, ses apercus, ses dossiers recents. Dans un fil, parce qu'elle
+    # attend un humain — la coquille ne gele pas pendant qu'on choisit. La
+    # reponse revient par « imageChoisie », vide si l'on a annule.
+    imageChoisie = Signal(str)
+
+    @Slot()
+    def choisirImage(self):
+        def travail():
+            import subprocess
+            depart = noyau.dossier_xdg("XDG_PICTURES_DIR", "~/Images")
+            if not os.path.isdir(depart):
+                depart = os.path.expanduser("~")
+            chemin = ""
+            try:
+                fini = subprocess.run(
+                    ["kdialog", "--title", "Choisir un fond d'ecran",
+                     "--getopenfilename", depart,
+                     "Images (*.png *.jpg *.jpeg *.webp *.bmp *.jxl *.avif)"],
+                    capture_output=True, text=True, timeout=900)
+                if fini.returncode == 0:
+                    chemin = fini.stdout.strip()
+            except (OSError, subprocess.SubprocessError) as err:
+                print("s-constellation : boite de choix d'image : %s" % err,
+                      file=sys.stderr)
+            if chemin and not os.path.isfile(chemin):
+                chemin = ""
+            self.imageChoisie.emit(chemin)
+        threading.Thread(target=travail, daemon=True).start()
+
     @Slot(str, result=str)
     def ouvrirDossier(self, chemin):
         import subprocess

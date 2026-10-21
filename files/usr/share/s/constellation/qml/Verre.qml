@@ -9,9 +9,25 @@ import QtQuick
 // de la flouter et de la masquer a un rectangle arrondi, a chaque image. On
 // paierait une passe de rendu par panneau pour un resultat que l'oeil ne
 // distingue pas du a-plat.
+//
+// LES MENUS DE WINDOWS ET D'ANDROID PORTENT UNE OMBRE — ajoutee le 2026-10-20.
+// Elle n'est chargee que si le theme en a une (Theme.ombre) : en
+// Constellation, le Loader reste vide et le verre ne coute rien de plus.
 Rectangle {
+    id: verre
+    property bool ombre: true
     color: Theme.verre
     border.color: Theme.bord
     border.width: 1
     antialiasing: true
+
+    Loader {
+        z: -1
+        anchors.fill: parent
+        anchors.margins: -24
+        active: verre.ombre && Theme.ombre.a > 0
+        sourceComponent: Component {
+            Ombre { marge: 24; flou: 18; decalageY: 6; rayon: verre.radius }
+        }
+    }
 }

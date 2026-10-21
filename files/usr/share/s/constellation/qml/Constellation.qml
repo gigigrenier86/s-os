@@ -61,7 +61,10 @@ ApplicationWindow {
 
     // --- L'etat, tel que le noyau le rend ---------------------------------
     property var donnees: ({ etoiles: [], usage: ({}), placees: ({}), epingles: [], fichiers: [] })
-    property string fondActuel: "nebuleuse"
+    // LE FOND DE CONSTELLATION VIT DANS LE THEME DEPUIS LE 2026-10-20 — chaque
+    // theme garde le sien (voir Theme.qml). Ce nom reste, en lecture, pour ce
+    // qui le lisait deja.
+    readonly property string fondActuel: Theme.fondConstellation
     property bool nomsToujours: false
     // Relevee une fois : la liste des dossiers personnels ne bouge pas
     // pendant une session, et une liaison la redemanderait sans cesse.
@@ -269,8 +272,162 @@ ApplicationWindow {
         // a chaque ouverture de session.
         var r = pont.reglages();
         if (r) {
-            if (r.fond) fondActuel = r.fond;
+            Theme.charger(r);
             nomsToujours = r.noms === true;
+        }
+    }
+
+    // ══ LES THEMES ════════════════════════════════════════════════════════
+    // CHANGER DE THEME NE REDEMARRE RIEN. Le singleton Theme porte les roles
+    // (couleurs, formes, polices) et chaque piece de la coquille les lit : poser
+    // « Theme.nom » suffit, toutes les liaisons se reevaluent, et les Loader
+    // remplacent la barre, le menu et le panneau de reglages par ceux du
+    // nouveau theme. Ceux de l'ancien sont detruits : un seul theme vit a la
+    // fois, c'est ce qui garde la memoire de la coquille la ou elle etait.
+    function appliquerTheme(cle) {
+        if (cle !== "windows" && cle !== "android") cle = "constellation";
+        if (Theme.nom === cle) return;
+        ciel.choisirDans(null);
+        Theme.nom = cle;
+        pont.reglerFond("theme", cle);
+        Qt.callLater(liens.requestPaint);
+        dire("theme : " + Theme.nomDuTheme(cle));
+    }
+
+    // LE FOND DU THEME COURANT — un fond peint, ou « image:<chemin> ». Une image
+    // est mesuree UNE FOIS ici (sa couleur dominante donne l'accent de Windows
+    // et la palette d'Android quand ils sont automatiques), puis gardee dans les
+    // reglages : la remesurer a chaque ouverture couterait un decodage.
+    function choisirFond(id) {
+        var cle = Theme.estWindows ? "fond_windows"
+                : (Theme.estAndroid ? "fond_android" : "fond");
+        if (Theme.estWindows) Theme.fondWindows = id;
+        else if (Theme.estAndroid) Theme.fondAndroid = id;
+        else Theme.fondConstellation = id;
+        pont.reglerFond(cle, id);
+        if (id.indexOf("image:") === 0 && !Theme.estConstellation) {
+            // La mesure s'ecrit MEME VIDE : une teinte vide veut dire « pas de
+            // couleur franche, prends le defaut », et garder celle de l'image
+            // d'avant collerait sa couleur sur celle-ci.
+            var mesure = pont.analyserImage(id.substring(6));
+            if (mesure) {
+                var teinte = String(mesure.teinte || "");
+                var clair = mesure.clair === true;
+                if (Theme.estWindows) {
+                    Theme.teinteWindows = teinte;
+                    Theme.clairWindows = clair;
+                    pont.reglerFond("teinte_windows", teinte);
+                    pont.reglerFond("clair_windows", clair);
+                } else {
+                    Theme.teinteAndroid = teinte;
+                    Theme.clairAndroid = clair;
+                    pont.reglerFond("teinte_android", teinte);
+                    pont.reglerFond("clair_android", clair);
+                }
+            }
+        }
+        var f = Fonds.FONDS[id];
+        dire("fond : " + (f ? f.nom : id.substring(id.lastIndexOf("/") + 1)));
+    }
+
+    // Un reglage du theme — mode, accent, graine, ciel vivant — pose et garde.
+    function reglerTheme(cle, valeur) {
+        if (cle === "sombre_windows") Theme.sombreWindows = valeur === true;
+        else if (cle === "sombre_android") Theme.sombreAndroid = valeur === true;
+        else if (cle === "accent_windows") Theme.accentWindows = String(valeur || "");
+        else if (cle === "graine_android") Theme.graineAndroid = String(valeur || "");
+        else if (cle === "ciel_vivant") Theme.cielVivant = valeur === true;
+        else return;
+        pont.reglerFond(cle, valeur);
+    }
+
+    function ouvrirMenuContextuel(app, ex, ey) {
+        menuContextuel.ouvrirPour(app, ex, ey);
+    }
+
+    // LA BOITE DE PERSONNALISATION VIT DANS LA FENETRE DU BUREAU, qui reste
+    // derriere les autres : on la remonte d'abord, sinon la boite s'ouvrirait
+    // sous la fenetre d'ou on l'a demandee — le piege du menu Demarrer.
+    function ouvrirPersonnaliser() {
+        if (typeof fenetres !== "undefined" && fenetres)
+            fenetres.activerBureau();
+        if (menuDemarrer.visible) menuDemarrer.close();
+        laterale.deploye = false;
+        personnaliser.open();
+    }
+
+    // ══ LA GRILLE DU BUREAU — Windows et Android ══════════════════════════
+    // CONSTELLATION POSE SES ETOILES OU L'ON VEUT ; les deux autres themes
+    // rangent leurs icones en cases, comme les systemes qu'ils imitent. Les
+    // positions gardees restent LES MEMES pour les trois (une fraction de
+    // l'ecran, le centre de l'icone) : la grille ne fait que les aimanter a la
+    // case la plus proche, et revenir en Constellation rend le ciel tel qu'il
+    // etait.
+    function grilleColonnes() {
+        return Math.max(1, Math.floor((ciel.width - Theme.origineX * 2) / Theme.celluleL));
+    }
+    function grilleLignes() {
+        return Math.max(1, Math.floor((ciel.height - barreTaches.hauteur - Theme.origineY - 8)
+                                      / Theme.celluleH));
+    }
+    function centreCellule(c, r) {
+        return { x: Theme.origineX + c * Theme.celluleL + Theme.celluleL / 2,
+                 y: Theme.origineY + r * Theme.celluleH + Theme.celluleH / 2 };
+    }
+    // La case qui contient ce point — ou, si elle est prise, la case libre la
+    // plus proche, cherchee en anneaux autour d'elle. Deux icones ne se
+    // superposent jamais, comme sur un vrai bureau.
+    function celluleLibre(px, py, occupe) {
+        var cols = grilleColonnes(), lignes = grilleLignes();
+        var c0 = Math.max(0, Math.min(cols - 1, Math.floor((px - Theme.origineX) / Theme.celluleL)));
+        var r0 = Math.max(0, Math.min(lignes - 1, Math.floor((py - Theme.origineY) / Theme.celluleH)));
+        if (!occupe[c0 + "," + r0]) return { c: c0, r: r0 };
+        for (var d = 1; d < cols + lignes; d++) {
+            var meilleur = null, dmin = Infinity;
+            for (var dc = -d; dc <= d; dc++) {
+                for (var dr = -d; dr <= d; dr++) {
+                    if (Math.max(Math.abs(dc), Math.abs(dr)) !== d) continue;
+                    var c = c0 + dc, r = r0 + dr;
+                    if (c < 0 || r < 0 || c >= cols || r >= lignes) continue;
+                    if (occupe[c + "," + r]) continue;
+                    var dist = dc * dc + dr * dr;
+                    if (dist < dmin) { dmin = dist; meilleur = { c: c, r: r }; }
+                }
+            }
+            if (meilleur) return meilleur;
+        }
+        // TOUT EST PLEIN : on superpose plutot que de perdre une icone.
+        return { c: c0, r: r0 };
+    }
+    // La premiere case libre en colonnes depuis le coin haut-gauche : la place
+    // d'un fichier qu'on n'a jamais deplace, comme sur n'importe quel bureau.
+    function prochaineCellule(occupe) {
+        var cols = grilleColonnes(), lignes = grilleLignes();
+        for (var c = 0; c < cols; c++)
+            for (var r = 0; r < lignes; r++)
+                if (!occupe[c + "," + r]) return { c: c, r: r };
+        return { c: 0, r: 0 };
+    }
+    // APRES UN GLISSEMENT, chaque icone lachee glisse jusqu'a la case libre la
+    // plus proche, et c'est cette case qui est gardee — pas l'endroit exact du
+    // lacher, qu'une relecture ferait sinon sauter quinze secondes plus tard.
+    function aimanter(liste) {
+        var largeur = ciel.width, hauteur = ciel.height - ciel.margeBasCiel;
+        if (largeur <= 0 || hauteur <= 0) return;
+        var occupe = {};
+        for (var i = 0; i < ciel.children.length; i++) {
+            var c = ciel.children[i];
+            if (c.app === undefined || liste.indexOf(c) >= 0) continue;
+            var k = celluleLibre(c.x + c.width / 2, c.y + c.height / 2, {});
+            occupe[k.c + "," + k.r] = true;
+        }
+        for (var j = 0; j < liste.length; j++) {
+            var a = liste[j];
+            var cel = celluleLibre(a.x + a.width / 2, a.y + a.height / 2, occupe);
+            occupe[cel.c + "," + cel.r] = true;
+            var p = centreCellule(cel.c, cel.r);
+            a.allerA(p.x - a.width / 2, p.y - a.height / 2);
+            pont.placer(a.app.id, p.x / largeur, p.y / hauteur);
         }
     }
 
@@ -282,30 +439,31 @@ ApplicationWindow {
     }
 
     // ══ 1. LE FOND ════════════════════════════════════════════════════════
-    Canvas {
+    // Peint une fois (Fonds.js), ou une image de l'utilisateur : voir
+    // FondEcran.qml, qui sert aussi aux vignettes et au flou de Windows.
+    FondEcran {
         id: fond
         anchors.fill: parent
-        renderStrategy: Canvas.Cooperative
-        onPaint: {
-            // Meme garde et meme temoin que les vignettes : c'est l'autre
-            // appelant de Fonds.js, et rien ne dit lequel des deux a produit
-            // les erreurs du 2026-08-25.
-            if (!isFinite(width) || !isFinite(height) || width <= 0 || height <= 0) {
-                console.warn("fond : dimensions refusees " + width + "x" + height);
-                return;
+
+        // LE REGARD DU CIEL VIVANT. Pose sur le fond, qui couvre tout l'ecran :
+        // un HoverHandler ne bloque pas le survol des etoiles au-dessus.
+        HoverHandler { id: pointeurBureau }
+    }
+
+    // ══ 1 ter. LE CIEL VIVANT (Constellation seulement) ═══════════════════
+    // Voir CielVivant.qml. Charge seulement en Constellation et si l'on n'a
+    // pas coupe le reglage : sinon il n'existe pas du tout, et ne coute rien.
+    Loader {
+        id: chargeCiel
+        anchors.fill: parent
+        active: Theme.estConstellation && Theme.cielVivant
+        sourceComponent: Component {
+            CielVivant {
+                actif: bureau.vivant
+                pointeur: pointeurBureau.point.position
+                survole: pointeurBureau.hovered
             }
-            var g = getContext("2d");
-            var p = Fonds.FONDS[bureau.fondActuel] || Fonds.FONDS.nebuleuse;
-            p.peindre(g, width, height);
         }
-        // Repeint SEULEMENT quand le fond change ou que l'ecran change de
-        // taille. Au repos, ce canevas ne coute rien.
-        Connections {
-            target: bureau
-            function onFondActuelChanged() { fond.requestPaint(); }
-        }
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
     }
 
     // ══ 1 bis. L'AMBIANCE VIVANTE ═════════════════════════════════════════
@@ -318,7 +476,7 @@ ApplicationWindow {
     Item {
         id: ambiance
         anchors.fill: parent
-        visible: bureau.vivant
+        visible: bureau.vivant && Theme.estConstellation
 
         // Plus froide la nuit (bleu sourd), plus chaude au jour (ambre
         // sourd) -- SANS JAMAIS remplacer le fond choisi par l'utilisateur,
@@ -346,22 +504,31 @@ ApplicationWindow {
     Canvas {
         id: liens
         anchors.fill: parent
+        visible: Theme.estConstellation
         renderStrategy: Canvas.Cooperative
         onPaint: {
             var g = getContext("2d");
             g.clearRect(0, 0, width, height);
+            if (!Theme.estConstellation) return;
             // Les liens relient chaque etoile posee a sa plus proche voisine.
             // C'est ce qui fait une constellation plutot qu'un tas d'icones.
             var pts = [];
             for (var i = 0; i < ciel.children.length; i++) {
                 var c = ciel.children[i];
                 if (c.app === undefined) continue;
-                pts.push({ x: c.x + c.width / 2, y: c.y + c.height / 2 });
+                var t = c.teinte;
+                pts.push({ x: c.x + c.width / 2, y: c.y + c.height / 2,
+                           r: Math.round(t.r * 255), v: Math.round(t.g * 255),
+                           b: Math.round(t.b * 255) });
             }
             if (pts.length < 2) return;
-            g.strokeStyle = "rgba(255,255,255,0.16)";
-            g.lineWidth = 1;
-            g.beginPath();
+            // UN LIEN PREND LES COULEURS DES DEUX MONDES QU'IL RELIE — ajoute le
+            // 2026-10-20. Rouge vers bleu entre Konsole et un logiciel Windows,
+            // et blanc voile au milieu : le ciel dit d'un coup d'oeil quels
+            // mondes on a poses cote a cote. Chaque paire n'est tracee qu'une
+            // fois, meme si chacune est la plus proche voisine de l'autre.
+            var vus = {};
+            g.lineWidth = 1.1;
             for (var a = 0; a < pts.length; a++) {
                 var meilleur = -1, d2 = Infinity;
                 for (var b = 0; b < pts.length; b++) {
@@ -370,12 +537,21 @@ ApplicationWindow {
                     var d = dx * dx + dy * dy;
                     if (d < d2) { d2 = d; meilleur = b; }
                 }
-                if (meilleur >= 0) {
-                    g.moveTo(pts[a].x, pts[a].y);
-                    g.lineTo(pts[meilleur].x, pts[meilleur].y);
-                }
+                if (meilleur < 0) continue;
+                var cle = Math.min(a, meilleur) + "-" + Math.max(a, meilleur);
+                if (vus[cle]) continue;
+                vus[cle] = true;
+                var p = pts[a], q = pts[meilleur];
+                var dg = g.createLinearGradient(p.x, p.y, q.x, q.y);
+                dg.addColorStop(0, "rgba(" + p.r + "," + p.v + "," + p.b + ",0.34)");
+                dg.addColorStop(0.5, "rgba(255,255,255,0.12)");
+                dg.addColorStop(1, "rgba(" + q.r + "," + q.v + "," + q.b + ",0.34)");
+                g.strokeStyle = dg;
+                g.beginPath();
+                g.moveTo(p.x, p.y);
+                g.lineTo(q.x, q.y);
+                g.stroke();
             }
-            g.stroke();
         }
     }
 
@@ -406,14 +582,7 @@ ApplicationWindow {
                 return;
             }
             if (event.text.length > 0 && event.text.charCodeAt(0) >= 32) {
-                if (!menuDemarrer.visible) {
-                    menuDemarrer.open();
-                    recherche.text = event.text;
-                } else if (!recherche.activeFocus) {
-                    recherche.text = recherche.text + event.text;
-                }
-                recherche.forceActiveFocus();
-                recherche.cursorPosition = recherche.text.length;
+                menuDemarrer.saisir(event.text);
                 event.accepted = true;
             }
         }
@@ -545,6 +714,44 @@ ApplicationWindow {
                 var sortie = [];
                 var places = bureau.donnees.placees;
 
+                // EN GRILLE, HORS CONSTELLATION — voir « LA GRILLE DU BUREAU »
+                // plus haut. Les memes positions gardees, aimantees a leur case :
+                // une application d'abord, puis un fichier deja place, puis les
+                // fichiers jamais deplaces, dans les cases qui restent.
+                if (!Theme.estConstellation) {
+                    var larg = ciel.width > 0 ? ciel.width : 1920;
+                    var haut = (ciel.height - ciel.margeBasCiel) > 0
+                               ? (ciel.height - ciel.margeBasCiel) : 1010;
+                    var occupe = {};
+                    var poser = function (fx, fy) {
+                        var k = bureau.celluleLibre(fx * larg, fy * haut, occupe);
+                        occupe[k.c + "," + k.r] = true;
+                        var centre = bureau.centreCellule(k.c, k.r);
+                        return { x: centre.x / larg, y: centre.y / haut };
+                    };
+                    for (var idG in places) {
+                        if (bureau.estUnFichier(idG)) continue;
+                        var appG = bureau.appParId(idG);
+                        if (appG) sortie.push({ app: appG, pos: poser(places[idG].x, places[idG].y) });
+                    }
+                    var fsG = bureau.donnees.fichiers || [];
+                    var enAttente = [];
+                    for (var iG = 0; iG < fsG.length; iG++) {
+                        var fG = fsG[iG];
+                        if ((fG.bureau || 0) === 0) continue;
+                        var pG = places[fG.id];
+                        if (pG) sortie.push({ app: fG, pos: poser(pG.x, pG.y) });
+                        else enAttente.push(fG);
+                    }
+                    for (var jG = 0; jG < enAttente.length; jG++) {
+                        var libre = bureau.prochaineCellule(occupe);
+                        occupe[libre.c + "," + libre.r] = true;
+                        var cG = bureau.centreCellule(libre.c, libre.r);
+                        sortie.push({ app: enAttente[jG], pos: { x: cG.x / larg, y: cG.y / haut } });
+                    }
+                    return sortie;
+                }
+
                 for (var ident in places) {
                     // Un fichier place a la main est servi par la boucle
                     // suivante, avec sa position. Le laisser passer ici aussi
@@ -585,6 +792,7 @@ ApplicationWindow {
             }
 
             delegate: Astre {
+                id: astreCiel
                 required property var modelData
                 app: modelData.app
                 diametre: bureau.tailleDe(modelData.app)
@@ -595,8 +803,12 @@ ApplicationWindow {
                 // portent la meme, et sans leur nom rien ne les distingue.
                 montrerNom: bureau.nomsToujours
                             || (modelData.app.src || "") === "fichier"
-                x: modelData.pos.x * ciel.width - diametre / 2
-                y: modelData.pos.y * (ciel.height - ciel.margeBasCiel) - diametre / 2
+                // LE CENTRE DE L'ETOILE, PAS SON COIN — avec « width » et « height »
+                // plutot que le diametre, depuis que la case d'une icone Windows
+                // ou Android n'est plus carree. En Constellation les deux valent
+                // le diametre : rien n'y change.
+                x: modelData.pos.x * ciel.width - width / 2
+                y: modelData.pos.y * (ciel.height - ciel.margeBasCiel) - height / 2
 
                 // UN GLISSEMENT DETRUIT LES DEUX LIAISONS CI-DESSUS, ET IL
                 // FAUT LES REPOSER A LA MAIN. Le DragHandler a « target:
@@ -614,11 +826,19 @@ ApplicationWindow {
                 // Trouve par l'utilisateur a l'ecran, le 2026-08-26.
                 function replacer() {
                     x = Qt.binding(function () {
-                        return modelData.pos.x * ciel.width - diametre / 2;
+                        return modelData.pos.x * ciel.width - width / 2;
                     });
                     y = Qt.binding(function () {
-                        return modelData.pos.y * (ciel.height - ciel.margeBasCiel) - diametre / 2;
+                        return modelData.pos.y * (ciel.height - ciel.margeBasCiel) - height / 2;
                     });
+                }
+
+                // LE CHOIX A LA FACON DE WINDOWS : un clic choisit cette icone
+                // seule, Ctrl+clic l'ajoute aux autres. Voir Astre.choixDemande.
+                onChoixDemande: function (ajouter) {
+                    if (ajouter) { choisi = !choisi; return; }
+                    ciel.choisirDans(null);
+                    choisi = true;
                 }
 
                 onOuvrir: {
@@ -666,7 +886,7 @@ ApplicationWindow {
                     // qu'on sait si l'etoile a ete lachee sur elle — et non
                     // dans la barre, qui ne recoit jamais ce relachement
                     // puisque la souris est tenue par le ciel jusqu'au bout.
-                    if (ny + diametre > ciel.height - barreTaches.hauteur) {
+                    if (ny + height > ciel.height - barreTaches.hauteur) {
                         pont.epingler(app.id, true);
                         bureau.dire((app.nom || "") + " epinglee a la barre");
                         // On ne memorise PAS la position : l'etoile doit
@@ -699,9 +919,24 @@ ApplicationWindow {
                     // l'utilisateur le 2026-08-26 — « plus du tout
                     // deplacables ». L'etoile reste donc ou la souris l'a mise,
                     // et la prochaine relecture lui rendra une liaison fraiche.
+                    // EN GRILLE, L'ICONE GLISSE JUSQU'A SA CASE, et c'est la case
+                    // qui est gardee — pour elle et pour celles qui la suivaient.
+                    if (!Theme.estConstellation) {
+                        var groupe = [astreCiel];
+                        if (choisi) {
+                            for (var g2 = 0; g2 < ciel.children.length; g2++) {
+                                var cg = ciel.children[g2];
+                                if (cg.app === undefined || !cg.choisi
+                                    || cg.app.id === app.id) continue;
+                                groupe.push(cg);
+                            }
+                        }
+                        bureau.aimanter(groupe);
+                        return;
+                    }
                     pont.placer(app.id,
-                                (nx + diametre / 2) / ciel.width,
-                                (ny + diametre / 2) / (ciel.height - ciel.margeBasCiel));
+                                (nx + width / 2) / ciel.width,
+                                (ny + height / 2) / (ciel.height - ciel.margeBasCiel));
 
                     // DEPLACEMENT EN BLOC — demande de l'utilisateur le
                     // 2026-08-28 : selectionner plusieurs etoiles ne servait
@@ -724,8 +959,8 @@ ApplicationWindow {
                             if (c.app === undefined || !c.choisi
                                 || c.app.id === app.id) continue;
                             pont.placer(c.app.id,
-                                        (c.x + c.diametre / 2) / ciel.width,
-                                        (c.y + c.diametre / 2) / (ciel.height - ciel.margeBasCiel));
+                                        (c.x + c.width / 2) / ciel.width,
+                                        (c.y + c.height / 2) / (ciel.height - ciel.margeBasCiel));
                         }
                     }
                     liens.requestPaint();
@@ -733,6 +968,16 @@ ApplicationWindow {
                 onMenuDemande: function (ex, ey) { menuContextuel.ouvrirPour(app, ex, ey); }
             }
         }
+    }
+
+    // ══ 2 bis. L'ACCUEIL D'ANDROID ════════════════════════════════════════
+    // L'horloge en grand et la recherche, en haut de l'ecran d'accueil, comme
+    // sur une tablette. Au-dessus du ciel pour recevoir ses clics, et dans la
+    // bande que la grille des icones laisse libre (Theme.origineY).
+    Loader {
+        anchors.fill: parent
+        active: Theme.estAndroid
+        sourceComponent: Component { AccueilAndroid { } }
     }
 
     // ══ 3. LA BARRE ═══════════════════════════════════════════════════════
@@ -812,6 +1057,18 @@ ApplicationWindow {
         onReglagesDemandes: {
             laterale.deploye = !laterale.deploye;
         }
+        // LA PASTILLE « RECHERCHER » DE WINDOWS : le menu s'ouvre sur sa
+        // recherche, le curseur deja dedans.
+        onRechercheDemandee: {
+            if (typeof fenetres !== "undefined" && fenetres)
+                fenetres.activerBureau();
+            menuDemarrer.ouvrirRecherche();
+        }
+        // LE COIN « AFFICHER LE BUREAU » DE WINDOWS, tout au bout de la barre.
+        onBureauDemande: {
+            if (typeof fenetres !== "undefined" && fenetres)
+                fenetres.activerBureau();
+        }
     }
 
     // ══ 3 bis. LA BARRE LATERALE ══════════════════════════════════════════
@@ -844,6 +1101,7 @@ ApplicationWindow {
             if (cle === "verrouiller") { bureau.dire(pont.session("verrouiller")); return; }
             bureau.dire(pont.reglerRapide(cle, true));
         }
+        onPersonnaliserDemande: bureau.ouvrirPersonnaliser()
     }
 
     Connections {
@@ -855,6 +1113,12 @@ ApplicationWindow {
         // phrase arrive ici, quand il a fini.
         function onReglageFait(dit) {
             bureau.dire(dit);
+        }
+        // LE CHOIX D'UNE IMAGE PASSE PAR LA BOITE DE KDE, dans un fil : la
+        // reponse arrive ici, vide si l'on a annule.
+        function onImageChoisie(chemin) {
+            if (chemin !== "")
+                bureau.choisirFond("image:" + chemin);
         }
     }
 
@@ -875,480 +1139,198 @@ ApplicationWindow {
     }
 
     // ══ 4. LE MENU DEMARRER ═══════════════════════════════════════════════
+    // UN SEUL POPUP POUR LES TROIS THEMES — depuis le 2026-10-20. Ce qu'on y
+    // MONTRE change avec le theme (DemarrerConstellation, DemarrerWindows,
+    // TiroirAndroid, un seul charge a la fois) ; ce qu'on y FAIT ne change
+    // pas, et vit ici une seule fois : la requete, la liste filtree, ce que
+    // veut dire « Entree ». Trois menus qui recopieraient chacun cette logique
+    // finiraient par diverger — ce depot le repete depuis « s-partage ».
     Popup {
         id: menuDemarrer
         objectName: "menuDemarrer"
-        x: (bureau.width - width) / 2
-        y: bureau.height - height - 84
-        width: Math.min(560, bureau.width - 32)
-        height: Math.min(640, bureau.height - 130)
         modal: false
         focus: true
         padding: 0
 
-        background: Verre { radius: Theme.rayon }
+        // Ce qu'on cherche, ecrit par le champ du menu courant.
+        property string requete: ""
+        // Le champ de recherche du menu courant : chaque mise en page l'expose.
+        readonly property var champ: contenuMenu.item ? contenuMenu.item.champRecherche : null
+        property string vue: "apps"
+        // LE DECALAGE QU'ON ANIME, PAS « y ». La position reste une liaison au
+        // theme et a l'ecran ; l'animation d'ouverture ne fait que s'y ajouter.
+        property real decalage: 0
+
+        readonly property real largeurVoulue: Theme.estWindows ? 642
+            : (Theme.estAndroid ? Math.min(1060, bureau.width * 0.64) : 560)
+        readonly property real hauteurVoulue: Theme.estWindows ? 726
+            : (Theme.estAndroid ? bureau.height * 0.84 : 640)
+        width: Math.min(largeurVoulue, bureau.width - 32)
+        height: Math.min(hauteurVoulue, bureau.height - (Theme.estConstellation ? 130 : 88))
+        x: (bureau.width - width) / 2
+        readonly property real yOuvert: bureau.height - height
+            - (Theme.estConstellation ? 84 : (Theme.estWindows ? 64 : 68))
+        y: yOuvert + decalage
+
+        // LE FOND : du verre en Constellation ; l'acrylique de Windows (le fond
+        // flou derriere une teinte) ; une surface Material, floue elle aussi,
+        // pour le tiroir d'Android. Voir Panneau.qml.
+        background: Panneau {
+            rayon: Theme.rayon
+            teinte: Theme.panneau
+            flou: !Theme.estConstellation
+            ox: menuDemarrer.x
+            oy: menuDemarrer.y
+            ecranL: bureau.width
+            ecranH: bureau.height
+        }
 
         enter: Transition {
             ParallelAnimation {
-                NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: Theme.dureeNormale; easing.type: Easing.OutCubic }
-                NumberAnimation { property: "scale"; from: 0.96; to: 1.0; duration: Theme.dureeNormale; easing.type: Easing.OutCubic }
-                NumberAnimation { property: "y"; from: bureau.height - menuDemarrer.height - 64; to: bureau.height - menuDemarrer.height - 84; duration: Theme.dureeNormale; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: Theme.dureeNormale; easing.type: Theme.courbe }
+                NumberAnimation { property: "scale"; from: Theme.estConstellation ? 0.96 : 1.0; to: 1.0; duration: Theme.dureeNormale; easing.type: Theme.courbe }
+                NumberAnimation {
+                    property: "decalage"
+                    from: Theme.estConstellation ? 20 : (Theme.estWindows ? 40 : 72)
+                    to: 0
+                    duration: Theme.dureeNormale + (Theme.estAndroid ? 80 : 0)
+                    easing.type: Theme.courbe
+                }
             }
         }
         exit: Transition {
             ParallelAnimation {
                 NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: Theme.dureeRapide; easing.type: Easing.InQuad }
-                NumberAnimation { property: "scale"; from: 1.0; to: 0.97; duration: Theme.dureeRapide; easing.type: Easing.InQuad }
+                NumberAnimation { property: "scale"; from: 1.0; to: Theme.estConstellation ? 0.97 : 1.0; duration: Theme.dureeRapide; easing.type: Easing.InQuad }
+                NumberAnimation { property: "decalage"; from: 0; to: Theme.estConstellation ? 0 : 28; duration: Theme.dureeRapide; easing.type: Easing.InQuad }
             }
         }
 
-        clip: true
-        onOpened: { recherche.forceActiveFocus(); }
-        onClosed: { recherche.text = ""; }
+        onOpened: if (champ) champ.forceActiveFocus()
+        onClosed: vider()
 
-        property string vue: "apps"
+        contentItem: Loader {
+            id: contenuMenu
+            sourceComponent: Theme.estWindows ? menuWindows
+                           : (Theme.estAndroid ? menuAndroid : menuConstellation)
+        }
+        Component { id: menuConstellation; DemarrerConstellation { menu: menuDemarrer; hote: bureau } }
+        Component { id: menuWindows; DemarrerWindows { menu: menuDemarrer; hote: bureau } }
+        Component { id: menuAndroid; TiroirAndroid { menu: menuDemarrer; hote: bureau } }
 
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            // --- La recherche ---
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 60
-
-                TextField {
-                    id: recherche
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.topMargin: 14
-                    anchors.bottomMargin: 12
-                    anchors.leftMargin: 14
-                    anchors.rightMargin: 14
-                    placeholderText: "Chercher une application ou lancer une recherche Google"
-                    placeholderTextColor: Theme.texte3
-                    color: Theme.texte
-                    font.family: Theme.police
-                    font.pixelSize: 13
-                    background: Rectangle {
-                        radius: 8
-                        color: Theme.verre2
-                        border.width: 1
-                        border.color: recherche.activeFocus ? Theme.bordVif : Theme.bord
-                    }
-                    // Entree lance la premiere reponse ou bascule sur commande/Google
-                    onAccepted: {
-                        var q = recherche.text.trim();
-                        if (q === "") return;
-                        if (q.startsWith("#") || q.startsWith("sudo ") || q.startsWith("pkexec ")) {
-                            bureau.dire(pont.lancer("cmd_root:" + q));
-                            menuDemarrer.close();
-                            return;
-                        }
-                        if (q.startsWith("$") || q.startsWith(">")) {
-                            bureau.dire(pont.lancer("cmd:" + q));
-                            menuDemarrer.close();
-                            return;
-                        }
-                        var l = menuDemarrer.filtrees();
-                        // BOGUE PREEXISTANT, TROUVE LE 2026-09-01 EN TESTANT LE REPLI POUR
-                        // DE VRAI : filtrees() ajoute TOUJOURS trois entrees de secours
-                        // (cmd:, cmd_root:, recherche:) des que le texte n'est pas vide —
-                        // meme quand AUCUNE vraie application ne correspond. « l.length > 0 »
-                        // etait donc TOUJOURS vrai, et l[0] tombait alors sur
-                        // « cmd:<le texte tape tel quel> » : n'importe quelle phrase libre
-                        // partait dans un terminal comme commande shell — « ouvre vivladi »
-                        // executait litteralement « ouvre vivladi ». Ce repli n'avait
-                        // jamais ete atteint une seule fois. On ne peut prendre l[0] a
-                        // l'aveugle que s'il s'agit d'une VRAIE correspondance — jamais
-                        // d'une suggestion de secours.
-                        if (l.length > 0 && l[0].id.indexOf("cmd:") !== 0
-                                && l[0].id.indexOf("cmd_root:") !== 0
-                                && l[0].id.indexOf("recherche:") !== 0) {
-                            bureau.dire(pont.lancer(l[0].id));
-                            bureau.relire();
-                            menuDemarrer.close();
-                        } else {
-                            // Rien de connu ne matche : repli direct sur une
-                            // recherche Google.
-                            bureau.dire(pont.lancer("recherche:" + q));
-                            menuDemarrer.close();
-                        }
-                    }
-                }
+        // Taper au clavier sur le bureau ouvre le menu et ecrit dans sa
+        // recherche — le geste de la page d'origine, pour les trois themes.
+        function saisir(texte) {
+            if (!visible) {
+                open();
+                if (champ) champ.text = texte;
+            } else if (champ && !champ.activeFocus) {
+                champ.text = champ.text + texte;
             }
-
-            // --- Les onglets ---
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 38
-                color: "transparent"
-                Rectangle {
-                    anchors.bottom: parent.bottom
-                    width: parent.width; height: 1
-                    color: Theme.bord
-                }
-                Row {
-                    anchors.left: parent.left
-                    anchors.leftMargin: 12
-                    anchors.bottom: parent.bottom
-                    spacing: 2
-                    Repeater {
-                        model: [
-                            { cle: "apps",     nom: "Applications",  ico: "i-grille" },
-                            { cle: "dossiers", nom: "Dossiers",      ico: "i-dossier" },
-                            { cle: "reglages", nom: "Reglages",      ico: "i-reglages" },
-                            { cle: "alim",     nom: "Alimentation",  ico: "i-alim" }
-                        ]
-                        delegate: Item {
-                            required property var modelData
-                            readonly property bool actif: menuDemarrer.vue === modelData.cle
-                            width: contenuOnglet.width + 24
-                            height: 37
-                            scale: tapOnglet.pressed ? 0.95 : 1.0
-                            Behavior on scale {
-                                NumberAnimation {
-                                    duration: tapOnglet.pressed ? Theme.dureePression : Theme.dureeRapide
-                                    easing.type: Easing.OutCubic
-                                }
-                            }
-                            HoverHandler { id: survolOnglet; cursorShape: Qt.PointingHandCursor }
-                            Row {
-                                id: contenuOnglet
-                                anchors.centerIn: parent
-                                spacing: 7
-                                Glyphe {
-                                    width: 14; height: 14
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    nom: modelData.ico
-                                    couleur: actif ? Theme.texte
-                                                   : (tapOnglet.pressed ? Theme.texte : (survolOnglet.hovered ? Theme.texte2 : Theme.texte3))
-                                    Behavior on couleur { ColorAnimation { duration: Theme.dureeRapide } }
-                                }
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData.nom
-                                    font.family: Theme.police
-                                    font.pixelSize: 12
-                                    color: actif ? Theme.texte
-                                                 : (tapOnglet.pressed ? Theme.texte : (survolOnglet.hovered ? Theme.texte2 : Theme.texte3))
-                                    Behavior on color { ColorAnimation { duration: Theme.dureeRapide } }
-                                }
-                            }
-                            Rectangle {
-                                anchors.bottom: parent.bottom
-                                width: parent.width; height: 2
-                                radius: 1
-                                color: actif ? Theme.texte : "transparent"
-                                Behavior on color { ColorAnimation { duration: Theme.dureeRapide } }
-                            }
-                            TapHandler {
-                                id: tapOnglet
-                                onTapped: menuDemarrer.vue = modelData.cle
-                            }
-                        }
-                    }
-                }
+            if (champ) {
+                champ.forceActiveFocus();
+                champ.cursorPosition = champ.text.length;
             }
+        }
 
-            // --- Le corps, partie APPLICATIONS ---
-            //
-            // UNE GridView, ET PAS UN Repeater DANS UN Flickable. C'est une
-            // correction mesuree au banc le 2026-08-24, et elle vaut d'etre
-            // ecrite parce qu'elle n'a rien d'evident.
-            //
-            // Un Repeater fabrique TOUTES ses tuiles, y compris celles qui
-            // tombent bien en dessous du panneau. Pour du texte et des images,
-            // cela ne se voit pas : le decoupage du Flickable les ecarte.
-            // Mais les anneaux et les glyphes de Constellation sont des Shape,
-            // et un Shape NE RESPECTE PAS le decoupage de ses ancetres —
-            // verifie sur le rendu logiciel ET sur le vrai pipeline GPU. Les
-            // anneaux des tuiles hors panneau se dessinaient donc par-dessus le
-            // bureau, sous la barre des taches.
-            //
-            // Une GridView ne construit que ce qui est visible ; « cacheBuffer:
-            // 0 » lui interdit d'en preparer au-dela, et la hauteur calee sur
-            // un multiple de la cellule, avec SnapToRow, garantit qu'aucune
-            // rangee n'est jamais a cheval sur le bord. Il n'existe alors plus
-            // une seule tuile hors du panneau — le defaut n'est pas masque,
-            // il n'a plus de quoi se produire.
-            Item {
-                id: cadreApps
-                visible: menuDemarrer.vue === "apps"
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+        function vider() {
+            if (champ) champ.text = "";
+            requete = "";
+        }
 
-                GridView {
-                    id: grilleApps
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    y: 14
-                    width: Math.max(0, parent.width - 32)
-                    height: Math.max(cellHeight,
-                                     Math.floor((parent.height - 22) / cellHeight) * cellHeight)
-                    clip: true
-                    cacheBuffer: 0
-                    snapMode: GridView.SnapToRow
-                    boundsBehavior: Flickable.StopAtBounds
+        // Le menu sur sa recherche — la pastille « Rechercher » de Windows,
+        // celle de l'accueil d'Android.
+        function ouvrirRecherche() {
+            vue = "apps";
+            if (!visible) open();
+            if (champ) champ.forceActiveFocus();
+        }
 
-                    readonly property int colonnes: Math.max(1, Math.floor(width / 88))
-                    cellWidth: width / colonnes
-                    cellHeight: 96
+        function lancerApp(app) {
+            if (!app) return;
+            bureau.dire(pont.lancer(app.id));
+            pont.effacerBadge(app.id);
+            bureau.relire();
+            close();
+        }
 
-                    ScrollBar.vertical: ScrollBar { }
-
-                    model: menuDemarrer.vue === "apps" ? menuDemarrer.filtrees() : []
-
-                    delegate: Tuile {
-                        required property var modelData
-                        app: modelData
-                        width: grilleApps.cellWidth - 6
-                        height: grilleApps.cellHeight - 6
-                        onOuvrir: {
-                            Session.bureau.dire(pont.lancer(app.id));
-                            pont.effacerBadge(app.id);
-                            Session.bureau.relire();
-                            Session.menu.close();
-                        }
-                        onEpingler: function (oui) {
-                            pont.epingler(app.id, oui);
-                            Session.bureau.relire();
-                            Session.bureau.dire(oui ? (app.nom + " epinglee")
-                                                    : (app.nom + " retiree de la barre"));
-                        }
-                        onMenuDemande: function (ex, ey) { menuContextuel.ouvrirPour(app, ex, ey); }
-                    }
-                }
+        // Entree lance la premiere reponse ou bascule sur commande/Google
+        function valider() {
+            var q = requete.trim();
+            if (q === "") return;
+            if (q.startsWith("#") || q.startsWith("sudo ") || q.startsWith("pkexec ")) {
+                bureau.dire(pont.lancer("cmd_root:" + q));
+                close();
+                return;
             }
-
-            // --- Le corps, LES AUTRES ONGLETS ---
-            // Ils tiennent sans defiler (mesure : 77, 324 et 155 pixels pour
-            // une hauteur utile de 542), donc aucune tuile hors cadre ici.
-            Flickable {
-                visible: menuDemarrer.vue !== "apps"
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                contentHeight: corps.height
-                clip: true
-                ScrollBar.vertical: ScrollBar { }
-
-                Column {
-                    id: corps
-                    width: parent.width
-                    padding: 16
-                    // LA LARGEUR NEGATIVE, ET C'EST LA CAUSE DES ERREURS DE
-                    // Fonds.js QUE LE CARNET DISAIT INCONNUES.
-                    //
-                    // Tant que la ScrollView n'a pas mesure, « parent.width »
-                    // vaut 0. Les Column filles portaient « parent.width - 32 »
-                    // pour compenser le padding : elles valaient donc -32. La
-                    // Grid dessous heritait -32, son « columns » retombait a 1
-                    // par le Math.max, et chaque vignette calculait
-                    // (-32 - 0) / 1 = -32 de large, -20 de haut.
-                    //
-                    // Releve sur la machine le 2026-08-25 a 18 h, par le temoin
-                    // pose le matin meme :
-                    //     qml: vignette trois : dimensions refusees -32x-20
-                    //
-                    // ET C'EST POURQUOI LE BANC DU MATIN AVAIT REFUTE LA BONNE
-                    // HYPOTHESE. Il avait essaye une taille NULLE, qui n'appelle
-                    // jamais onPaint — vrai, et sans rapport. Une taille
-                    // NEGATIVE, elle, appelle onPaint et passe des valeurs
-                    // impossibles a createRadialGradient. Le banc mesurait le
-                    // mauvais cas et rendait un verdict assure.
-                    //
-                    // Le Math.max borne la soustraction a sa source. Le garde et
-                    // le temoin restent en place : ils ne coutent rien et ils
-                    // viennent de prouver leur valeur.
-                    spacing: 14
-
-                    // ---- Dossiers ----
-                    Column {
-                        visible: menuDemarrer.vue === "dossiers"
-                        width: Math.max(0, parent.width - 32)
-                        spacing: 1
-                        Repeater {
-                            model: bureau.listeDossiers
-                            delegate: Rangee {
-                                required property var modelData
-                                texte: modelData.nom
-                                detail: modelData.detail
-                                glyphe: modelData.ico
-                                onChoisi: {
-                                    Session.bureau.dire(pont.ouvrirDossier(modelData.chemin));
-                                    Session.menu.close();
-                                }
-                            }
-                        }
-                    }
-
-                    // ---- Reglages ----
-                    Column {
-                        visible: menuDemarrer.vue === "reglages"
-                        width: Math.max(0, parent.width - 32)
-                        spacing: 14
-
-                        Text {
-                            text: "FOND D'ECRAN"
-                            color: Theme.texte3
-                            font.family: Theme.policeMono
-                            font.pixelSize: 10
-                            font.letterSpacing: 1.5
-                        }
-                        Grid {
-                            width: parent.width
-                            columns: Math.max(1, Math.floor(width / 113))
-                            spacing: 9
-                            Repeater {
-                                model: Fonds.ORDRE
-                                delegate: Item {
-                                    required property string modelData
-                                    // « parent » est null a l'instant ou le
-                                    // Repeater cree ce delegue — il ne
-                                    // reparente qu'apres — et parent.width vaut
-                                    // alors undefined, donc width vaut NaN.
-                                    // Une taille NaN ne fait rien peindre du
-                                    // tout, ce qui est pire qu'une erreur :
-                                    // c'est une vignette vide sans un mot.
-                                    width: parent
-                                           ? (parent.width - 9 * (parent.columns - 1)) / parent.columns
-                                           : 0
-                                    height: width * 10 / 16
-                                    Canvas {
-                                        id: vignette
-                                        anchors.fill: parent
-                                        onPaint: {
-                                            // GARDE ET TEMOIN. Le journal porte
-                                            // depuis le 2026-08-25 trois
-                                            // « createRadialGradient():
-                                            // Incorrect arguments » venus de
-                                            // Fonds.js, que Qt ne leve que sur
-                                            // une valeur non finie. La cause
-                                            // n'a PAS ete reproduite au banc :
-                                            // une taille nulle n'appelle jamais
-                                            // onPaint, donc l'hypothese « le
-                                            // canevas peint avant d'avoir une
-                                            // taille » est refutee. On refuse
-                                            // donc de peindre l'impossible, ET
-                                            // on ecrit ce qu'on a recu — la
-                                            // prochaine occurrence nommera sa
-                                            // cause au lieu de la cacher.
-                                            if (!isFinite(width) || !isFinite(height)
-                                                || width <= 0 || height <= 0) {
-                                                console.warn("vignette " + modelData
-                                                    + " : dimensions refusees "
-                                                    + width + "x" + height);
-                                                return;
-                                            }
-                                            var g = getContext("2d");
-                                            Fonds.FONDS[modelData].peindre(g, width, height);
-                                        }
-                                        onWidthChanged: requestPaint()
-                                        onHeightChanged: requestPaint()
-                                    }
-                                    Rectangle {
-                                        anchors.fill: parent
-                                        color: "transparent"
-                                        radius: 8
-                                        border.width: 1.5
-                                        border.color: bureau.fondActuel === modelData
-                                                      ? Theme.texte : Theme.bord
-                                    }
-                                    Text {
-                                        anchors.left: parent.left
-                                        anchors.bottom: parent.bottom
-                                        anchors.margins: 5
-                                        text: Fonds.FONDS[modelData].nom
-                                        color: Theme.texte2
-                                        font.family: Theme.police
-                                        font.pixelSize: 10
-                                    }
-                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
-                                    TapHandler {
-                                        onTapped: {
-                                            // NI « bureau » NI « Window.window »
-                                            // ne portent ici — les deux ont ete
-                                            // essayes et le journal les a
-                                            // refutes. Voir Session.qml.
-                                            Session.bureau.fondActuel = modelData;
-                                            pont.reglerFond("fond", modelData);
-                                            Session.bureau.dire(
-                                                "fond : " + Fonds.FONDS[modelData].nom);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Text {
-                            text: "BUREAU"
-                            color: Theme.texte3
-                            font.family: Theme.policeMono
-                            font.pixelSize: 10
-                            font.letterSpacing: 1.5
-                        }
-                        Rangee {
-                            width: parent.width
-                            texte: "Toujours afficher les noms"
-                            detail: bureau.nomsToujours ? "oui" : "non"
-                            glyphe: "i-doc"
-                            onChoisi: {
-                                bureau.nomsToujours = !bureau.nomsToujours;
-                                pont.reglerFond("noms", bureau.nomsToujours);
-                            }
-                        }
-                        Rangee {
-                            width: parent.width
-                            texte: "Vider le bureau"
-                            detail: Object.keys(bureau.donnees.placees).length + " posees"
-                            glyphe: "i-grille"
-                            onChoisi: {
-                                for (var ident in bureau.donnees.placees)
-                                    pont.retirerDuBureau(ident);
-                                bureau.relire();
-                                bureau.dire("bureau vide");
-                            }
-                        }
-                    }
-
-                    // ---- Alimentation ----
-                    Column {
-                        visible: menuDemarrer.vue === "alim"
-                        width: Math.max(0, parent.width - 32)
-                        spacing: 1
-                        Repeater {
-                            model: [
-                                { act: "verrouiller", nom: "Verrouiller",  ico: "i-cadenas",    grave: false },
-                                { act: "deconnecter", nom: "Se deconnecter", ico: "i-sortie",   grave: false },
-                                { act: "redemarrer",  nom: "Redemarrer",   ico: "i-recommence", grave: true },
-                                { act: "eteindre",    nom: "Eteindre",     ico: "i-alim",       grave: true }
-                            ]
-                            delegate: Rangee {
-                                required property var modelData
-                                texte: modelData.nom
-                                glyphe: modelData.ico
-                                grave: modelData.grave
-                                onChoisi: {
-                                    Session.menu.close();
-                                    pont.session(modelData.act);
-                                }
-                            }
-                        }
-                    }
-                }
+            if (q.startsWith("$") || q.startsWith(">")) {
+                bureau.dire(pont.lancer("cmd:" + q));
+                close();
+                return;
             }
+            var l = filtrees();
+            // BOGUE PREEXISTANT, TROUVE LE 2026-09-01 EN TESTANT LE REPLI POUR
+            // DE VRAI : filtrees() ajoute TOUJOURS trois entrees de secours
+            // (cmd:, cmd_root:, recherche:) des que le texte n'est pas vide —
+            // meme quand AUCUNE vraie application ne correspond. « l.length > 0 »
+            // etait donc TOUJOURS vrai, et l[0] tombait alors sur
+            // « cmd:<le texte tape tel quel> » : n'importe quelle phrase libre
+            // partait dans un terminal comme commande shell — « ouvre vivladi »
+            // executait litteralement « ouvre vivladi ». Ce repli n'avait
+            // jamais ete atteint une seule fois. On ne peut prendre l[0] a
+            // l'aveugle que s'il s'agit d'une VRAIE correspondance — jamais
+            // d'une suggestion de secours.
+            if (l.length > 0 && l[0].id.indexOf("cmd:") !== 0
+                    && l[0].id.indexOf("cmd_root:") !== 0
+                    && l[0].id.indexOf("recherche:") !== 0) {
+                bureau.dire(pont.lancer(l[0].id));
+                bureau.relire();
+                close();
+            } else {
+                // Rien de connu ne matche : repli direct sur une
+                // recherche Google.
+                bureau.dire(pont.lancer("recherche:" + q));
+                close();
+            }
+        }
+
+        // TOUTES LES APPLICATIONS, PAR ORDRE ALPHABETIQUE — la liste de Windows
+        // et le tiroir d'Android. Le francais trie « Éditeur » avec les E.
+        function alphabetique() {
+            return bureau.donnees.etoiles.slice().sort(function (a, b) {
+                return (a.nom || "").localeCompare(b.nom || "", "fr", { sensitivity: "base" });
+            });
+        }
+
+        // LES EPINGLEES DU MENU DE WINDOWS : celles de la barre d'abord, puis les
+        // plus lancees, jusqu'a « combien ». Un menu qui n'aurait que trois
+        // epinglees laisserait un grand vide la ou Windows montre une grille.
+        function epinglees(combien) {
+            var sortie = [], vus = {};
+            var ep = bureau.donnees.epingles || [];
+            for (var i = 0; i < ep.length && sortie.length < combien; i++) {
+                var a = bureau.appParId(ep[i]);
+                if (a && !bureau.estUnFichier(a.id) && !vus[a.id]) { sortie.push(a); vus[a.id] = true; }
+            }
+            var parUsage = bureau.donnees.etoiles.slice().sort(function (a, b) {
+                return (b.compte || 0) - (a.compte || 0);
+            });
+            for (var j = 0; j < parUsage.length && sortie.length < combien; j++) {
+                if (!vus[parUsage[j].id]) { sortie.push(parUsage[j]); vus[parUsage[j].id] = true; }
+            }
+            return sortie;
         }
 
         // La recherche universelle classe par pertinence et usage : commandes root/console,
         // correspondance exacte, debut de nom, corps du nom, description/commentaire,
         // monde, catalogue unifie, et en repli les commandes directes et la recherche Web Google.
         function filtrees() {
-            var q = recherche.text.toLowerCase().trim();
+            var q = requete.toLowerCase().trim();
             if (q === "") return bureau.donnees.etoiles;
 
             // Détection explicite de commande root (#, sudo, pkexec)
             if (q.startsWith("#") || q.startsWith("sudo ") || q.startsWith("pkexec ")) {
-                var cmdR = recherche.text.trim().replace(/^[#]|^(sudo\s+)|^(pkexec\s+)/, "").trim();
+                var cmdR = requete.trim().replace(/^[#]|^(sudo\s+)|^(pkexec\s+)/, "").trim();
                 return [{
                     id: "cmd_root:" + cmdR,
                     nom: "Exécuter en root : " + cmdR,
@@ -1364,7 +1346,7 @@ ApplicationWindow {
 
             // Détection explicite de commande console ($, >)
             if (q.startsWith("$") || q.startsWith(">")) {
-                var cmdU = recherche.text.trim().substring(1).trim();
+                var cmdU = requete.trim().substring(1).trim();
                 return [{
                     id: "cmd:" + cmdU,
                     nom: "Exécuter : " + cmdU,
@@ -1436,8 +1418,8 @@ ApplicationWindow {
             // Options de commande console, commande root et recherche Web
             if (q !== "") {
                 resultat.push({
-                    id: "cmd:" + recherche.text.trim(),
-                    nom: "Exécuter : " + recherche.text.trim(),
+                    id: "cmd:" + requete.trim(),
+                    nom: "Exécuter : " + requete.trim(),
                     src: "linux",
                     ico: "i-terminal",
                     img: "",
@@ -1447,8 +1429,8 @@ ApplicationWindow {
                     catalogue: 0
                 });
                 resultat.push({
-                    id: "cmd_root:" + recherche.text.trim(),
-                    nom: "Exécuter en root : " + recherche.text.trim(),
+                    id: "cmd_root:" + requete.trim(),
+                    nom: "Exécuter en root : " + requete.trim(),
                     src: "linux",
                     ico: "i-terminal",
                     img: "",
@@ -1463,7 +1445,7 @@ ApplicationWindow {
                     src: "linux",
                     ico: "i-recherche",
                     img: "",
-                    txt: "Lancer la recherche « " + recherche.text.trim() + " » dans le navigateur",
+                    txt: "Lancer la recherche « " + requete.trim() + " » dans le navigateur",
                     action: "",
                     compte: 0,
                     catalogue: 0
@@ -1524,14 +1506,14 @@ ApplicationWindow {
             pont.desinstallable(cible.id)
 
         background: Verre {
-            radius: 8
-            implicitWidth: 232
+            radius: Theme.rayonMenu
+            implicitWidth: Theme.estAndroid ? 248 : 232
         }
 
         enter: Transition {
             ParallelAnimation {
-                NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: Theme.dureeRapide; easing.type: Easing.OutCubic }
-                NumberAnimation { property: "scale"; from: 0.94; to: 1.0; duration: Theme.dureeRapide; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: Theme.dureeRapide; easing.type: Theme.courbe }
+                NumberAnimation { property: "scale"; from: Theme.estWindows ? 0.98 : 0.94; to: 1.0; duration: Theme.dureeRapide; easing.type: Theme.courbe }
             }
         }
         exit: Transition {
@@ -1726,8 +1708,8 @@ ApplicationWindow {
         }
 
         background: Verre {
-            radius: 8
-            implicitWidth: 244
+            radius: Theme.rayonMenu
+            implicitWidth: Theme.estAndroid ? 256 : 244
         }
 
         enter: Transition {
@@ -1789,7 +1771,12 @@ ApplicationWindow {
         // La grille reste ce que le ciel dessine pour un fichier qu'on n'a
         // jamais deplace, et cela suffit.
 
+        // LES NOMS NE SE CACHENT QU'EN CONSTELLATION. Sous Windows et Android
+        // une icone porte toujours son nom, comme sur les systemes qu'on imite :
+        // proposer de le masquer serait proposer un geste qui n'y existe pas.
         ArticleMenu {
+            visible: Theme.estConstellation
+            height: visible ? implicitHeight : 0
             text: bureau.nomsToujours ? "Masquer les noms" : "Montrer les noms"
             onTriggered: {
                 bureau.nomsToujours = !bureau.nomsToujours;
@@ -1799,14 +1786,12 @@ ApplicationWindow {
 
         SeparateurMenu { }
 
+        // « CHANGER LE FOND… » EST DEVENU « PERSONNALISER… » le 2026-10-20 : le
+        // fond n'est plus qu'une des choses qu'on y choisit, avec le theme, ses
+        // couleurs, et une image a soi.
         ArticleMenu {
-            text: "Changer le fond\u2026"
-            onTriggered: {
-                if (typeof fenetres !== "undefined" && fenetres)
-                    fenetres.activerBureau();
-                menuDemarrer.vue = "reglages";
-                menuDemarrer.open();
-            }
+            text: "Personnaliser\u2026"
+            onTriggered: bureau.ouvrirPersonnaliser()
         }
     }
 
@@ -2003,6 +1988,11 @@ ApplicationWindow {
         }
     }
 
+    // ══ 5 quinquies. PERSONNALISER ════════════════════════════════════════
+    // Le theme, le fond (peint ou une image a soi), les couleurs. Voir
+    // Personnaliser.qml — son contenu n'existe que pendant qu'elle est ouverte.
+    Personnaliser { id: personnaliser }
+
     // Cherche un point du ciel qui ne soit pas deja occupe. Balayage en
     // spirale grossiere : suffisant pour quelques dizaines d'etoiles, et sans
     // le cout d'un vrai placement de graphe.
@@ -2025,25 +2015,30 @@ ApplicationWindow {
     }
 
     // ══ 6. LE MOT FUGACE ══════════════════════════════════════════════════
+    // En Android, c'est un « snackbar » de Material : la surface inversee,
+    // sombre sur un theme clair. Ailleurs, le verre du theme.
     Verre {
         id: mot
         property alias text: motTexte.text
         property bool vu: false
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: 92
-        radius: 7
-        width: motTexte.implicitWidth + 26
-        height: motTexte.implicitHeight + 12
+        anchors.bottomMargin: Theme.estConstellation ? 92 : 78
+        radius: Theme.estAndroid ? 8 : (Theme.estWindows ? 6 : 7)
+        color: Theme.estAndroid ? Theme.palette.inverseSurface : Theme.verre
+        border.color: Theme.estAndroid ? "transparent" : Theme.bord
+        width: motTexte.implicitWidth + (Theme.estConstellation ? 26 : 36)
+        height: motTexte.implicitHeight + (Theme.estConstellation ? 12 : 22)
         opacity: vu ? 1 : 0
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: 240 } }
         Text {
             id: motTexte
             anchors.centerIn: parent
-            color: Theme.texte2
+            color: Theme.estAndroid ? Theme.palette.inverseOnSurface
+                                    : (Theme.estConstellation ? Theme.texte2 : Theme.texte)
             font.family: Theme.policeMono
-            font.pixelSize: 11
+            font.pixelSize: Theme.estConstellation ? 11 : 13
         }
     }
     Timer { id: chrono; interval: 2600; onTriggered: mot.vu = false }
@@ -2123,7 +2118,9 @@ ApplicationWindow {
         // est posee AU-DESSUS de cette fenetre : l'aide y disparaissait.
         anchors.bottomMargin: 74
         spacing: 2
-        visible: bureau.width > 760
+        // Ces gestes sont ceux du ciel : sous Windows et Android, ceux du
+        // systeme qu'on imite s'appliquent, et chacun les connait deja.
+        visible: bureau.width > 760 && Theme.estConstellation
         Repeater {
             model: [
                 "clic droit  epingler, poser sur le bureau",

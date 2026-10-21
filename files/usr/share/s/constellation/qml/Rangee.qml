@@ -51,14 +51,14 @@ Item {
             width: 17; height: 17
             anchors.verticalCenter: parent.verticalCenter
             nom: rangee.glyphe
-            couleur: rangee.grave && survol.hovered ? "#ffbfbf" : Theme.texte2
+            couleur: rangee.grave && survol.hovered ? (Theme.sombre ? "#ffbfbf" : "#c42b1c") : Theme.texte2
         }
 
         Text {
             anchors.verticalCenter: parent.verticalCenter
             width: parent.width - 17 - 13 - detailTexte.implicitWidth - 13
             text: rangee.texte
-            color: rangee.grave && survol.hovered ? "#ffbfbf"
+            color: rangee.grave && survol.hovered ? (Theme.sombre ? "#ffbfbf" : "#c42b1c")
                                                   : (survol.hovered ? Theme.texte : Theme.texte2)
             font.family: Theme.police
             font.pixelSize: 13

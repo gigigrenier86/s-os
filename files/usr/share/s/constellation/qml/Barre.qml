@@ -91,13 +91,15 @@ Window {
         };
     }
 
-    function synchroniserOuvertures() {
-        var liste = barre.ouvertures || [];
-        var m = modeleOuvertures;
-        for (var i = 0; i < liste.length; i++) {
-            var ligne = ligneDeTuile(liste[i]);
+    // LA MISE A JOUR SUR PLACE, ECRITE UNE FOIS POUR LES DEUX MODELES — les
+    // tuiles de Constellation (par fenetre) et les icones groupees de Windows
+    // et d'Android (par application). « champ » est la cle qui dit qu'une
+    // ligne est « la meme » d'une nouvelle de kwin a l'autre.
+    function synchroniser(m, lignes, champ) {
+        for (var i = 0; i < lignes.length; i++) {
+            var ligne = lignes[i];
             var j = i;
-            while (j < m.count && m.get(j).wid !== ligne.wid)
+            while (j < m.count && m.get(j)[champ] !== ligne[champ])
                 j++;
             if (j === m.count) {
                 m.insert(i, ligne);
@@ -110,10 +112,160 @@ Window {
                 if (actuelle[cle] !== ligne[cle])
                     m.setProperty(i, cle, ligne[cle]);
         }
-        while (m.count > liste.length)
+        while (m.count > lignes.length)
             m.remove(m.count - 1);
     }
-    onOuverturesChanged: synchroniserOuvertures()
+
+    function synchroniserOuvertures() {
+        synchroniser(modeleOuvertures, (barre.ouvertures || []).map(ligneDeTuile), "wid");
+    }
+
+    // ══ LES ICONES GROUPEES DE WINDOWS ET D'ANDROID ════════════════════════
+    // UNE ICONE PAR APPLICATION, pas une tuile par fenetre : les epinglees
+    // d'abord, puis ce qui tourne sans etre epingle. Une application ouverte
+    // et epinglee n'a qu'UNE icone, qui porte le trait « ouvert » — c'est la
+    // barre de Windows, et celle d'une tablette Android. Une fenetre qu'aucune
+    // application connue ne revendique (un logiciel Windows : « steam_proton »
+    // pour tous, voir Constellation.qml) garde son icone a elle.
+    ListModel { id: modeleGroupes }
+
+    function groupesVoulus() {
+        var sortie = [], index = {};
+        var ep = (bureau.donnees && bureau.donnees.epingles) ? bureau.donnees.epingles : [];
+        for (var i = 0; i < ep.length; i++) {
+            var a = bureau.appParId(ep[i]);
+            if (!a) continue;
+            var cleA = "app:" + a.id;
+            if (index[cleA] !== undefined) continue;
+            index[cleA] = sortie.length;
+            sortie.push({ cle: cleA, appId: a.id, membres: [], epinglee: true });
+        }
+        var liste = barre.ouvertures || [];
+        for (var j = 0; j < liste.length; j++) {
+            var f = liste[j];
+            var app = bureau.appParId(f.classe) || bureau.appParClasse(f.classe);
+            var cleF = app ? "app:" + app.id : "fen:" + f.id;
+            if (index[cleF] === undefined) {
+                index[cleF] = sortie.length;
+                sortie.push({ cle: cleF, appId: app ? app.id : "", membres: [], epinglee: false });
+            }
+            // « membres » ET NON « fenetres » : le controle de construction
+            // cherche, dans le QML, les appels de methode sur le pont de kwin —
+            // qui s'appelle « fenetres » — et ce nom-la l'aurait trompe.
+            sortie[index[cleF]].membres.push(f);
+        }
+        return sortie.map(function (g) {
+            var wids = [], actif = false, reduites = g.membres.length > 0, titre = "";
+            for (var k = 0; k < g.membres.length; k++) {
+                var fk = g.membres[k];
+                wids.push(String(fk.id || ""));
+                if (fk.active === true && fk.reduite !== true) actif = true;
+                if (fk.reduite !== true) reduites = false;
+                if (titre === "") titre = String(fk.titre || "");
+            }
+            // « === true » partout : un champ absent vaut faux, jamais
+            // « Unable to assign [undefined] to bool ».
+            return { cle: g.cle, appId: g.appId, wids: wids.join("\n"),
+                     nb: g.membres.length, active: actif, reduite: reduites,
+                     titre: titre, epinglee: g.epinglee === true };
+        });
+    }
+
+    // HORS DE CONSTELLATION SEULEMENT : la barre de Constellation n'en a pas
+    // besoin, et le calcul se refait a chaque nouvelle de kwin.
+    function synchroniserGroupes() {
+        if (Theme.estConstellation) {
+            if (modeleGroupes.count > 0) modeleGroupes.clear();
+            return;
+        }
+        synchroniser(modeleGroupes, groupesVoulus(), "cle");
+    }
+
+    function groupeDe(cle) {
+        for (var i = 0; i < modeleGroupes.count; i++) {
+            var g = modeleGroupes.get(i);
+            if (g.cle === cle)
+                return { appId: g.appId, nb: g.nb, active: g.active,
+                         wids: g.wids === "" ? [] : g.wids.split("\n") };
+        }
+        return null;
+    }
+
+    // LE CLIC SUR UNE ICONE GROUPEE, comme chez Windows : rien d'ouvert, on
+    // lance ; une fenetre, on l'affiche ou on la range ; plusieurs, on choisit.
+    function cliquerGroupe(cle, ex) {
+        var g = groupeDe(cle);
+        if (!g) return;
+        if (g.nb === 0) {
+            if (g.appId !== "") {
+                bureau.dire(pont.lancer(g.appId));
+                pont.effacerBadge(g.appId);
+                bureau.relire();
+            }
+            return;
+        }
+        if (g.nb === 1) {
+            barre.activation(g.wids[0], g.active);
+            return;
+        }
+        menuGroupe.ouvrirPour(cle, ex);
+    }
+
+    // LE CLIC DROIT : le menu d'une epinglee si rien n'est ouvert, sinon celui
+    // de la fenetre active du groupe — il porte deja « Fermer », « Ranger » et
+    // l'epinglage.
+    function menuDuGroupe(cle, ex) {
+        var g = groupeDe(cle);
+        if (!g) return;
+        if (g.nb === 0) {
+            var a = bureau.appParId(g.appId);
+            if (a) menuEpinglee.ouvrirPour(a, ex);
+            return;
+        }
+        var cible = g.wids[0];
+        for (var i = 0; i < barre.ouvertures.length; i++) {
+            var f = barre.ouvertures[i];
+            if (g.wids.indexOf(String(f.id)) >= 0 && f.active === true) {
+                cible = String(f.id);
+                break;
+            }
+        }
+        menuFenetre.ouvrirPour({ id: cible }, ex);
+    }
+
+    onOuverturesChanged: {
+        synchroniserOuvertures();
+        synchroniserGroupes();
+    }
+    Connections {
+        target: bureau
+        function onDonneesChanged() { barre.synchroniserGroupes(); }
+    }
+    Connections {
+        target: Theme
+        function onNomChanged() { barre.synchroniserGroupes(); }
+    }
+
+    // ── L'HEURE, COMMUNE AUX TROIS BARRES ──────────────────────────────────
+    // ELLE NE SE REVEILLE QU'AU CHANGEMENT DE MINUTE. L'affichage est
+    // « HH:mm » : un tic par seconde reecrivait soixante fois le meme texte et
+    // reveillait la coquille, donc le compositeur, pour rien. Apres chaque tic
+    // on vise le debut de la minute suivante (+ 50 ms pour tomber franchement
+    // APRES le changement, jamais avant).
+    property string heure: "--:--"
+    property string dateCourte: "--"
+    property string dateNumerique: ""
+    Timer {
+        interval: 1000; running: true; repeat: true; triggeredOnStart: true
+        onTriggered: {
+            var maintenant = new Date();
+            barre.heure = Qt.formatTime(maintenant, "HH:mm");
+            barre.dateCourte = calendrier.formaterDateCourte(maintenant);
+            barre.dateNumerique = Qt.formatDate(maintenant, "dd/MM/yyyy");
+            interval = 60000 - (maintenant.getSeconds() * 1000
+                                + maintenant.getMilliseconds()) + 50;
+        }
+    }
 
     // LE NOM D'UNE EPINGLEE S'AFFICHE AU-DESSUS D'ELLE, JAMAIS DESSUS.
     // L'infobulle de Qt se posait PAR-DESSUS la pastille — il n'y a pas la
@@ -185,6 +337,10 @@ Window {
     // fallait deux pour reduire. La barre, elle, sait ce qu'elle vient de
     // montrer a l'utilisateur — c'est cette verite-la qu'il a cliquee.
     signal activation(string ident, bool estActive)
+    // LA PASTILLE « RECHERCHER » ET LE COIN « AFFICHER LE BUREAU » DE WINDOWS.
+    // La barre previent ; Constellation remonte le bureau et ouvre le menu.
+    signal rechercheDemandee()
+    signal bureauDemande()
 
     // ── La zone sensible ──────────────────────────────────────────────────
     // Meme mecanisme que la barre laterale, meme raison : la fenetre est plus
@@ -213,7 +369,7 @@ Window {
         if (typeof pont === "undefined" || !pont || !pont.bornerBarre)
             return;
         pont.bornerBarre(barre, (menuFenetre.visible || menuEpinglee.visible
-                                  || calendrier.visible)
+                                  || calendrier.visible || menuGroupe.visible)
                                 ? barre.height : barre.hauteur);
     }
 
@@ -232,353 +388,23 @@ Window {
     // LA BANDE VISIBLE EST EN BAS, LE RESTE DE LA FENETRE EST DU VIDE. Ce vide
     // n'avale aucun clic : la zone sensible est posee par « pont.bornerBarre »
     // et ne couvre que cette bande — plus le menu quand il est ouvert.
-    Rectangle {
+    //
+    // ELLE PORTE LA MISE EN PAGE DU THEME — une seule vivante a la fois, dans
+    // un Loader — et, en commun aux trois, l'etiquette, les menus et le
+    // calendrier : ceux-la se positionnent par rapport a la bande, et ne
+    // changent pas de comportement avec le theme.
+    Item {
         id: bande
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         height: barre.hauteur
-        // PLUS OPAQUE QUE LE VERRE DES PANNEAUX, ET C'EST MESURE : a 86 %, le
-        // texte du bureau transparaissait a travers la barre et se melangeait
-        // aux titres des fenetres. Un panneau qu'on regarde de temps en temps
-        // peut etre translucide ; une barre qu'on lit pour choisir une fenetre,
-        // non.
-        color: Qt.rgba(12 / 255, 12 / 255, 20 / 255, 0.97)
-        Rectangle {
-            anchors.top: parent.top
-            anchors.left: parent.left
-            anchors.right: parent.right
-            height: 1
-            color: Theme.bord
-        }
 
-        // ── Le noyau : le menu Demarrer de S ──────────────────────────────
-        Rectangle {
-            id: noyau
-            anchors.left: parent.left
-            anchors.leftMargin: 10
-            anchors.verticalCenter: parent.verticalCenter
-            width: 38; height: 38; radius: 19
-            border.color: Theme.bordVif
-            border.width: 1
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: "#33333f" }
-                GradientStop { position: 0.78; color: "#07070f" }
-            }
-            scale: tapNoyau.pressed ? 0.88 : (survolNoyau.hovered ? 1.08 : 1.0)
-            Behavior on scale {
-                NumberAnimation {
-                    duration: tapNoyau.pressed ? Theme.dureePression : Theme.dureeRapide
-                    easing.type: Easing.OutCubic
-                }
-            }
-
-            HoverHandler { id: survolNoyau; cursorShape: Qt.PointingHandCursor }
-            Rectangle {
-                anchors.centerIn: parent
-                width: tapNoyau.pressed ? 10 : 8
-                height: width
-                radius: width / 2
-                color: "#ffffff"
-                Behavior on width { NumberAnimation { duration: 100 } }
-            }
-            TapHandler { id: tapNoyau; onTapped: barre.menuDemande() }
-        }
-
-        // ── Les epinglees : ce qu'on lance, pas ce qui tourne ──────────────
-        Row {
-            id: epinglees
-            anchors.left: noyau.right
-            anchors.leftMargin: 12
-            anchors.verticalCenter: parent.verticalCenter
-            // ELLES DESCENDENT DE SEPT PIXELS, et c'est tout le correctif :
-            // ces sept pixels, plus les onze deja libres au-dessus, font la
-            // place ou le nom peut s'ecrire sans couvrir la pastille.
-            anchors.verticalCenterOffset: 7
-            spacing: 8
-
-            Repeater {
-                model: bureau.donnees.epingles
-                delegate: Item {
-                    id: itemEp
-                    required property string modelData
-                    readonly property var app: bureau.appParId(modelData)
-                    visible: app !== null
-                    width: visible ? 32 : 0
-                    height: 32
-
-                    scale: tapEp.pressed ? 0.88 : (survolEp.hovered ? 1.12 : 1.0)
-                    Behavior on scale {
-                        NumberAnimation {
-                            duration: tapEp.pressed ? Theme.dureePression : Theme.dureeRapide
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: 16
-                        color: tapEp.pressed ? Theme.verre3 : "transparent"
-                        border.width: 1.5
-                        border.color: app ? Theme.teinte(app.src) : "transparent"
-                        antialiasing: true
-                    }
-                    Image {
-                        id: icoEp
-                        anchors.centerIn: parent
-                        width: 17; height: 17
-                        source: parent.app ? (parent.app.img || "") : ""
-                        sourceSize.width: 34; sourceSize.height: 34
-                        fillMode: Image.PreserveAspectFit
-                        smooth: true
-                        visible: source !== "" && status === Image.Ready
-                    }
-                    Glyphe {
-                        anchors.centerIn: parent
-                        width: 15; height: 15
-                        nom: parent.app ? (parent.app.ico || "i-boite") : "i-boite"
-                        couleur: parent.app ? Theme.teinte(parent.app.src) : Theme.texte2
-                        visible: !icoEp.visible
-                    }
-
-                    HoverHandler { id: survolEp; cursorShape: Qt.PointingHandCursor }
-                    y: survolEp.hovered ? -2 : 0
-                    Behavior on y { NumberAnimation { duration: 150 } }
-
-                    // « parent », A L'INTERIEUR DE Connections, VAUT null.
-                    // Contrairement a TapHandler/HoverHandler/DragHandler
-                    // (des PointerHandler, qui exposent bien leur Item
-                    // englobant), Connections est un simple QtObject -- il
-                    // n'herite jamais de parent visuel. Mesure au banc :
-                    // parent.app levait une TypeError silencieuse a CHAQUE
-                    // survol, et barre.nomSurvole n'etait donc jamais ecrit
-                    // -- ce mecanisme n'a probablement jamais fonctionne.
-                    // itemEp, l'identifiant nomme, resout partout dans ce
-                    // fichier, lui.
-                    Connections {
-                        target: survolEp
-                        function onHoveredChanged() {
-                            if (survolEp.hovered) {
-                                barre.nomSurvole = itemEp.app ? itemEp.app.nom : "";
-                                barre.centreSurvole = itemEp.mapToItem(
-                                    null, itemEp.width / 2, 0).x;
-                            } else if (barre.nomSurvole ===
-                                       (itemEp.app ? itemEp.app.nom : "")) {
-                                barre.nomSurvole = "";
-                            }
-                        }
-                    }
-
-                    // Rebond de lancement style macOS Dock
-                    SequentialAnimation {
-                        id: animRebondEp
-                        NumberAnimation { target: itemEp; property: "y"; to: -8; duration: 120; easing.type: Easing.OutQuad }
-                        NumberAnimation { target: itemEp; property: "y"; to: 0; duration: 220; easing.type: Easing.OutBounce }
-                    }
-
-                    TapHandler {
-                        id: tapEp
-                        onTapped: {
-                            animRebondEp.restart();
-                            bureau.dire(pont.lancer(parent.app.id));
-                            pont.effacerBadge(parent.app.id);
-                            bureau.relire();
-                        }
-                    }
-
-                    // ── LE CLIC DROIT, QUI N'EXISTAIT PAS NON PLUS ICI ─────
-                    // Releve par l'utilisateur le 2026-08-27 (reponse 15) :
-                    // « aucuns clic droit ne fonctionnent sur les apps
-                    // epingles en bas ». Meme trou que celui ferme le
-                    // 2026-08-26 sur les fenetres ouvertes (menuFenetre,
-                    // plus bas) — jamais comble ici.
-                    TapHandler {
-                        acceptedButtons: Qt.RightButton
-                        onTapped: function (point) {
-                            menuEpinglee.ouvrirPour(
-                                parent.app,
-                                parent.mapToItem(null, point.position.x, 0).x);
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── Le trait qui separe « ce qu'on lance » de « ce qui tourne » ────
-        Rectangle {
-            id: coupure
-            anchors.left: epinglees.right
-            anchors.leftMargin: 12
-            anchors.verticalCenter: parent.verticalCenter
-            width: 1
-            height: 22
-            color: Theme.bord
-            visible: barre.ouvertures.length > 0
-        }
-
-        // ── Les fenetres ouvertes ─────────────────────────────────────────
-        // UNE FENETRE PORTE SON TITRE, PAS SEULEMENT SON ICONE, et c'est tout
-        // l'interet : deux Konsole ouvertes ont la meme icone. Sans le titre,
-        // changer de fenetre redevient un tirage au sort — ce qu'Alt+Tab fait
-        // deja, et que cette barre existe pour eviter.
-        Row {
-            id: ouvertes
-            anchors.left: coupure.right
-            anchors.leftMargin: 12
-            anchors.right: horlogeEtDate.left
-            anchors.rightMargin: 12
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 6
-            clip: true
-
-            Repeater {
-                // Nomme pour que build_files/verifier-tuiles.py le retrouve et
-                // compte ses delegues : c'est le seul temoin fiable qu'une
-                // nouvelle de kwin ne reconstruit pas toutes les tuiles.
-                objectName: "tuilesOuvertes"
-                model: modeleOuvertures
-                delegate: Rectangle {
-                    id: tuile
-                    // Les roles du ListModel arrivent en proprietes requises :
-                    // c'est ce qui laisse une tuile vivre pendant que sa fenetre
-                    // change de titre ou de focus.
-                    required property int index
-                    required property string wid
-                    required property string classe
-                    required property string titre
-                    required property bool active
-                    required property bool reduite
-                    // Par identifiant d'abord (le cas courant : la classe
-                    // d'une fenetre est presque toujours l'id de son
-                    // .desktop) — par classe partagee ensuite, pour les
-                    // lanceurs qui reutilisent le meme moteur qu'un autre
-                    // (S Web sur Vivaldi). Voir appParClasse.
-                    readonly property var app: bureau.appParId(tuile.classe)
-                                                || bureau.appParClasse(tuile.classe)
-
-                    // La largeur se partage, avec un plancher et un plafond :
-                    // douze fenetres ouvertes ne doivent pas rendre les titres
-                    // illisibles, et deux ne doivent pas occuper l'ecran.
-                    width: Math.max(46, Math.min(210,
-                        (ouvertes.width - (barre.ouvertures.length - 1) * 6)
-                        / Math.max(1, barre.ouvertures.length)))
-                    // LES TUILES GLISSENT AU LIEU DE SAUTER quand une fenetre
-                    // s'ouvre ou se ferme : les voisines se partagent la place
-                    // en une fraction de seconde, comme une riviere qui se
-                    // repartit, plutot que de se redessiner d'un coup.
-                    Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-                    height: 34
-                    radius: 8
-
-                    // Une tuile nouvelle apparait en fondu.
-                    opacity: 0
-                    Behavior on opacity { NumberAnimation { duration: 180 } }
-                    Component.onCompleted: opacity = 1
-
-                    scale: tapF.pressed ? 0.96 : 1.0
-                    Behavior on scale {
-                        NumberAnimation {
-                            duration: tapF.pressed ? Theme.dureePression : Theme.dureeRapide
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-
-                    color: tapF.pressed ? Theme.verre3
-                         : (tuile.active ? Theme.verre2
-                                             : (survolF.hovered ? Qt.rgba(1,1,1,0.045)
-                                                                : "transparent"))
-                    border.color: tapF.pressed ? Theme.bordVif
-                                : (tuile.active ? Theme.bord : "transparent")
-                    border.width: 1
-                    Behavior on color { ColorAnimation { duration: 100 } }
-
-                    // Le liseré du monde : rouge Linux, bleu Windows, vert
-                    // Android. La meme grammaire que les etoiles du ciel.
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.leftMargin: 1
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 2
-                        height: parent.height - 12
-                        radius: 1
-                        color: parent.app ? Theme.teinte(parent.app.src) : Theme.texte3
-                        opacity: tuile.active ? 1 : 0.55
-                    }
-
-                    Row {
-                        anchors.fill: parent
-                        anchors.leftMargin: 10
-                        anchors.rightMargin: 8
-                        spacing: 7
-
-                        Item {
-                            width: 17; height: 17
-                            anchors.verticalCenter: parent.verticalCenter
-                            Image {
-                                id: icoF
-                                anchors.fill: parent
-                                // « tuile.app », PAS UNE CHAINE DE « parent »
-                                // — nettoyage du 2026-10-20. Trois sauts de
-                                // parent (Image -> Item -> Row -> tuile)
-                                // fonctionnaient, mais casseraient en
-                                // silence (icones vides, sans avertissement)
-                                // au premier Item insere entre eux. L'id du
-                                // delegue, lui, resout partout dans ce bloc.
-                                source: tuile.app ? (tuile.app.img || "") : ""
-                                sourceSize.width: 34; sourceSize.height: 34
-                                fillMode: Image.PreserveAspectFit
-                                smooth: true
-                                visible: source !== "" && status === Image.Ready
-                            }
-                            Glyphe {
-                                anchors.fill: parent
-                                nom: tuile.app ? (tuile.app.ico || "i-boite") : "i-boite"
-                                couleur: Theme.texte2
-                                visible: !icoF.visible
-                            }
-                        }
-
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width - 17 - 7 - 18
-                            text: barre.titreAffiche(tuile.titre)
-                            color: tuile.active ? Theme.texte : Theme.texte2
-                            font.family: Theme.police
-                            font.pixelSize: 12
-                            // Une fenetre reduite se lit en italique : c'est le
-                            // seul etat qu'on ne devine pas en regardant l'ecran.
-                            font.italic: tuile.reduite
-                            elide: Text.ElideRight
-                            visible: parent.parent.width > 90
-                        }
-                    }
-
-                    HoverHandler { id: survolF; cursorShape: Qt.PointingHandCursor }
-                    ToolTip.visible: survolF.hovered && width <= 90
-                    ToolTip.text: barre.titreAffiche(tuile.titre)
-                    ToolTip.delay: 400
-
-                    TapHandler {
-                        id: tapF
-                        onTapped: barre.activation(tuile.wid, tuile.active)
-                    }
-
-                    // ── LE CLIC DROIT, QUI N'EXISTAIT PAS ─────────────────
-                    // Il n'y avait AUCUN moyen de fermer une fenetre depuis
-                    // la barre : il fallait la remonter, viser sa croix, et
-                    // celle d'un programme Windows n'est pas au meme endroit
-                    // que celle d'un programme Linux. Releve par l'utilisateur
-                    // le 2026-08-26 : « pas de clic droit fermer la fenetre ».
-                    TapHandler {
-                        acceptedButtons: Qt.RightButton
-                        onTapped: function (point) {
-                            menuFenetre.ouvrirPour(
-                                { id: tuile.wid },
-                                parent.mapToItem(null, point.position.x, 0).x);
-                        }
-                    }
-                }
-            }
+        Loader {
+            id: miseEnPage
+            anchors.fill: parent
+            sourceComponent: Theme.estWindows ? miseWindows
+                           : (Theme.estAndroid ? miseAndroid : miseConstellation)
         }
 
         // ── Le nom de l'epinglee survolee ─────────────────────────────────
@@ -589,20 +415,29 @@ Window {
             // pas faire deborder son nom hors de l'ecran.
             x: Math.max(4, Math.min(parent.width - width - 4,
                                     barre.centreSurvole - width / 2))
-            y: 2
-            width: nomTexte.implicitWidth + 14
-            height: 15
-            radius: 4
-            color: Qt.rgba(1, 1, 1, 0.10)
+            // EN CONSTELLATION ELLE TIENT DANS LA BANDE, au-dessus de
+            // l'epinglee. AILLEURS ELLE MONTE AU-DESSUS DE LA BARRE, comme
+            // l'infobulle de Windows : la zone que le masque laisse insensible
+            // reste visible — elle n'avale aucun clic, elle se voit.
+            y: Theme.estConstellation ? 2 : -34
+            width: nomTexte.implicitWidth + (Theme.estConstellation ? 14 : 20)
+            height: Theme.estConstellation ? 15 : 28
+            radius: Theme.estConstellation ? 4 : (Theme.estAndroid ? 14 : 4)
+            color: Theme.estConstellation ? Qt.rgba(1, 1, 1, 0.10)
+                 : (Theme.estAndroid ? Theme.palette.inverseSurface
+                                     : (Theme.sombre ? "#2c2c2c" : "#f9f9f9"))
+            border.width: Theme.estWindows ? 1 : 0
+            border.color: Theme.bord
             Text {
                 id: nomTexte
                 anchors.centerIn: parent
                 text: barre.nomSurvole
-                color: Theme.texte
+                color: Theme.estAndroid ? Theme.palette.inverseOnSurface : Theme.texte
                 font.family: Theme.police
-                font.pixelSize: 10
+                font.pixelSize: Theme.estConstellation ? 10 : 12
             }
         }
+
 
         // ── Le menu du clic droit sur une fenetre ─────────────────────────
         //
@@ -684,7 +519,7 @@ Window {
             }
 
             background: Verre {
-                radius: 8
+                radius: Theme.rayonMenu
                 implicitWidth: 268
 
                 // ON SE DETOURNE DU MENU AUSSI SOUVENT QU'ON CLIQUE A COTE, et
@@ -720,6 +555,22 @@ Window {
                         var p = bureau.placeLibre();
                         pont.placer(menuFenetre.cibleApp.id, p.x, p.y);
                     }
+                    bureau.relire();
+                }
+            }
+
+            // « EPINGLER A LA BARRE » DEPUIS LA FENETRE OUVERTE — ajoute le
+            // 2026-10-20 avec les themes : sous Windows, c'est par la qu'on
+            // epingle un logiciel qu'on vient d'ouvrir. Sans objet, comme
+            // l'article d'au-dessus, si aucune application ne correspond.
+            ArticleMenu {
+                visible: menuFenetre.cibleApp !== null
+                height: visible ? implicitHeight : 0
+                readonly property bool epinglee: menuFenetre.cibleApp !== null
+                                                 && (menuFenetre.cibleApp.epingle || 0) > 0
+                text: epinglee ? "Retirer de la barre" : "Epingler a la barre"
+                onTriggered: {
+                    pont.epingler(menuFenetre.cibleApp.id, !epinglee);
                     bureau.relire();
                 }
             }
@@ -827,7 +678,7 @@ Window {
             }
 
             background: Verre {
-                radius: 8
+                radius: Theme.rayonMenu
                 implicitWidth: 232
                 HoverHandler {
                     id: survolMenuEp
@@ -890,6 +741,79 @@ Window {
             id: fermetureMenuEp
             interval: 900
             onTriggered: if (!survolMenuEp.hovered) menuEpinglee.close()
+        }
+
+        // ── Le menu d'une icone qui porte plusieurs fenetres ──────────────
+        // WINDOWS MONTRE DES VIGNETTES ; ICI, LES TITRES. Une vignette demande
+        // de capturer chaque fenetre, ce que kwin reserve a ses propres outils
+        // (voir le carnet, 2026-08-25 : « NoAuthorized »). Le titre dit deja
+        // laquelle est laquelle — c'est pour cela que la barre de
+        // Constellation l'ecrit en toutes lettres.
+        Menu {
+            id: menuGroupe
+            objectName: "menuGroupe"
+            property string cle: ""
+            readonly property var groupe: barre.groupeDe(cle)
+            readonly property var fenetresDuGroupe: {
+                var sortie = [];
+                if (!groupe) return sortie;
+                for (var i = 0; i < barre.ouvertures.length; i++)
+                    if (groupe.wids.indexOf(String(barre.ouvertures[i].id)) >= 0)
+                        sortie.push(barre.ouvertures[i]);
+                return sortie;
+            }
+
+            onVisibleChanged: barre.borner()
+            onXChanged: barre.borner()
+            onYChanged: barre.borner()
+            onHeightChanged: barre.borner()
+            onWidthChanged: barre.borner()
+
+            function ouvrirPour(c, ex) {
+                cle = c;
+                popup(Math.max(4, Math.min(barre.width - implicitWidth - 4,
+                                           ex - implicitWidth / 2)),
+                      -implicitHeight - 6);
+            }
+
+            background: Verre {
+                radius: Theme.rayonMenu
+                implicitWidth: 300
+                HoverHandler {
+                    id: survolMenuGroupe
+                    onHoveredChanged: {
+                        if (hovered)
+                            fermetureMenuGroupe.stop();
+                        else if (menuGroupe.visible)
+                            fermetureMenuGroupe.restart();
+                    }
+                }
+            }
+
+            Repeater {
+                model: menuGroupe.fenetresDuGroupe
+                delegate: ArticleMenu {
+                    required property var modelData
+                    text: (modelData.active === true && modelData.reduite !== true ? "\u25CF  " : "     ")
+                          + barre.titreAffiche(modelData.titre)
+                    onTriggered: barre.activation(String(modelData.id), false)
+                }
+            }
+            SeparateurMenu { }
+            ArticleMenu {
+                enabled: menuGroupe.groupe !== null && menuGroupe.groupe.appId !== ""
+                text: "Ouvrir une nouvelle fenetre"
+                onTriggered: {
+                    bureau.dire(pont.lancer(menuGroupe.groupe.appId));
+                    bureau.relire();
+                }
+            }
+        }
+
+        Timer {
+            id: fermetureMenuGroupe
+            interval: 900
+            onTriggered: if (!survolMenuGroupe.hovered) menuGroupe.close()
         }
 
         // ── LE CALENDRIER, AU CLIC SUR L'HORLOGE ────────────────────────────
@@ -958,7 +882,7 @@ Window {
             }
 
             background: Verre {
-                radius: 8
+                radius: Theme.estAndroid ? 20 : 8
                 implicitWidth: 216
             }
 
@@ -1046,13 +970,13 @@ Window {
                                 anchors.centerIn: parent
                                 width: 20; height: 20
                                 radius: 10
-                                color: estAujourdhui ? Theme.lienVif : "transparent"
+                                color: estAujourdhui ? Theme.accent : "transparent"
                                 visible: dansMois
 
                                 Text {
                                     anchors.centerIn: parent
                                     text: dansMois ? numero : ""
-                                    color: estAujourdhui ? Theme.espace : Theme.texte2
+                                    color: estAujourdhui ? Theme.surAccent : Theme.texte2
                                     font.family: Theme.policeMono
                                     font.pixelSize: 11
                                 }
@@ -1079,184 +1003,953 @@ Window {
             onTriggered: if (!survolCalendrier.hovered) calendrier.close()
         }
 
-        // ── L'heure ET LA DATE, TOUJOURS LES DEUX ───────────────────────────
-        // Demande de l'utilisateur le 2026-08-27 : « je veux voir la date
-        // tout le temps », pas seulement au clic. Deux lignes compactes —
-        // l'heure au-dessus, la date en dessous, plus petite — dans le meme
-        // espace qu'occupait l'heure seule.
-        Column {
-            id: horlogeEtDate
-            // LARGEUR EXPLICITE, PAS DES ANCRES SUR LES ENFANTS — un Column
-            // positionne ses enfants lui-meme (x=0, empiles verticalement) ;
-            // « anchors.right » dessus est ignore en silence, aucun
-            // avertissement pour le dire. C'est la MEME famille de piege que
-            // l'ancrage casse trouve en testant ce correctif : deux enfants
-            // de largeurs differentes se seraient retrouves alignes a
-            // gauche l'un sous l'autre plutot qu'alignes a droite comme
-            // prevu. La largeur se fixe une fois, sur le plus large des deux.
-            width: Math.max(horloge.implicitWidth, dateDuJour.implicitWidth)
-            anchors.right: etoileOption.left
-            anchors.rightMargin: 12
-            anchors.verticalCenter: parent.verticalCenter
-            scale: tapHorloge.pressed ? 0.94 : (survolHorloge.hovered ? 1.05 : 1.0)
-            Behavior on scale {
-                NumberAnimation {
-                    duration: tapHorloge.pressed ? Theme.dureePression : Theme.dureeRapide
-                    easing.type: Easing.OutCubic
+    }
+
+    // ══ LA BARRE DE CONSTELLATION — telle qu'elle etait ══════════════════
+    Component {
+        id: miseConstellation
+        Rectangle {
+            // PLUS OPAQUE QUE LE VERRE DES PANNEAUX, ET C'EST MESURE : a 86 %, le
+            // texte du bureau transparaissait a travers la barre et se melangeait
+            // aux titres des fenetres. Un panneau qu'on regarde de temps en temps
+            // peut etre translucide ; une barre qu'on lit pour choisir une fenetre,
+            // non.
+            color: Qt.rgba(12 / 255, 12 / 255, 20 / 255, 0.97)
+            Rectangle {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Theme.bord
+            }
+
+            // ── Le noyau : le menu Demarrer de S ──────────────────────────────
+            Rectangle {
+                id: noyau
+                anchors.left: parent.left
+                anchors.leftMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                width: 38; height: 38; radius: 19
+                border.color: Theme.bordVif
+                border.width: 1
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "#33333f" }
+                    GradientStop { position: 0.78; color: "#07070f" }
+                }
+                scale: tapNoyau.pressed ? 0.88 : (survolNoyau.hovered ? 1.08 : 1.0)
+                Behavior on scale {
+                    NumberAnimation {
+                        duration: tapNoyau.pressed ? Theme.dureePression : Theme.dureeRapide
+                        easing.type: Easing.OutCubic
+                    }
+                }
+
+                HoverHandler { id: survolNoyau; cursorShape: Qt.PointingHandCursor }
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: tapNoyau.pressed ? 10 : 8
+                    height: width
+                    radius: width / 2
+                    color: "#ffffff"
+                    Behavior on width { NumberAnimation { duration: 100 } }
+                }
+                TapHandler { id: tapNoyau; onTapped: barre.menuDemande() }
+            }
+
+            // ── Les epinglees : ce qu'on lance, pas ce qui tourne ──────────────
+            Row {
+                id: epinglees
+                anchors.left: noyau.right
+                anchors.leftMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
+                // ELLES DESCENDENT DE SEPT PIXELS, et c'est tout le correctif :
+                // ces sept pixels, plus les onze deja libres au-dessus, font la
+                // place ou le nom peut s'ecrire sans couvrir la pastille.
+                anchors.verticalCenterOffset: 7
+                spacing: 8
+
+                Repeater {
+                    model: bureau.donnees.epingles
+                    delegate: Item {
+                        id: itemEp
+                        required property string modelData
+                        readonly property var app: bureau.appParId(modelData)
+                        visible: app !== null
+                        width: visible ? 32 : 0
+                        height: 32
+
+                        scale: tapEp.pressed ? 0.88 : (survolEp.hovered ? 1.12 : 1.0)
+                        Behavior on scale {
+                            NumberAnimation {
+                                duration: tapEp.pressed ? Theme.dureePression : Theme.dureeRapide
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 16
+                            color: tapEp.pressed ? Theme.verre3 : "transparent"
+                            border.width: 1.5
+                            border.color: app ? Theme.teinte(app.src) : "transparent"
+                            antialiasing: true
+                        }
+                        Image {
+                            id: icoEp
+                            anchors.centerIn: parent
+                            width: 17; height: 17
+                            source: parent.app ? (parent.app.img || "") : ""
+                            sourceSize.width: 34; sourceSize.height: 34
+                            fillMode: Image.PreserveAspectFit
+                            smooth: true
+                            visible: source !== "" && status === Image.Ready
+                        }
+                        Glyphe {
+                            anchors.centerIn: parent
+                            width: 15; height: 15
+                            nom: parent.app ? (parent.app.ico || "i-boite") : "i-boite"
+                            couleur: parent.app ? Theme.teinte(parent.app.src) : Theme.texte2
+                            visible: !icoEp.visible
+                        }
+
+                        HoverHandler { id: survolEp; cursorShape: Qt.PointingHandCursor }
+                        y: survolEp.hovered ? -2 : 0
+                        Behavior on y { NumberAnimation { duration: 150 } }
+
+                        // « parent », A L'INTERIEUR DE Connections, VAUT null.
+                        // Contrairement a TapHandler/HoverHandler/DragHandler
+                        // (des PointerHandler, qui exposent bien leur Item
+                        // englobant), Connections est un simple QtObject -- il
+                        // n'herite jamais de parent visuel. Mesure au banc :
+                        // parent.app levait une TypeError silencieuse a CHAQUE
+                        // survol, et barre.nomSurvole n'etait donc jamais ecrit
+                        // -- ce mecanisme n'a probablement jamais fonctionne.
+                        // itemEp, l'identifiant nomme, resout partout dans ce
+                        // fichier, lui.
+                        Connections {
+                            target: survolEp
+                            function onHoveredChanged() {
+                                if (survolEp.hovered) {
+                                    barre.nomSurvole = itemEp.app ? itemEp.app.nom : "";
+                                    barre.centreSurvole = itemEp.mapToItem(
+                                        null, itemEp.width / 2, 0).x;
+                                } else if (barre.nomSurvole ===
+                                           (itemEp.app ? itemEp.app.nom : "")) {
+                                    barre.nomSurvole = "";
+                                }
+                            }
+                        }
+
+                        // Rebond de lancement style macOS Dock
+                        SequentialAnimation {
+                            id: animRebondEp
+                            NumberAnimation { target: itemEp; property: "y"; to: -8; duration: 120; easing.type: Easing.OutQuad }
+                            NumberAnimation { target: itemEp; property: "y"; to: 0; duration: 220; easing.type: Easing.OutBounce }
+                        }
+
+                        TapHandler {
+                            id: tapEp
+                            onTapped: {
+                                animRebondEp.restart();
+                                bureau.dire(pont.lancer(parent.app.id));
+                                pont.effacerBadge(parent.app.id);
+                                bureau.relire();
+                            }
+                        }
+
+                        // ── LE CLIC DROIT, QUI N'EXISTAIT PAS NON PLUS ICI ─────
+                        // Releve par l'utilisateur le 2026-08-27 (reponse 15) :
+                        // « aucuns clic droit ne fonctionnent sur les apps
+                        // epingles en bas ». Meme trou que celui ferme le
+                        // 2026-08-26 sur les fenetres ouvertes (menuFenetre,
+                        // plus bas) — jamais comble ici.
+                        TapHandler {
+                            acceptedButtons: Qt.RightButton
+                            onTapped: function (point) {
+                                menuEpinglee.ouvrirPour(
+                                    parent.app,
+                                    parent.mapToItem(null, point.position.x, 0).x);
+                            }
+                        }
+                    }
                 }
             }
 
-            HoverHandler { id: survolHorloge; cursorShape: Qt.PointingHandCursor }
-
-            Text {
-                id: horloge
-                width: parent.width
-                horizontalAlignment: Text.AlignRight
-                color: Theme.texte
-                font.family: Theme.policeMono
-                font.pixelSize: 12
-                text: "--:--"
-            }
-            Text {
-                id: dateDuJour
-                width: parent.width
-                horizontalAlignment: Text.AlignRight
-                // TEXTE2, PAS TEXTE3 — demande de l'utilisateur le
-                // 2026-08-28 : « la date est pratiquement invisible ». A
-                // 34 % d'opacite (texte3) sur fond sombre, a 9 px, elle
-                // l'etait. texte2 (62 %) et 10 px restent plus discrets que
-                // l'heure sans disparaitre.
-                color: Theme.texte2
-                font.family: Theme.policeMono
-                font.pixelSize: 10
-                text: "--"
+            // ── Le trait qui separe « ce qu'on lance » de « ce qui tourne » ────
+            Rectangle {
+                id: coupure
+                anchors.left: epinglees.right
+                anchors.leftMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
+                width: 1
+                height: 22
+                color: Theme.bord
+                visible: barre.ouvertures.length > 0
             }
 
-            // ELLE NE SE REVEILLE QU'AU CHANGEMENT DE MINUTE. L'affichage est
-            // « HH:mm » : un tic par seconde reecrivait soixante fois le meme
-            // texte et reveillait la coquille, donc le compositeur, pour rien.
-            // Apres chaque tic on vise le debut de la minute suivante (+ 50 ms
-            // pour tomber franchement APRES le changement, jamais avant).
-            Timer {
-                interval: 1000; running: true; repeat: true; triggeredOnStart: true
-                onTriggered: {
-                    var maintenant = new Date();
-                    horloge.text = Qt.formatTime(maintenant, "HH:mm");
-                    dateDuJour.text = calendrier.formaterDateCourte(maintenant);
-                    interval = 60000 - (maintenant.getSeconds() * 1000
-                                        + maintenant.getMilliseconds()) + 50;
+            // ── Les fenetres ouvertes ─────────────────────────────────────────
+            // UNE FENETRE PORTE SON TITRE, PAS SEULEMENT SON ICONE, et c'est tout
+            // l'interet : deux Konsole ouvertes ont la meme icone. Sans le titre,
+            // changer de fenetre redevient un tirage au sort — ce qu'Alt+Tab fait
+            // deja, et que cette barre existe pour eviter.
+            Row {
+                id: ouvertes
+                anchors.left: coupure.right
+                anchors.leftMargin: 12
+                anchors.right: horlogeEtDate.left
+                anchors.rightMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 6
+                clip: true
+
+                Repeater {
+                    // Nomme pour que build_files/verifier-tuiles.py le retrouve et
+                    // compte ses delegues : c'est le seul temoin fiable qu'une
+                    // nouvelle de kwin ne reconstruit pas toutes les tuiles.
+                    objectName: "tuilesOuvertes"
+                    model: modeleOuvertures
+                    delegate: Rectangle {
+                        id: tuile
+                        // Les roles du ListModel arrivent en proprietes requises :
+                        // c'est ce qui laisse une tuile vivre pendant que sa fenetre
+                        // change de titre ou de focus.
+                        required property int index
+                        required property string wid
+                        required property string classe
+                        required property string titre
+                        required property bool active
+                        required property bool reduite
+                        // Par identifiant d'abord (le cas courant : la classe
+                        // d'une fenetre est presque toujours l'id de son
+                        // .desktop) — par classe partagee ensuite, pour les
+                        // lanceurs qui reutilisent le meme moteur qu'un autre
+                        // (S Web sur Vivaldi). Voir appParClasse.
+                        readonly property var app: bureau.appParId(tuile.classe)
+                                                    || bureau.appParClasse(tuile.classe)
+
+                        // La largeur se partage, avec un plancher et un plafond :
+                        // douze fenetres ouvertes ne doivent pas rendre les titres
+                        // illisibles, et deux ne doivent pas occuper l'ecran.
+                        width: Math.max(46, Math.min(210,
+                            (ouvertes.width - (barre.ouvertures.length - 1) * 6)
+                            / Math.max(1, barre.ouvertures.length)))
+                        // LES TUILES GLISSENT AU LIEU DE SAUTER quand une fenetre
+                        // s'ouvre ou se ferme : les voisines se partagent la place
+                        // en une fraction de seconde, comme une riviere qui se
+                        // repartit, plutot que de se redessiner d'un coup.
+                        Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                        height: 34
+                        radius: 8
+
+                        // Une tuile nouvelle apparait en fondu.
+                        opacity: 0
+                        Behavior on opacity { NumberAnimation { duration: 180 } }
+                        Component.onCompleted: opacity = 1
+
+                        scale: tapF.pressed ? 0.96 : 1.0
+                        Behavior on scale {
+                            NumberAnimation {
+                                duration: tapF.pressed ? Theme.dureePression : Theme.dureeRapide
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+
+                        color: tapF.pressed ? Theme.verre3
+                             : (tuile.active ? Theme.verre2
+                                                 : (survolF.hovered ? Qt.rgba(1,1,1,0.045)
+                                                                    : "transparent"))
+                        border.color: tapF.pressed ? Theme.bordVif
+                                    : (tuile.active ? Theme.bord : "transparent")
+                        border.width: 1
+                        Behavior on color { ColorAnimation { duration: 100 } }
+
+                        // Le liseré du monde : rouge Linux, bleu Windows, vert
+                        // Android. La meme grammaire que les etoiles du ciel.
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 1
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 2
+                            height: parent.height - 12
+                            radius: 1
+                            color: parent.app ? Theme.teinte(parent.app.src) : Theme.texte3
+                            opacity: tuile.active ? 1 : 0.55
+                        }
+
+                        Row {
+                            anchors.fill: parent
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 8
+                            spacing: 7
+
+                            Item {
+                                width: 17; height: 17
+                                anchors.verticalCenter: parent.verticalCenter
+                                Image {
+                                    id: icoF
+                                    anchors.fill: parent
+                                    // « tuile.app », PAS UNE CHAINE DE « parent »
+                                    // — nettoyage du 2026-10-20. Trois sauts de
+                                    // parent (Image -> Item -> Row -> tuile)
+                                    // fonctionnaient, mais casseraient en
+                                    // silence (icones vides, sans avertissement)
+                                    // au premier Item insere entre eux. L'id du
+                                    // delegue, lui, resout partout dans ce bloc.
+                                    source: tuile.app ? (tuile.app.img || "") : ""
+                                    sourceSize.width: 34; sourceSize.height: 34
+                                    fillMode: Image.PreserveAspectFit
+                                    smooth: true
+                                    visible: source !== "" && status === Image.Ready
+                                }
+                                Glyphe {
+                                    anchors.fill: parent
+                                    nom: tuile.app ? (tuile.app.ico || "i-boite") : "i-boite"
+                                    couleur: Theme.texte2
+                                    visible: !icoF.visible
+                                }
+                            }
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width - 17 - 7 - 18
+                                text: barre.titreAffiche(tuile.titre)
+                                color: tuile.active ? Theme.texte : Theme.texte2
+                                font.family: Theme.police
+                                font.pixelSize: 12
+                                // Une fenetre reduite se lit en italique : c'est le
+                                // seul etat qu'on ne devine pas en regardant l'ecran.
+                                font.italic: tuile.reduite
+                                elide: Text.ElideRight
+                                visible: parent.parent.width > 90
+                            }
+                        }
+
+                        HoverHandler { id: survolF; cursorShape: Qt.PointingHandCursor }
+                        ToolTip.visible: survolF.hovered && width <= 90
+                        ToolTip.text: barre.titreAffiche(tuile.titre)
+                        ToolTip.delay: 400
+
+                        TapHandler {
+                            id: tapF
+                            onTapped: barre.activation(tuile.wid, tuile.active)
+                        }
+
+                        // ── LE CLIC DROIT, QUI N'EXISTAIT PAS ─────────────────
+                        // Il n'y avait AUCUN moyen de fermer une fenetre depuis
+                        // la barre : il fallait la remonter, viser sa croix, et
+                        // celle d'un programme Windows n'est pas au meme endroit
+                        // que celle d'un programme Linux. Releve par l'utilisateur
+                        // le 2026-08-26 : « pas de clic droit fermer la fenetre ».
+                        TapHandler {
+                            acceptedButtons: Qt.RightButton
+                            onTapped: function (point) {
+                                menuFenetre.ouvrirPour(
+                                    { id: tuile.wid },
+                                    parent.mapToItem(null, point.position.x, 0).x);
+                            }
+                        }
+                    }
                 }
             }
 
-            // UN CLIC GAUCHE OUVRE LE CALENDRIER — demande de l'utilisateur,
-            // meme geste. HoverHandler existe deja partout dans ce fichier
-            // pour le survol ; ici c'est un TapHandler, comme les etoiles et
-            // les epinglees.
-            TapHandler {
-                id: tapHorloge
-                acceptedButtons: Qt.LeftButton
-                onTapped: calendrier.ouvrirPour(
-                    horlogeEtDate.x + horlogeEtDate.width / 2)
+
+            // ── L'heure ET LA DATE, TOUJOURS LES DEUX ───────────────────────────
+            // Demande de l'utilisateur le 2026-08-27 : « je veux voir la date
+            // tout le temps », pas seulement au clic. Deux lignes compactes —
+            // l'heure au-dessus, la date en dessous, plus petite — dans le meme
+            // espace qu'occupait l'heure seule.
+            Column {
+                id: horlogeEtDate
+                // LARGEUR EXPLICITE, PAS DES ANCRES SUR LES ENFANTS — un Column
+                // positionne ses enfants lui-meme (x=0, empiles verticalement) ;
+                // « anchors.right » dessus est ignore en silence, aucun
+                // avertissement pour le dire. C'est la MEME famille de piege que
+                // l'ancrage casse trouve en testant ce correctif : deux enfants
+                // de largeurs differentes se seraient retrouves alignes a
+                // gauche l'un sous l'autre plutot qu'alignes a droite comme
+                // prevu. La largeur se fixe une fois, sur le plus large des deux.
+                width: Math.max(horloge.implicitWidth, dateDuJour.implicitWidth)
+                anchors.right: etoileOption.left
+                anchors.rightMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
+                scale: tapHorloge.pressed ? 0.94 : (survolHorloge.hovered ? 1.05 : 1.0)
+                Behavior on scale {
+                    NumberAnimation {
+                        duration: tapHorloge.pressed ? Theme.dureePression : Theme.dureeRapide
+                        easing.type: Easing.OutCubic
+                    }
+                }
+
+                HoverHandler { id: survolHorloge; cursorShape: Qt.PointingHandCursor }
+
+                Text {
+                    id: horloge
+                    width: parent.width
+                    horizontalAlignment: Text.AlignRight
+                    color: Theme.texte
+                    font.family: Theme.policeMono
+                    font.pixelSize: 12
+                    text: barre.heure
+                }
+                Text {
+                    id: dateDuJour
+                    width: parent.width
+                    horizontalAlignment: Text.AlignRight
+                    // TEXTE2, PAS TEXTE3 — demande de l'utilisateur le
+                    // 2026-08-28 : « la date est pratiquement invisible ». A
+                    // 34 % d'opacite (texte3) sur fond sombre, a 9 px, elle
+                    // l'etait. texte2 (62 %) et 10 px restent plus discrets que
+                    // l'heure sans disparaitre.
+                    color: Theme.texte2
+                    font.family: Theme.policeMono
+                    font.pixelSize: 10
+                    text: barre.dateCourte
+                }
+
+                // UN CLIC GAUCHE OUVRE LE CALENDRIER — demande de l'utilisateur,
+                // meme geste. HoverHandler existe deja partout dans ce fichier
+                // pour le survol ; ici c'est un TapHandler, comme les etoiles et
+                // les epinglees.
+                TapHandler {
+                    id: tapHorloge
+                    acceptedButtons: Qt.LeftButton
+                    onTapped: calendrier.ouvrirPour(
+                        horlogeEtDate.x + horlogeEtDate.width / 2)
+                }
+            }
+
+            // ── L'étoile option (réglages rapides) ──────────────────────────────
+            // Placée à côté de l'heure, pile sous la colonne des réglages.
+            // Un clic fait monter la barre de réglages au-dessus de la barre des tâches.
+            //
+            // SA COULEUR COULE QUAND ON L'APPROCHE, PAS TOUT LE TEMPS. Elle
+            // parcourait bleu → rouge → vert → jaune en boucle infinie, sans
+            // condition, pour toute la vie de la session. Or la barre est TOUJOURS
+            // visible, et cette couleur alimente quatre liaisons ET un Glyphe — un
+            // Canvas, repeint et renvoye au GPU a CHAQUE changement de couleur :
+            // soixante repeints par seconde, jour et nuit, pour une etoile de 32
+            // pixels que personne ne regarde. Mesure du 2026-09-19 sur le banc de
+            // fluidite : c'est le plancher de 3,1 % de CPU qui restait meme avec un
+            // jeu en plein ecran.
+            //
+            // La phase (0 a 4, une teinte par unite) est UNE seule propriete animee,
+            // en pause tant que rien ne la regarde : une animation en pause n'est
+            // pas cadencee, donc le compositeur n'est plus reveille. Elle repart la
+            // ou elle s'etait arretee, sans saut. Le point de depart est tire au sort
+            // — comme les couleurs de la barre laterale a chaque ouverture — pour
+            // que l'etoile au repos ne soit pas toujours bleue.
+            Rectangle {
+                id: etoileOption
+                width: 32
+                height: 32
+                radius: 16
+                anchors.right: parent.right
+                anchors.rightMargin: 14
+                anchors.verticalCenter: parent.verticalCenter
+
+                readonly property var teintes: [Theme.windows, Theme.linux, Theme.android, Theme.fichier]
+                readonly property real depart: Math.random() * 4
+                property real phase: 0
+                readonly property color teinteEtoile: {
+                    var p = (phase + depart) % 4;
+                    var i = Math.floor(p);
+                    var t = p - i;
+                    var a = teintes[i], b = teintes[(i + 1) % 4];
+                    return Qt.rgba(a.r + (b.r - a.r) * t,
+                                   a.g + (b.g - a.g) * t,
+                                   a.b + (b.b - a.b) * t, 1);
+                }
+
+                NumberAnimation on phase {
+                    from: 0; to: 4; duration: 10000
+                    loops: Animation.Infinite
+                    running: true
+                    paused: !(survolOption.hovered || barre.reglagesOuverts)
+                }
+
+                color: tapOption.pressed ? Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.28)
+                                         : (barre.reglagesOuverts ? Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.20)
+                                                                  : (survolOption.hovered ? Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.14)
+                                                                                          : Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.05)))
+                border.color: tapOption.pressed ? teinteEtoile
+                                                : (barre.reglagesOuverts ? teinteEtoile
+                                                                         : (survolOption.hovered ? Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.60)
+                                                                                                 : Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.22)))
+                border.width: 1
+                antialiasing: true
+
+                scale: tapOption.pressed ? 0.90 : ((survolOption.hovered || barre.reglagesOuverts) ? 1.08 : 1.0)
+                Behavior on scale {
+                    NumberAnimation {
+                        duration: tapOption.pressed ? Theme.dureePression : Theme.dureeRapide
+                        easing.type: Easing.OutCubic
+                    }
+                }
+
+                HoverHandler {
+                    id: survolOption
+                    cursorShape: Qt.PointingHandCursor
+                }
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 22
+                    height: 22
+                    radius: 11
+                    color: "transparent"
+                    border.color: etoileOption.teinteEtoile
+                    border.width: 1.5
+                    opacity: barre.reglagesOuverts ? 0.95 : (survolOption.hovered ? 0.80 : 0.45)
+                    Behavior on opacity { NumberAnimation { duration: Theme.dureeRapide } }
+                }
+
+                Glyphe {
+                    anchors.centerIn: parent
+                    width: 14
+                    height: 14
+                    nom: "i-etincelle"
+                    couleur: etoileOption.teinteEtoile
+                }
+
+                TapHandler {
+                    id: tapOption
+                    acceptedButtons: Qt.LeftButton
+                    onTapped: barre.reglagesDemandes()
+                }
             }
         }
+    }
 
-        // ── L'étoile option (réglages rapides) ──────────────────────────────
-        // Placée à côté de l'heure, pile sous la colonne des réglages.
-        // Un clic fait monter la barre de réglages au-dessus de la barre des tâches.
-        //
-        // SA COULEUR COULE QUAND ON L'APPROCHE, PAS TOUT LE TEMPS. Elle
-        // parcourait bleu → rouge → vert → jaune en boucle infinie, sans
-        // condition, pour toute la vie de la session. Or la barre est TOUJOURS
-        // visible, et cette couleur alimente quatre liaisons ET un Glyphe — un
-        // Canvas, repeint et renvoye au GPU a CHAQUE changement de couleur :
-        // soixante repeints par seconde, jour et nuit, pour une etoile de 32
-        // pixels que personne ne regarde. Mesure du 2026-09-19 sur le banc de
-        // fluidite : c'est le plancher de 3,1 % de CPU qui restait meme avec un
-        // jeu en plein ecran.
-        //
-        // La phase (0 a 4, une teinte par unite) est UNE seule propriete animee,
-        // en pause tant que rien ne la regarde : une animation en pause n'est
-        // pas cadencee, donc le compositeur n'est plus reveille. Elle repart la
-        // ou elle s'etait arretee, sans saut. Le point de depart est tire au sort
-        // — comme les couleurs de la barre laterale a chaque ouverture — pour
-        // que l'etoile au repos ne soit pas toujours bleue.
-        Rectangle {
-            id: etoileOption
-            width: 32
-            height: 32
-            radius: 16
-            anchors.right: parent.right
-            anchors.rightMargin: 14
-            anchors.verticalCenter: parent.verticalCenter
+    // ══ L'ICONE D'UNE APPLICATION DANS LA BARRE — Windows et Android ═══════
+    // UN SEUL DELEGUE POUR LES DEUX BARRES : la forme change avec le theme,
+    // les gestes non. Ses roles viennent de « modeleGroupes », mis a jour sur
+    // place — une nouvelle de kwin ne le recree jamais.
+    Component {
+        id: delegueTache
+        Item {
+            id: tache
+            required property string cle
+            required property string appId
+            required property int nb
+            required property bool active
+            required property bool reduite
+            required property string titre
+            required property bool epinglee
+            readonly property var app: appId !== "" ? bureau.appParId(appId) : null
+            // Une fenetre qu'aucune application ne revendique : le glyphe d'une
+            // fenetre, plutot qu'une boite vide.
+            readonly property var appMontree: app ? app : ({ ico: "i-fenetre", src: "linux", img: "" })
 
-            readonly property var teintes: [Theme.windows, Theme.linux, Theme.android, Theme.fichier]
-            readonly property real depart: Math.random() * 4
-            property real phase: 0
-            readonly property color teinteEtoile: {
-                var p = (phase + depart) % 4;
-                var i = Math.floor(p);
-                var t = p - i;
-                var a = teintes[i], b = teintes[(i + 1) % 4];
-                return Qt.rgba(a.r + (b.r - a.r) * t,
-                               a.g + (b.g - a.g) * t,
-                               a.b + (b.b - a.b) * t, 1);
+            width: Theme.estAndroid ? 42 : 44
+            height: Theme.estAndroid ? 42 : 44
+
+            // ── Windows : le carre arrondi qui s'allume au survol ──
+            Rectangle {
+                visible: !Theme.estAndroid
+                anchors.fill: parent
+                anchors.margins: 2
+                radius: 4
+                color: tapTache.pressed ? Theme.verre3
+                     : ((tache.active || survolTache.hovered) ? Theme.verre2 : "transparent")
+                border.width: tache.active ? 1 : 0
+                border.color: Theme.bord
+                Behavior on color { ColorAnimation { duration: Theme.dureeRapide } }
+            }
+            // ── Android : la pastille ronde ──
+            Rectangle {
+                visible: Theme.estAndroid
+                anchors.centerIn: parent
+                width: 36; height: 36; radius: 18
+                color: tache.active ? Theme.palette.primaryContainer
+                                    : (survolTache.hovered ? Theme.verre2 : "transparent")
+                Behavior on color { ColorAnimation { duration: Theme.dureeRapide } }
             }
 
-            NumberAnimation on phase {
-                from: 0; to: 4; duration: 10000
-                loops: Animation.Infinite
-                running: true
-                paused: !(survolOption.hovered || barre.reglagesOuverts)
+            IconeApp {
+                id: icoTache
+                // Le rebond de lancement anime « saut », jamais l'ancrage
+                // lui-meme : une animation sur « anchors.* » n'est pas garantie.
+                property real saut: 0
+                anchors.centerIn: parent
+                anchors.verticalCenterOffset: (Theme.estAndroid ? 0 : -1) + saut
+                taille: Theme.estAndroid ? 26 : 24
+                app: tache.appMontree
+                // Une fenetre qu'aucune application ne revendique n'a pas de
+                // monde connu : la couleur du texte, jamais le rouge de Linux.
+                couleur: Theme.estAndroid ? Theme.palette.primary
+                       : (tache.app ? Theme.teinte(tache.app.src || "linux") : Theme.texte2)
+                scale: tapTache.pressed ? 0.84 : 1.0
+                Behavior on scale { NumberAnimation { duration: Theme.dureePression; easing.type: Theme.courbe } }
             }
 
-            color: tapOption.pressed ? Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.28)
-                                     : (barre.reglagesOuverts ? Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.20)
-                                                              : (survolOption.hovered ? Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.14)
-                                                                                      : Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.05)))
-            border.color: tapOption.pressed ? teinteEtoile
-                                            : (barre.reglagesOuverts ? teinteEtoile
-                                                                     : (survolOption.hovered ? Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.60)
-                                                                                             : Qt.rgba(teinteEtoile.r, teinteEtoile.g, teinteEtoile.b, 0.22)))
-            border.width: 1
-            antialiasing: true
+            // LE TRAIT « OUVERT ». Gris et court pour une application qui tourne,
+            // long et a l'accent pour celle qu'on regarde — la regle de Windows,
+            // et le point de Material sous l'icone d'Android.
+            Rectangle {
+                visible: tache.nb > 0
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Theme.estAndroid ? -3 : 3
+                width: Theme.estAndroid ? (tache.active ? 12 : 5) : (tache.active ? 16 : 6)
+                height: Theme.estAndroid ? 4 : 3
+                radius: height / 2
+                color: tache.active ? Theme.accent : (Theme.estAndroid ? Theme.palette.onSurfaceVariant : Theme.texte3)
+                Behavior on width { NumberAnimation { duration: Theme.dureeNormale; easing.type: Theme.courbe } }
+            }
 
-            scale: tapOption.pressed ? 0.90 : ((survolOption.hovered || barre.reglagesOuverts) ? 1.08 : 1.0)
-            Behavior on scale {
-                NumberAnimation {
-                    duration: tapOption.pressed ? Theme.dureePression : Theme.dureeRapide
-                    easing.type: Easing.OutCubic
+            // Le badge de notification, comme sur l'etoile.
+            Rectangle {
+                visible: tache.app !== null && (tache.app.badge || 0) > 0
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Theme.estAndroid ? 1 : 5
+                width: 9; height: 9; radius: 4.5
+                color: Theme.estAndroid ? Theme.palette.tertiary : Theme.accent
+            }
+
+            HoverHandler { id: survolTache; cursorShape: Qt.PointingHandCursor }
+            // « parent » est nul dans un Connections : on nomme l'icone. Voir
+            // le meme piege, plus bas, sur les epinglees de Constellation.
+            Connections {
+                target: survolTache
+                function onHoveredChanged() {
+                    var nom = tache.nb === 1 ? barre.titreAffiche(tache.titre)
+                                             : (tache.app ? tache.app.nom : barre.titreAffiche(tache.titre));
+                    if (survolTache.hovered) {
+                        barre.nomSurvole = nom;
+                        barre.centreSurvole = tache.mapToItem(null, tache.width / 2, 0).x;
+                    } else if (barre.nomSurvole === nom) {
+                        barre.nomSurvole = "";
+                    }
                 }
             }
 
-            HoverHandler {
-                id: survolOption
-                cursorShape: Qt.PointingHandCursor
+            SequentialAnimation {
+                id: rebondTache
+                NumberAnimation { target: icoTache; property: "saut"; to: -6; duration: 110; easing.type: Easing.OutQuad }
+                NumberAnimation { target: icoTache; property: "saut"; to: 0; duration: 240; easing.type: Easing.OutBounce }
+            }
+
+            TapHandler {
+                id: tapTache
+                onTapped: {
+                    if (tache.nb === 0) rebondTache.restart();
+                    barre.nomSurvole = "";
+                    barre.cliquerGroupe(tache.cle, tache.mapToItem(bande, tache.width / 2, 0).x);
+                }
+            }
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: barre.menuDuGroupe(tache.cle, tache.mapToItem(bande, tache.width / 2, 0).x)
+            }
+        }
+    }
+
+    // ══ LA BARRE DE WINDOWS 11 ══════════════════════════════════════════════
+    // Centree : Demarrer, la recherche, puis les applications. A droite, les
+    // icones qui ouvrent les reglages rapides, l'heure et la date, et le coin
+    // « afficher le bureau ». Sous le tout, le Mica : le fond d'ecran flou,
+    // voile de la teinte du mode — voir FondFloute.qml.
+    Component {
+        id: miseWindows
+        Item {
+            id: miseW
+
+            FondFloute {
+                anchors.fill: parent
+                ox: 0
+                oy: Screen.height - barre.hauteur
+                ecranL: Screen.width
+                ecranH: Screen.height
+            }
+            Rectangle { anchors.fill: parent; color: Theme.barreTeinte }
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: Theme.sombre ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(0, 0, 0, 0.08)
+            }
+
+            Row {
+                id: centreW
+                anchors.centerIn: parent
+                spacing: 2
+
+                // ── Demarrer : la marque de S, jamais le logo d'un autre ──
+                Rectangle {
+                    id: demarrerW
+                    width: 44; height: 44
+                    anchors.verticalCenter: parent.verticalCenter
+                    radius: 4
+                    color: tapDemarrer.pressed ? Theme.verre3 : (survolDemarrer.hovered ? Theme.verre2 : "transparent")
+                    Canvas {
+                        id: marque
+                        anchors.centerIn: parent
+                        width: 26; height: 26
+                        scale: tapDemarrer.pressed ? 0.84 : 1.0
+                        Behavior on scale { NumberAnimation { duration: Theme.dureePression; easing.type: Theme.courbe } }
+                        property color haut: Theme.sombre ? Qt.lighter(Theme.accent, 1.15) : Qt.lighter(Theme.accent, 1.45)
+                        property color bas: Theme.accent
+                        onHautChanged: requestPaint()
+                        onBasChanged: requestPaint()
+                        onPaint: {
+                            var g = getContext("2d");
+                            g.reset();
+                            var e = width / 24;
+                            g.scale(e, e);
+                            var d = g.createLinearGradient(0, 3, 0, 21);
+                            d.addColorStop(0, String(haut));
+                            d.addColorStop(1, String(bas));
+                            g.strokeStyle = d;
+                            g.lineWidth = 3.1;
+                            g.lineCap = "round";
+                            g.lineJoin = "round";
+                            g.beginPath();
+                            g.moveTo(17.4, 6.9);
+                            g.bezierCurveTo(16.1, 5.0, 14.2, 4.2, 12.0, 4.2);
+                            g.bezierCurveTo(8.9, 4.2, 6.9, 5.9, 6.9, 8.3);
+                            g.bezierCurveTo(6.9, 10.9, 9.4, 11.6, 12.0, 12.2);
+                            g.bezierCurveTo(14.8, 12.8, 17.3, 13.8, 17.3, 16.4);
+                            g.bezierCurveTo(17.3, 18.7, 15.1, 20.0, 12.0, 20.0);
+                            g.bezierCurveTo(9.6, 20.0, 7.6, 19.0, 6.6, 17.2);
+                            g.stroke();
+                        }
+                    }
+                    HoverHandler { id: survolDemarrer; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { id: tapDemarrer; onTapped: barre.menuDemande() }
+                }
+
+                // ── La recherche ──
+                Rectangle {
+                    id: rechercheW
+                    width: 208; height: 36
+                    anchors.verticalCenter: parent.verticalCenter
+                    radius: 18
+                    color: Theme.sombre ? Qt.rgba(1, 1, 1, survolRecherche.hovered ? 0.10 : 0.06)
+                                        : Qt.rgba(1, 1, 1, survolRecherche.hovered ? 0.95 : 0.72)
+                    border.width: 1
+                    border.color: Theme.bord
+                    Glyphe {
+                        x: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 16; height: 16
+                        nom: "i-recherche"
+                        couleur: Theme.texte2
+                    }
+                    Text {
+                        x: 40
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Rechercher"
+                        color: Theme.texte2
+                        font.family: Theme.police
+                        font.pixelSize: 13
+                    }
+                    HoverHandler { id: survolRecherche; cursorShape: Qt.IBeamCursor }
+                    TapHandler { onTapped: barre.rechercheDemandee() }
+                }
+
+                Item { width: 6; height: 1 }
+
+                Repeater {
+                    objectName: "groupesBarre"
+                    model: modeleGroupes
+                    delegate: delegueTache
+                }
+            }
+
+            // ── A droite : reglages rapides, heure, coin du bureau ──
+            Row {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 2
+
+                Rectangle {
+                    id: iconesW
+                    width: rangIcones.implicitWidth + 22
+                    height: 40
+                    anchors.verticalCenter: parent.verticalCenter
+                    radius: 4
+                    color: barre.reglagesOuverts ? Theme.verre3
+                         : (tapIcones.pressed ? Theme.verre3 : (survolIcones.hovered ? Theme.verre2 : "transparent"))
+                    Row {
+                        id: rangIcones
+                        anchors.centerIn: parent
+                        spacing: 10
+                        Glyphe { width: 16; height: 16; nom: "i-reseau"; couleur: Theme.texte }
+                        Glyphe { width: 16; height: 16; nom: "i-son"; couleur: Theme.texte }
+                    }
+                    HoverHandler { id: survolIcones; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { id: tapIcones; onTapped: barre.reglagesDemandes() }
+                }
+
+                Rectangle {
+                    id: horlogeW
+                    width: colHeure.implicitWidth + 22
+                    height: 40
+                    anchors.verticalCenter: parent.verticalCenter
+                    radius: 4
+                    color: calendrier.visible ? Theme.verre3
+                         : (tapHeure.pressed ? Theme.verre3 : (survolHeure.hovered ? Theme.verre2 : "transparent"))
+                    Column {
+                        id: colHeure
+                        anchors.centerIn: parent
+                        Text {
+                            anchors.right: parent.right
+                            text: barre.heure
+                            color: Theme.texte
+                            font.family: Theme.police
+                            font.pixelSize: 12
+                        }
+                        Text {
+                            anchors.right: parent.right
+                            text: barre.dateNumerique
+                            color: Theme.texte
+                            font.family: Theme.police
+                            font.pixelSize: 12
+                        }
+                    }
+                    HoverHandler { id: survolHeure; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        id: tapHeure
+                        onTapped: calendrier.ouvrirPour(horlogeW.mapToItem(bande, horlogeW.width / 2, 0).x)
+                    }
+                }
+
+                // LE COIN « AFFICHER LE BUREAU » : une lame de quelques pixels
+                // tout au bout de la barre, comme chez Windows.
+                Item {
+                    width: 12
+                    height: miseW.height
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 1; height: 18
+                        color: Theme.bordVif
+                    }
+                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: barre.bureauDemande() }
+                }
+            }
+        }
+    }
+
+    // ══ LA BARRE D'UNE TABLETTE ANDROID ════════════════════════════════════
+    // Pas de bande pleine : un lanceur rond a gauche, un dock en pilule au
+    // centre qui flotte sur le fond d'ecran, et l'etat (date, heure, reseau)
+    // a droite — l'etagere des grands ecrans de Material You.
+    Component {
+        id: miseAndroid
+        Item {
+            id: miseA
+
+            Rectangle {
+                id: lanceurA
+                x: 14
+                anchors.verticalCenter: parent.verticalCenter
+                width: 44; height: 44; radius: 22
+                color: tapLanceur.pressed ? Theme.palette.primaryContainer : Theme.palette.surfaceContainerHigh
+                scale: tapLanceur.pressed ? 0.92 : 1.0
+                Behavior on scale { NumberAnimation { duration: Theme.dureeRapide; easing.type: Theme.courbe } }
+                Ombre { z: -1; anchors.fill: parent; anchors.margins: -marge; marge: 16; rayon: 22; flou: 10; decalageY: 2 }
+                Grid {
+                    anchors.centerIn: parent
+                    columns: 3
+                    spacing: 3
+                    Repeater {
+                        model: 9
+                        delegate: Rectangle {
+                            width: 4; height: 4; radius: 2
+                            color: Theme.palette.onSurface
+                        }
+                    }
+                }
+                HoverHandler { cursorShape: Qt.PointingHandCursor }
+                TapHandler { id: tapLanceur; onTapped: barre.menuDemande() }
             }
 
             Rectangle {
-                anchors.centerIn: parent
-                width: 22
-                height: 22
-                radius: 11
-                color: "transparent"
-                border.color: etoileOption.teinteEtoile
-                border.width: 1.5
-                opacity: barre.reglagesOuverts ? 0.95 : (survolOption.hovered ? 0.80 : 0.45)
-                Behavior on opacity { NumberAnimation { duration: Theme.dureeRapide } }
+                id: dockA
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.max(60, rangDock.implicitWidth + 14)
+                height: 48
+                radius: 24
+                color: Theme.palette.surfaceContainer
+                Behavior on width { NumberAnimation { duration: Theme.dureeNormale; easing.type: Theme.courbe } }
+                Ombre { z: -1; anchors.fill: parent; anchors.margins: -marge; marge: 18; rayon: 24; flou: 12; decalageY: 3 }
+                Row {
+                    id: rangDock
+                    anchors.centerIn: parent
+                    spacing: 4
+                    Repeater {
+                        objectName: "groupesBarre"
+                        model: modeleGroupes
+                        delegate: delegueTache
+                    }
+                }
             }
 
-            Glyphe {
-                anchors.centerIn: parent
-                width: 14
-                height: 14
-                nom: "i-etincelle"
-                couleur: etoileOption.teinteEtoile
-            }
+            Rectangle {
+                id: etatA
+                anchors.right: parent.right
+                anchors.rightMargin: 14
+                anchors.verticalCenter: parent.verticalCenter
+                width: zoneHeure.width + zoneIcones.width + 8
+                height: 40
+                radius: 20
+                color: Theme.palette.surfaceContainer
+                Ombre { z: -1; anchors.fill: parent; anchors.margins: -marge; marge: 16; rayon: 20; flou: 10; decalageY: 2 }
 
-            TapHandler {
-                id: tapOption
-                acceptedButtons: Qt.LeftButton
-                onTapped: barre.reglagesDemandes()
+                // La date et l'heure ouvrent le calendrier...
+                Rectangle {
+                    id: zoneHeure
+                    x: 4
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: rangHeure.implicitWidth + 24
+                    height: 32
+                    radius: 16
+                    color: calendrier.visible ? Theme.palette.secondaryContainer
+                         : (survolZoneHeure.hovered ? Theme.verre2 : "transparent")
+                    Row {
+                        id: rangHeure
+                        anchors.centerIn: parent
+                        spacing: 8
+                        Text {
+                            text: barre.dateCourte
+                            color: Theme.palette.onSurfaceVariant
+                            font.family: Theme.police
+                            font.pixelSize: 13
+                        }
+                        Text {
+                            text: barre.heure
+                            color: Theme.palette.onSurface
+                            font.family: Theme.police
+                            font.pixelSize: 14
+                            font.weight: Font.Medium
+                        }
+                    }
+                    HoverHandler { id: survolZoneHeure; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: calendrier.ouvrirPour(zoneHeure.mapToItem(bande, zoneHeure.width / 2, 0).x) }
+                }
+                // ... le reseau et le son ouvrent les reglages rapides.
+                Rectangle {
+                    id: zoneIcones
+                    anchors.left: zoneHeure.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: rangIconesA.implicitWidth + 24
+                    height: 32
+                    radius: 16
+                    color: barre.reglagesOuverts ? Theme.palette.primaryContainer
+                         : (survolZoneIcones.hovered ? Theme.verre2 : "transparent")
+                    Row {
+                        id: rangIconesA
+                        anchors.centerIn: parent
+                        spacing: 10
+                        Glyphe { width: 16; height: 16; nom: "i-reseau"; couleur: Theme.palette.onSurface }
+                        Glyphe { width: 16; height: 16; nom: "i-son"; couleur: Theme.palette.onSurface }
+                    }
+                    HoverHandler { id: survolZoneIcones; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: barre.reglagesDemandes() }
+                }
             }
         }
     }
