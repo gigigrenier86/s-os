@@ -646,22 +646,46 @@ ApplicationWindow {
         // bouge » — la selection etait deja vide quand onDeplacee lisait
         // « choisi ». On verifie donc explicitement, au depart du
         // glissement, ce qu'il y a sous le doigt.
+        // LA VRAIE CORRECTION DU 2026-08-28 NE SUFFISAIT PAS, ET PERSONNE NE
+        // L'AVAIT ESSAYEE AU DOIGT. « cadreGlissement » est pose sur « ciel »,
+        // l'ANCETRE de toute etoile — et sur un vrai glissement, c'est LUI
+        // qui gagne la prise exclusive, jamais le DragHandler de l'etoile
+        // (Astre.qml). « surUneEtoile », verifie dans onActiveChanged,
+        // n'empechait que la SELECTION de se vider — il etait deja trop tard
+        // pour que l'etoile bouge : elle n'avait jamais eu la prise. Releve
+        // par l'utilisateur le 2026-10-21, tous themes confondus : « les
+        // icones ne sont pas deplacables, comme verrouillees ».
+        //
+        // CORRIGE EN DESACTIVANT « cadreGlissement » AU PRESS, avant que le
+        // seuil de glissement ne tranche qui gagne — pas APRES, dans
+        // onActiveChanged. Un PointHandler separe, qui ne prend jamais de
+        // prise exclusive, observe le point en continu (y compris le
+        // relachement, meme quand cadreGlissement est desactive) et bascule
+        // « enabled » : desactive au press si le doigt est sur une etoile,
+        // jamais degrade sinon.
+        PointHandler {
+            id: surveillerPresse
+            acceptedButtons: Qt.LeftButton
+            onPointChanged: {
+                if (point.pressed) {
+                    var cible = ciel.childAt(point.position.x, point.position.y);
+                    cadreGlissement.enabled = !(cible !== null && cible.app !== undefined);
+                } else {
+                    cadreGlissement.enabled = true;
+                }
+            }
+        }
+
         DragHandler {
             id: cadreGlissement
             target: null
             acceptedButtons: Qt.LeftButton
             property point depart: Qt.point(0, 0)
-            // Vrai si CE glissement a demarre sur une etoile : dans ce cas,
-            // toute la logique de selection ci-dessous se tait, au depart
-            // comme a l'arrivee — c'est un deplacement, pas une selection.
-            property bool surUneEtoile: false
             onActiveChanged: {
                 if (active) {
                     depart = centroid.position;
-                    var cible = ciel.childAt(depart.x, depart.y);
-                    surUneEtoile = cible !== null && cible.app !== undefined;
-                    if (!surUneEtoile) ciel.choisirDans(null);
-                } else if (!surUneEtoile) {
+                    ciel.choisirDans(null);
+                } else {
                     ciel.choisirDans({
                         x: Math.min(depart.x, centroid.position.x),
                         y: Math.min(depart.y, centroid.position.y),
@@ -673,7 +697,10 @@ ApplicationWindow {
         }
 
         Rectangle {
-            visible: cadreGlissement.active && !cadreGlissement.surUneEtoile
+            // « cadreGlissement » ne s'active plus jamais sur une etoile
+            // (voir « surveillerPresse » ci-dessus) : le garde sur
+            // « surUneEtoile » n'a plus de raison d'etre.
+            visible: cadreGlissement.active
             x: Math.min(cadreGlissement.depart.x, cadreGlissement.centroid.position.x)
             y: Math.min(cadreGlissement.depart.y, cadreGlissement.centroid.position.y)
             width: Math.abs(cadreGlissement.centroid.position.x - cadreGlissement.depart.x)
@@ -1148,7 +1175,20 @@ ApplicationWindow {
     Popup {
         id: menuDemarrer
         objectName: "menuDemarrer"
-        modal: false
+        // MODAL, MEME SANS ASSOMBRIR L'ECRAN — corrige le 2026-10-21, deux
+        // bugs releves par l'utilisateur d'un coup : le menu se fermait a
+        // CHAQUE clic, meme ceux portes sur son propre contenu ; et en
+        // Android, toucher une tuile du tiroir ouvrait l'application posee
+        // JUSTE EN DESSOUS sur le ciel. Meme cause : « modal: false » ne
+        // pose aucune barriere, donc le TapHandler de « ciel » (plus bas,
+        // clic gauche) ET celui de l'etoile sous le point RECOIVENT eux
+        // aussi le clic — un Popup ne consomme pas l'evenement pour le
+        // reste de la scene a moins qu'on le lui dise. « modal: true »
+        // pose la vraie barriere de Qt Quick Controls (l'Overlay intercepte
+        // tout en dehors du popup) ; le fond transparent garde l'apparence
+        // d'un menu flottant, jamais un ecran assombri.
+        modal: true
+        Overlay.modal: Rectangle { color: "transparent" }
         focus: true
         padding: 0
 

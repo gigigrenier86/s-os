@@ -8,6 +8,90 @@ Interface en français.
 
 ---
 
+## 2026-10-21 — trois bogues réels après le premier usage des thèmes, et un piège de grab Qt Quick
+
+Les thèmes du 2026-10-20/21 (ci-dessous) ont été construits, poussés, et **déployés** —
+`bootc upgrade` + redémarrage, approuvés par l'utilisateur à chaque étape. Premier usage
+réel sur la machine : trois bogues rapportés, mot pour mot : *« c'est superbe mais 3
+bogues, le mode tablette permet de cliquer a travers les menus et ca ouvre les applications
+qui sont en dessous. Ensuite, peux importe le theme du bureau, les icones ou étoiles ne sont
+pas déplacables, comme si les icones étaient verrouillées. pour finir, le menu démarrer de
+constellation se ferme a chaque cliques »*.
+
+### Bogues 1 et 3 — une seule cause : `Popup.modal: false` ne pose aucune barrière
+
+Le menu Démarrer (`menuDemarrer`, un `Popup`) avait `modal: false`. **Ce réglage ne bloque
+rien** — contrairement à ce que son nom laisse supposer, Qt Quick Controls ne pose un
+`Overlay` qui intercepte les clics que si `modal: true`. Sans lui, un clic à l'intérieur du
+menu arrive À LA FOIS au contenu du menu et à tout ce qui se trouve dessous dans la scène —
+le `TapHandler` du fond (`ciel`) et, en thème Android, le `TapHandler` de la tuile du tiroir
+placée au même endroit à l'écran. Deux symptômes d'apparence différente, une seule cause :
+en Android, le clic ouvrait l'application posée dessous ; en Constellation, chaque clic à
+l'intérieur du menu — y compris sur son propre contenu — retombait sur le `TapHandler` de
+`ciel`, qui referme le menu.
+
+Corrigé en posant `modal: true` et en neutralisant l'assombrissement visuel par défaut via
+`Overlay.modal: Rectangle { color: "transparent" }` — la vraie barrière de Qt Quick
+Controls, sans l'écran qui s'assombrit. `closePolicy` par défaut
+(`CloseOnEscape | CloseOnPressOutside`) continue de fermer le menu au clic extérieur, cette
+fois porté par l'`Overlay` lui-même plutôt que par le code à la main.
+
+### Bogue 2 — un `DragHandler` ancêtre gagnait la prise exclusive avant celui de l'étoile
+
+« Les icônes ne sont pas déplaçables, peu importe le thème » pointait vers quelque chose de
+commun aux trois thèmes, donc hors de `Theme.qml` — et c'était dans `Constellation.qml`
+lui-même, pas dans `Astre.qml`. Le glissement de sélection par cadre (posé le 2026-08-27,
+« réponse 16 ») est un `DragHandler` nommé `cadreGlissement`, sur `ciel` — **l'ancêtre de
+toute étoile**. Qt Quick ne privilégie jamais un descendant sur son ancêtre lors de la
+négociation de la prise exclusive de glissement : sur un vrai geste, c'est systématiquement
+`cadreGlissement` qui gagnait, jamais le `DragHandler` propre de l'étoile touchée
+(`Astre.qml`, `id: glisser`, `target: astre`) — qui, n'ayant jamais la prise, ne modifiait
+jamais `astre.x`/`astre.y`. L'étoile ne bougeait tout simplement jamais, dans aucun thème,
+depuis que ce glissement de sélection existe.
+
+Le correctif du 2026-08-28 (`surUneEtoile`, vérifié dans `onActiveChanged`) n'avait jamais
+réglé ce défaut — il arrivait **trop tard** : `onActiveChanged` ne se déclenche qu'une fois
+la prise déjà tranchée, donc une fois que l'étoile a déjà perdu la course. Il empêchait
+seulement la sélection de se vider dans ce cas, pas le vrai symptôme signalé aujourd'hui.
+
+Corrigé en ajoutant un `PointHandler` (`surveillerPresse`), qui **ne prend jamais de prise
+exclusive** et reçoit donc en continu l'état du point — y compris au tout premier instant
+d'un appui, avant que `cadreGlissement` et le `DragHandler` de l'étoile n'entament leur
+négociation. Au press, s'il tombe sur une étoile (`ciel.childAt(x, y)` rend un objet portant
+`app`), `cadreGlissement.enabled` est mis à `false` — il ne peut alors plus jamais entrer en
+compétition pour cette prise, et le `DragHandler` de l'étoile est seul en course. Au
+relâchement, `cadreGlissement.enabled` repasse à `true`.
+
+### Vérifié, et ce que ça ne prouve pas
+
+Les deux correctifs passent `verifier-constellation.py` (les trois thèmes, zéro
+avertissement, cycle de bascule en direct inchangé) et `verifier-tuiles.py` (aucune
+recréation de tuile ou d'étoile de réglage en plus de celles déjà attendues) — aucune
+régression structurelle.
+
+**Un harnais interactif a été tenté, sans aboutir.** L'objectif était de simuler un vrai
+glissement (`QTest.mousePress/mouseMove/mouseRelease`) sur une étoile instanciée hors écran
+et de mesurer son déplacement réel, plus un vrai clic à l'intérieur du menu ouvert. Le
+`Repeater` du ciel instancie bien 6 délégués (`repeaterCiel.count == 6`, modèle rempli de
+vraies données) — mais **aucune instance n'est retrouvable** par
+`findChildren(QObject)` sur la racine, ni par nom de classe (`"Astre"` n'apparaît jamais
+parmi 996 descendants, alors que d'autres types QML composites comme `ArticleMenu_QMLTYPE_*`
+y figurent normalement), ni par propriété (`property("app")` rend `None` sur les 996), ni
+par `rep.children()` (qui ne rend que le `Component` et le `DelegateModel` du `Repeater`,
+jamais ses délégués instanciés — ceux-ci sont reparentés ailleurs dans l'arbre visuel, pas
+gardés comme enfants QObject du `Repeater` lui-même). Cinq tentatives, cinq échecs,
+recherche abandonnée — le coût de poursuivre dépassait ce qu'un harnais maison apporterait
+au-delà des deux vérificateurs déjà existants.
+
+**Ce que cette passe ne prouve pas** : aucun des deux correctifs n'a été cliqué pour de
+vrai. Ni le glissement d'une étoile, ni un clic à l'intérieur du menu Démarrer ouvert, n'ont
+été exercés par un vrai geste de souris sur une session Constellation vivante — cette
+session n'en a aucune sous la main. Prouvé par relecture du code (la cause de chaque bogue
+est nommée et cohérente avec le symptôme rapporté) et par les deux vérificateurs
+structurels ; pas par un geste réel. Rien n'est commité, construit, ni redéployé.
+
+---
+
 ## 2026-10-20/21 — trois thèmes, et un ciel qui vit : Constellation, Windows 11, Android Material You
 
 Demande de l'utilisateur (orthographe rétablie) : « embellis-moi la constellation multipliée par 10 sans que ça
