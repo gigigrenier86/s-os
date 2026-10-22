@@ -1,0 +1,17 @@
+#%PAM-1.0
+# Le service PAM que polkit-agent-helper-1 utilise pour verifier le mot de
+# passe avant une elevation (pkexec, fwupd, rpm-ostree...).
+#
+# POURQUOI CE FICHIER EXISTE ALORS QUE /usr/lib/pam.d/polkit-1 EST DEJA LA.
+# Mesure du 2026-10-21, sur la machine : /etc/pam.d/polkit-1 est ABSENT, et le
+# repli vendeur (/usr/lib/pam.d/polkit-1) n'est pas lu — polkit retombait donc
+# sur /etc/pam.d/other, qui est « pam_deny ». Resultat : « pam_authenticate
+# failed: Authentication failure » a chaque elevation, donc tout geste root de
+# S (« S — Pilotes », « Nettoyer S »...) mourait a l'action, pendant que la
+# connexion, elle, fonctionnait (elle passe par un autre service PAM).
+#
+# Meme contenu que la version vendeur : le plus petit chemin vers system-auth.
+auth       include      system-auth
+account    include      system-auth
+password   include      system-auth
+session    include      system-auth
