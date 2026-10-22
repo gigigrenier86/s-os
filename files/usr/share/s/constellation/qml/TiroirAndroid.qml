@@ -115,13 +115,38 @@ Item {
         }
     }
 
-    // ── La poignee, puis la recherche ──────────────────────────────────────
-    Rectangle {
+    // ── La poignee : l'accroche du balayage pour fermer ────────────────────
+    // La poignee visible est petite, mais sa zone d'accroche est large : un
+    // doigt n'a pas besoin de viser 36 px. Un balayage vers le BAS sur cette
+    // bande referme le tiroir, comme sur une tablette Android. Le geste vit
+    // ici et nulle part ailleurs : la grille en dessous defile, on ne lui
+    // vole jamais un glissement.
+    Item {
+        id: poignee
         anchors.horizontalCenter: parent.horizontalCenter
-        y: 12
-        width: 36; height: 4; radius: 2
-        color: Theme.palette.outline
-        opacity: 0.6
+        y: 0
+        width: parent.width
+        height: 28
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: 10
+            width: 36; height: 4; radius: 2
+            color: Theme.palette.outline
+            opacity: 0.6
+        }
+        DragHandler {
+            id: balayageFermer
+            target: null
+            // Le seuil du balayage de fermeture, nomme comme ailleurs.
+            readonly property real seuil: 48
+            onActiveChanged: {
+                // Un glissement net vers le BAS referme le tiroir.
+                if (!active && activeTranslation.y > balayageFermer.seuil
+                    && Math.abs(activeTranslation.y) > Math.abs(activeTranslation.x)) {
+                    tiroir.menu.close();
+                }
+            }
+        }
     }
 
     Rectangle {

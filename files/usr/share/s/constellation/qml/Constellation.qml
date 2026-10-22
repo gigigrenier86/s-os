@@ -696,11 +696,30 @@ ApplicationWindow {
             target: null
             acceptedButtons: Qt.LeftButton
             property point depart: Qt.point(0, 0)
+            // LE BALAYAGE D'OUVERTURE DU THEME ANDROID. Sur une tablette, monter
+            // le doigt sur le vide ouvre le tiroir d'applications — le geste qui
+            // remplace le cadre de selection pour CE theme seulement. Le seuil
+            // est nomme, comme le « 70 » du ciel : au-dela, l'intention n'est
+            // plus de selectionner, elle est d'ouvrir. Les autres themes gardent
+            // le cadre de selection entier.
+            readonly property real seuilBalayage: 64
             onActiveChanged: {
                 if (active) {
                     depart = centroid.position;
                     ciel.choisirDans(null);
                 } else {
+                    var dx = centroid.position.x - depart.x;
+                    var dy = centroid.position.y - depart.y;
+                    // Un glissement net vers le HAUT, sur le vide, ouvre le
+                    // tiroir au lieu de selectionner. Les etoiles gardent leur
+                    // glissement : leur propre DragHandler prend la prise avant
+                    // celui-ci (voir Astre.qml, « grabPermissions »), donc un
+                    // deplacement d'icone n'arrive jamais ici.
+                    if (Theme.estAndroid && dy < -seuilBalayage
+                        && Math.abs(dy) > Math.abs(dx)) {
+                        menuDemarrer.open();
+                        return;
+                    }
                     ciel.choisirDans({
                         x: Math.min(depart.x, centroid.position.x),
                         y: Math.min(depart.y, centroid.position.y),
