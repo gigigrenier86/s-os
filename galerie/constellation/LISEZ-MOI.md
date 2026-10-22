@@ -30,10 +30,9 @@ est un client Wayland natif : un processus, une fenêtre, une scène QtQuick, qu
 appelle le noyau de S dans son propre processus. Plus de serveur HTTP, plus de
 port ouvert, plus de moteur de rendu web au démarrage de la session.
 
-La page d'origine n'a pas disparu pour autant — elle est rangée dans
-[`archive-page-web/`](archive-page-web/), avec le pont qui la servait. Elle
-garde sa valeur : c'est la maquette dont tout le vocabulaire visuel est sorti,
-et la palette de `Theme.qml` en est reprise couleur pour couleur.
+La page d'origine (le client web servi par `s-etoiles`, retirée du dépôt le
+2026-10-21) a été remplacée par le client natif ; sa palette a été reprise
+couleur pour couleur dans `Theme.qml`.
 
 ## Ce que l'image montre
 

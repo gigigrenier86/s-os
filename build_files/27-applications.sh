@@ -48,22 +48,35 @@ dnf5 install -y --setopt=install_weak_deps=False \
 # l'acces reseau, donc le telechargeur de coeurs interne est inerte. C'est
 # pourquoi les coeurs sont poses ici, en paquets.
 
-# ------------------------------------------------------------------ Zoom --
-# Zoom ne publie pas de depot : un RPM direct, et la quasi-totalite de ses
-# fichiers visent /opt/zoom. C'est le seul de tous les logiciels de cette
-# image a exiger le detour complet de lib-opt.sh.
-rpm --import https://zoom.us/linux/download/pubkey
-
-opt_preparer
-dnf5 install -y https://zoom.us/client/latest/zoom_x86_64.rpm
-opt_ranger zoom
-opt_restaurer
-
-# Un lien direct vers le lanceur, pour que Zoom demarre meme si
-# systemd-tmpfiles n'a pas encore refait le pont.
-if [[ -x /usr/lib/opt/zoom/ZoomLauncher ]]; then
-    ln -sfn /usr/lib/opt/zoom/ZoomLauncher /usr/bin/zoom
-fi
+# ------------------------------------------------------- Archives : Ark ---
+# DEMANDE EXPLICITE DE L'UTILISATEUR (« incorpore 7zip a S »). VERIFIE AVANT
+# D'AGIR, PAS SUPPOSE : « ark » et « 7zip » sont deja dans l'image de base
+# « ghcr.io/ublue-os/bazzite:stable » — rejoue le 2026-09-22 dans un conteneur
+# jetable, tout neuf, jamais touche par cette machine : « dnf5 install ark
+# 7zip » y repond « Package … is already installed » pour les DEUX, avant
+# meme que ce script n'existe. Rien n'y etait donc casse ni absent ; les deux
+# etaient deja herites, et le geste « Compresser » du clic droit
+# (« noyau.py::compresser() », qui appelle « ark » depuis le 2026-08-26)
+# fonctionnait deja sans que ce depot le sache.
+#
+# Ce qui est ecrit ici n'est donc pas un correctif : c'est une DECLARATION
+# explicite d'une dependance dont S se sert deja, pour ne plus en dependre
+# par accident. « rpm -q --whatrequires ark/7zip » rend vide sur cette
+# machine : rien ne les REQUIERT, l'amont les pose par choix de paquetage —
+# un choix qu'il pourrait un jour changer sans avertir. Meme regle que
+# « waydroid-launcher » dans 20-android.sh : on verifie que l'amont fournit
+# toujours ce qu'on suppose, on ne le devine pas.
+#
+# CE QUE CA N'EST PAS : un gain de vitesse. Mesure sur cette machine avant
+# d'ecrire cette ligne : compresser 269 Mio de contenu realiste (80 Mio de
+# binaire deja compresse + du texte tres compressible) prend 18 s avec
+# « zip », 79 s avec « 7z a » par defaut — 7-Zip est plus LENT a compresser
+# ici, son reglage par defaut (LZMA2) visant le taux de compression et non la
+# vitesse (87,6 Mio contre 143,0 Mio, pas plus vite). Ce que 7-Zip apporte
+# reellement est le format .7z lui-meme, que rien d'autre ne sait ouvrir, via
+# le plugin « cli7z » d'Ark deja present (kerfuffle_cli7z.so) mais inerte
+# sans le binaire « 7z ».
+dnf5 install -y --setopt=install_weak_deps=False ark 7zip
 
 # ---------------------------------------------------------- Verification --
 if rpm -ql retroarch retroarch-assets retroarch-filters 2>/dev/null \
@@ -74,12 +87,9 @@ fi
 
 manque=0
 [[ -x /usr/bin/retroarch ]]           || { echo "ABSENT : /usr/bin/retroarch" >&2; manque=1; }
-[[ -d /usr/lib/opt/zoom ]]            || { echo "ABSENT : /usr/lib/opt/zoom" >&2; ls -la /usr/lib/opt/ >&2 || true; manque=1; }
-[[ -f /usr/lib/tmpfiles.d/s-opt-zoom.conf ]] || { echo "ABSENT : le pont tmpfiles de Zoom" >&2; manque=1; }
 [[ "$manque" -eq 0 ]] || exit 1
 
 # Rapport non bloquant : voir la note de 26-outils.sh.
 echo "Applications posees :"
 /usr/bin/retroarch --version 2>&1 | head -1 | sed 's/^/  RetroArch  /' || true
 echo "  coeurs     $(ls /usr/lib64/libretro/*.so 2>/dev/null | wc -l) fichiers" || true
-echo "  Zoom       $(du -sh /usr/lib/opt/zoom 2>/dev/null | cut -f1) dans /usr/lib/opt/zoom" || true

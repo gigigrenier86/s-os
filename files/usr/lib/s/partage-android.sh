@@ -253,8 +253,7 @@ s_android_lancer() {
 # proprietaire (vendor Intel, republie par un mainteneur communautaire —
 # « supremegamers » — sans licence documentee), verifie par MD5 seul (protege
 # contre une corruption de telechargement, pas contre une substitution
-# deliberee). DECISION PRISE AVEC L'UTILISATEUR, jamais a sa place — meme
-# forme que le gpgcheck=0 assume pour Antigravity.
+# deliberee). DECISION PRISE AVEC L'UTILISATEUR, jamais a sa place.
 #
 # L'ARCHIVE EST DANS L'IMAGE DEPUIS LE 2026-08-30 (build_files/21-android-
 # arm.sh, /usr/lib/s/android/libhoudini.zip) — DECISION REPRISE AVEC

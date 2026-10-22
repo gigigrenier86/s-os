@@ -214,12 +214,12 @@ CATEGORIE_ICONE = (
 # exacte.
 NOM_ICONE = (
     ("vivaldi", "i-globe"), ("firefox", "i-globe"), ("chrom", "i-globe"),
-    ("code", "i-code"), ("antigravity", "i-code"),
+    ("code", "i-code"),
     ("claude", "i-etincelle"), ("gemini", "i-etincelle"),
     ("konsole", "i-terminal"), ("terminal", "i-terminal"), ("ptyxis", "i-terminal"),
     ("dolphin", "i-dossier"), ("fichiers", "i-dossier"), ("files", "i-dossier"),
     ("retroarch", "i-manette"), ("steam", "i-manette"), ("jeu", "i-manette"),
-    ("zoom", "i-video"), ("f-droid", "i-magasin"), ("fdroid", "i-magasin"),
+    ("f-droid", "i-magasin"), ("fdroid", "i-magasin"),
     ("magasin", "i-magasin"), ("store", "i-magasin"),
     ("rapido", "i-fenetre"), ("android", "i-tel"),
     ("reglage", "i-reglages"), ("parametre", "i-reglages"),

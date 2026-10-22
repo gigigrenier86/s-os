@@ -48,12 +48,10 @@ poser_extension() {
 poser_extension anthropic.claude-code
 poser_extension ms-ceintl.vscode-language-pack-fr
 
-# « google.geminicodeassist » est volontairement absent. Deux raisons : elle
-# pese environ 178 Mio et /etc/skel est recopie POUR CHAQUE COMPTE cree ; et
-# Google aurait bascule ses paliers individuels vers Antigravity a la
-# mi-2026 — information rapportee mais NON verifiee ici. Gemini reste servi
-# par sa CLI et par son lanceur en fenetre dediee. A rajouter en une ligne si
-# le besoin se confirme.
+# « google.geminicodeassist » est volontairement absent. Elle pese environ
+# 178 Mio et /etc/skel est recopie POUR CHAQUE COMPTE cree. Gemini reste servi
+# par son lanceur en fenetre dediee. A rajouter en une ligne si le besoin se
+# confirme.
 
 # L'editeur s'ouvre en francais sans qu'on ait a le lui demander.
 # VS Code n'ecrase jamais un argv.json deja present : l'utilisateur garde la

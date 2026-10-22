@@ -93,7 +93,7 @@ for f in "${FICHIERS_MASQUES[@]}"; do
     # « steam » seul, jamais en sous-chaine : « Steam Linux Runtime » DOIT
     # rester masque, c'est le but du mot-cle « steam linux runtime » plus haut.
     case "$bas" in
-        steam|*retroarch*|*vivaldi*|*zoom*|*"code"*|*claude*|*gemini*|*antigravity*)
+        steam|*retroarch*|*vivaldi*|*"code"*|*claude*|*gemini*)
             echo "ECHEC : « $nom » a ete masque par erreur — le filtre est trop large." >&2
             exit 1
             ;;

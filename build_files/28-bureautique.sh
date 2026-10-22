@@ -40,20 +40,17 @@ source /ctx/build_files/lib-opt.sh
 # et le compte sont là.
 
 # « install_weak_deps=False » : le paquet complet « libreoffice » tire
-# Draw, Math, Base et une douzaine de langpacks d'un coup. On choisit les
-# trois composants qui répondent à Word/Excel/PowerPoint, plus le français
-# — cohérent avec le reste de cette image, entièrement en français.
+# Draw, Math, Base et une douzaine de langpacks d'un coup. On garde le
+# composant qui répond à Word, plus le français — cohérent avec le reste de
+# cette image, entièrement en français.
 dnf5 install -y --setopt=install_weak_deps=False \
     libreoffice-writer \
-    libreoffice-calc \
-    libreoffice-impress \
     libreoffice-langpack-fr
 
 # ---------------------------------------------------------- Verification --
 # Règle 2 du carnet : un paquet posé hors de /usr et /etc livrerait une
 # image creuse sans que rien ne le dise.
-if rpm -ql libreoffice-writer libreoffice-calc libreoffice-impress \
-           libreoffice-langpack-fr 2>/dev/null \
+if rpm -ql libreoffice-writer libreoffice-langpack-fr 2>/dev/null \
    | grep -E '^/(var|opt)/|^/usr/local/'; then
     echo "ECHEC : LibreOffice a pose des fichiers hors de /usr et /etc." >&2
     exit 1
@@ -62,10 +59,6 @@ fi
 manque=0
 [[ -f /usr/share/applications/libreoffice-writer.desktop ]] \
     || { echo "ABSENT : le lanceur Writer" >&2; manque=1; }
-[[ -f /usr/share/applications/libreoffice-calc.desktop ]] \
-    || { echo "ABSENT : le lanceur Calc" >&2; manque=1; }
-[[ -f /usr/share/applications/libreoffice-impress.desktop ]] \
-    || { echo "ABSENT : le lanceur Impress" >&2; manque=1; }
 [[ "$manque" -eq 0 ]] || exit 1
 
 # Rapport non bloquant : voir la note de 26-outils.sh.

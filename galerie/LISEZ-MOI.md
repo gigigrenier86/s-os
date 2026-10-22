@@ -115,10 +115,8 @@ Le détail de ce qu'elle montre — l'échelle logarithmique des étoiles, la co
 des trois mondes, l'anneau, le fond peint une seule fois — est dans
 [constellation/LISEZ-MOI.md](constellation/LISEZ-MOI.md).
 
-La maquette d'origine reste rangée dans
-[constellation/archive-page-web/](constellation/archive-page-web/) avec le pont
-qui la servait : c'est d'elle que sort tout le vocabulaire visuel, et
-`Theme.qml` en reprend la palette couleur pour couleur.
+La maquette d'origine (la page web servie par `s-etoiles`, retirée du dépôt le
+2026-10-21) a été remplacée depuis le 2026-08-24 par le client natif.
 
 Publiée aussi ici : <https://claude.ai/code/artifact/92657e1b-fac5-449d-a5a4-492f09e252a8>
 

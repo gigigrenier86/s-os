@@ -53,19 +53,19 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/25-navigateur.sh
 
-# VS Code, Node, Gemini, Claude Code, Antigravity (~2 Go)
+# VS Code, Node, Claude Code (~2 Go)
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/26-outils.sh
 
-# RetroArch et ses coeurs, Zoom (918 Mo)
+# RetroArch et ses coeurs
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/27-applications.sh
 
-# LibreOffice — Writer, Calc, Impress, en francais (~1,3 Go, mesure)
+# LibreOffice — Writer, en francais
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
     --mount=type=tmpfs,dst=/tmp \
@@ -108,10 +108,6 @@ COPY files/ /
 # 2026-08-24 : le bureau n'est plus une page web recopiee dans l'image, c'est
 # un client Wayland natif. Sa scene QML et son noyau Python entrent par le
 # COPY files/ ci-dessus, comme tout le reste de S.
-#
-# L'ancienne page et son pont HTTP restent dans
-# galerie/constellation/archive-page-web/ — la Galerie garde ses oeuvres, meme
-# remplacees — mais ne sortent plus dans l'image.
 
 # Foudre gelee, le fond d'ecran de S — meme principe : l'oeuvre et son script
 # semeur vivent dans galerie/, l'image ne recoit que le rendu. Ses metadonnees

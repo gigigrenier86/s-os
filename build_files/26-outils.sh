@@ -36,32 +36,6 @@ rm -f /etc/yum.repos.d/vscode.repo
 # survivra au passage a Node 22 ou 24 sans qu'on y touche.
 dnf5 install -y /usr/bin/node /usr/bin/npm
 
-# Gemini CLI exige Node 18 ou plus : on le verifie au lieu de l'esperer.
-NODE_MAJEUR="$(node --version | sed 's/^v//; s/\..*//')"
-[[ "${NODE_MAJEUR}" -ge 18 ]] || { echo "ECHEC : Node ${NODE_MAJEUR} < 18." >&2; exit 1; }
-
-# --------------------------------------------------------- Gemini CLI -----
-# Le prefixe global par defaut de npm est /usr/local, qui est un LIEN : d'ou
-# « ENOTDIR: not a directory, mkdir '/usr/local' » au premier essai. On force
-# le prefixe sur /usr — les modules vont dans /usr/lib/node_modules et les
-# binaires dans /usr/bin, donc dans l'image.
-#
-# Le reglage reste LOCAL a cette commande. Un « npm config set prefix -g »
-# ecrirait dans /etc/npmrc, serait livre dans l'image, et casserait le
-# « npm i -g » de l'utilisateur apres le demarrage — lui doit viser
-# /usr/local, qui est inscriptible une fois la machine installee.
-#
-# HOME est redirige : par defaut il vaut /root, lien vers var/roothome, donc
-# le cache et les journaux de npm partiraient hors de l'image.
-env HOME=/tmp/npm-maison \
-    npm_config_prefix=/usr \
-    npm_config_cache=/tmp/npm-cache \
-    npm_config_fund=false \
-    npm_config_audit=false \
-    npm_config_update_notifier=false \
-    npm install -g @google/gemini-cli
-rm -rf /tmp/npm-maison /tmp/npm-cache
-
 # -------------------------------------------------------- Claude Code -----
 # Il existe un depot RPM officiel et SIGNE — verifie le 2026-08-20 :
 # repodata/repomd.xml et la cle PGP repondent tous deux en HTTP 200.
@@ -85,27 +59,6 @@ REPO
 dnf5 install -y claude-code
 rm -f /etc/yum.repos.d/claude-code.repo
 
-# -------------------------------------------------------- Antigravity ----
-# RESERVE ASSUMEE, decidee par l'utilisateur le 2026-08-20 : ce depot impose
-# « gpgcheck=0 » — les paquets ne sont PAS signes. Le transport est du HTTPS
-# vers un domaine Google, donc le serveur est authentifie ; le contenu ne
-# l'est pas. C'est le SEUL endroit de cette image ou un binaire entre sans
-# signature, et c'est ecrit ici pour que ce soit un choix et non un oubli.
-cat > /etc/yum.repos.d/antigravity.repo <<'REPO'
-[antigravity-rpm]
-name=Antigravity RPM Repository
-baseurl=https://us-central1-yum.pkg.dev/projects/antigravity-auto-updater-dev/antigravity-rpm
-enabled=1
-gpgcheck=0
-REPO
-if dnf5 install -y antigravity; then
-    ANTIGRAVITY_POSE=1
-else
-    ANTIGRAVITY_POSE=0
-    echo "AVERTISSEMENT : Antigravity non installe. Les autres outils restent." >&2
-fi
-rm -f /etc/yum.repos.d/antigravity.repo
-
 # ---------------------------------------------------------- Verification --
 # Le controle qui compte vraiment : rien n'a-t-il atterri hors de /usr et
 # /etc ? Un fichier dans /var serait perdu au deploiement, sans le moindre
@@ -116,10 +69,9 @@ if rpm -ql code claude-code 2>/dev/null | grep -E '^/(var|opt)/|^/usr/local/'; t
 fi
 
 manque=0
-for b in /usr/bin/code /usr/bin/node /usr/bin/npm /usr/bin/claude /usr/bin/gemini; do
+for b in /usr/bin/code /usr/bin/node /usr/bin/npm /usr/bin/claude; do
     [[ -e "$b" ]] || { echo "ABSENT : $b" >&2; manque=1; }
 done
-[[ -d /usr/lib/node_modules/@google/gemini-cli ]] || { echo "ABSENT : le module gemini-cli" >&2; manque=1; }
 [[ "$manque" -eq 0 ]] || exit 1
 
 # --------------------------------------------------------------------------
@@ -140,5 +92,3 @@ echo "Outils poses :"
 rm -rf /tmp/version-vscode
 /usr/bin/node   --version 2>/dev/null | sed 's/^/  Node         /' || true
 /usr/bin/claude --version 2>/dev/null | head -1 | sed 's/^/  Claude Code  /' || true
-/usr/bin/gemini --version 2>/dev/null | head -1 | sed 's/^/  Gemini CLI   /' || true
-echo "  Antigravity  $([[ "${ANTIGRAVITY_POSE}" -eq 1 ]] && echo 'pose (depot non signe)' || echo 'absent')" || true
