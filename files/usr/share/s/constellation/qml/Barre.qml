@@ -341,6 +341,11 @@ Window {
     // La barre previent ; Constellation remonte le bureau et ouvre le menu.
     signal rechercheDemandee()
     signal bureauDemande()
+    // LES TROIS BOUTONS DE NAVIGATION DE LA TABLETTE ANDROID. La barre
+    // previent ; Constellation agit — meme patron que tous les signaux.
+    signal retourDemande()
+    signal accueilDemande()
+    signal recentsDemande()
 
     // ── La zone sensible ──────────────────────────────────────────────────
     // Meme mecanisme que la barre laterale, meme raison : la fenetre est plus
@@ -1841,29 +1846,66 @@ Window {
         Item {
             id: miseA
 
-            Rectangle {
-                id: lanceurA
+            // ── Les trois boutons de navigation de la tablette ──
+            // Retour, accueil, applications ouvertes — la barre d'Android. Des
+            // formes simples, pas des icones : le triangle, le rond et le carre
+            // sont la navigation, partout sur une tablette.
+            Row {
+                id: navA
                 x: 14
                 anchors.verticalCenter: parent.verticalCenter
-                width: 44; height: 44; radius: 22
-                color: tapLanceur.pressed ? Theme.palette.primaryContainer : Theme.palette.surfaceContainerHigh
-                scale: tapLanceur.pressed ? 0.92 : 1.0
-                Behavior on scale { NumberAnimation { duration: Theme.dureeRapide; easing.type: Theme.courbe } }
-                Ombre { z: -1; anchors.fill: parent; anchors.margins: -marge; marge: 16; rayon: 22; flou: 10; decalageY: 2 }
-                Grid {
-                    anchors.centerIn: parent
-                    columns: 3
-                    spacing: 3
-                    Repeater {
-                        model: 9
-                        delegate: Rectangle {
-                            width: 4; height: 4; radius: 2
-                            color: Theme.palette.onSurface
-                        }
+                spacing: 10
+
+                // Retour
+                Rectangle {
+                    id: navRetour
+                    width: 40; height: 40; radius: 20
+                    color: tapRetour.pressed ? Theme.verre3
+                         : (survolRetour.hovered ? Theme.verre2 : "transparent")
+                    Behavior on color { ColorAnimation { duration: Theme.dureeRapide } }
+                    Text {
+                        anchors.centerIn: parent
+                        text: "◀"
+                        color: Theme.palette.onSurface
+                        font.pixelSize: 17
                     }
+                    HoverHandler { id: survolRetour; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { id: tapRetour; onTapped: barre.retourDemande() }
                 }
-                HoverHandler { cursorShape: Qt.PointingHandCursor }
-                TapHandler { id: tapLanceur; onTapped: barre.menuDemande() }
+
+                // Accueil (le rond plein)
+                Rectangle {
+                    id: navAccueil
+                    width: 40; height: 40; radius: 20
+                    color: tapAccueil.pressed ? Theme.verre3
+                         : (survolAccueil.hovered ? Theme.verre2 : "transparent")
+                    Behavior on color { ColorAnimation { duration: Theme.dureeRapide } }
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 16; height: 16; radius: 8
+                        color: Theme.palette.onSurface
+                    }
+                    HoverHandler { id: survolAccueil; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { id: tapAccueil; onTapped: barre.accueilDemande() }
+                }
+
+                // Applications ouvertes (le carre)
+                Rectangle {
+                    id: navRecents
+                    width: 40; height: 40; radius: 20
+                    color: tapRecents.pressed ? Theme.verre3
+                         : (survolRecents.hovered ? Theme.verre2 : "transparent")
+                    Behavior on color { ColorAnimation { duration: Theme.dureeRapide } }
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 14; height: 14; radius: 3
+                        color: "transparent"
+                        border.width: 2
+                        border.color: Theme.palette.onSurface
+                    }
+                    HoverHandler { id: survolRecents; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { id: tapRecents; onTapped: barre.recentsDemande() }
+                }
             }
 
             Rectangle {

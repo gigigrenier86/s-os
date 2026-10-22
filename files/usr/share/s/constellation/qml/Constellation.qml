@@ -697,29 +697,28 @@ ApplicationWindow {
             acceptedButtons: Qt.LeftButton
             property point depart: Qt.point(0, 0)
             // LE BALAYAGE D'OUVERTURE DU THEME ANDROID. Sur une tablette, monter
-            // le doigt sur le vide ouvre le tiroir d'applications — le geste qui
-            // remplace le cadre de selection pour CE theme seulement. Le seuil
-            // est nomme, comme le « 70 » du ciel : au-dela, l'intention n'est
-            // plus de selectionner, elle est d'ouvrir. Les autres themes gardent
-            // le cadre de selection entier.
+            // le doigt sur le vide ouvre le tiroir d'applications — et c'est le
+            // SEUL geste de glissement de ce theme : une tablette ne selectionne
+            // pas d'icones au cadre, c'est un geste de bureau. Les autres themes
+            // gardent le cadre de selection entier. Le seuil est nomme, comme le
+            // « 70 » du ciel.
             readonly property real seuilBalayage: 64
             onActiveChanged: {
                 if (active) {
                     depart = centroid.position;
-                    ciel.choisirDans(null);
-                } else {
+                    // En Android, on ne vide pas la selection : il n'y en a pas.
+                    if (!Theme.estAndroid) ciel.choisirDans(null);
+                } else if (Theme.estAndroid) {
+                    // Un glissement net vers le HAUT ouvre le tiroir, le reste
+                    // ne fait rien. Les etoiles gardent leur glissement : leur
+                    // propre DragHandler prend la prise avant celui-ci (voir
+                    // Astre.qml, « grabPermissions »), donc deplacer une icone
+                    // n'arrive jamais ici.
                     var dx = centroid.position.x - depart.x;
                     var dy = centroid.position.y - depart.y;
-                    // Un glissement net vers le HAUT, sur le vide, ouvre le
-                    // tiroir au lieu de selectionner. Les etoiles gardent leur
-                    // glissement : leur propre DragHandler prend la prise avant
-                    // celui-ci (voir Astre.qml, « grabPermissions »), donc un
-                    // deplacement d'icone n'arrive jamais ici.
-                    if (Theme.estAndroid && dy < -seuilBalayage
-                        && Math.abs(dy) > Math.abs(dx)) {
+                    if (dy < -seuilBalayage && Math.abs(dy) > Math.abs(dx))
                         menuDemarrer.open();
-                        return;
-                    }
+                } else {
                     ciel.choisirDans({
                         x: Math.min(depart.x, centroid.position.x),
                         y: Math.min(depart.y, centroid.position.y),
@@ -732,8 +731,9 @@ ApplicationWindow {
 
         Rectangle {
             // « cadreGlissement » ne peut plus prendre la prise d'une etoile
-            // (voir « grabPermissions » dans Astre.qml).
-            visible: cadreGlissement.active
+            // (voir « grabPermissions » dans Astre.qml). Et en Android, le
+            // cadre n'existe pas : une tablette ne selectionne pas au cadre.
+            visible: cadreGlissement.active && !Theme.estAndroid
             x: Math.min(cadreGlissement.depart.x, cadreGlissement.centroid.position.x)
             y: Math.min(cadreGlissement.depart.y, cadreGlissement.centroid.position.y)
             width: Math.abs(cadreGlissement.centroid.position.x - cadreGlissement.depart.x)
@@ -1131,6 +1131,27 @@ ApplicationWindow {
             if (typeof fenetres !== "undefined" && fenetres)
                 fenetres.activerBureau();
         }
+        // LES TROIS BOUTONS DE NAVIGATION DE LA TABLETTE ANDROID.
+        // « Retour » ferme ce qui est ouvert (tiroir puis etagere), sinon
+        // revient au bureau. Le vrai retour vers une application Android
+        // (injecter KEYCODE_BACK dans Waydroid) reste un chantier separe, non
+        // verifie — on ne fait pas semblant qu'il existe.
+        onRetourDemande: {
+            if (menuDemarrer.visible) { menuDemarrer.close(); return; }
+            if (recents.visible) { recents.close(); return; }
+            if (typeof fenetres !== "undefined" && fenetres) fenetres.activerBureau();
+        }
+        // « Accueil » : toujours le bureau, tout ferme.
+        onAccueilDemande: {
+            if (menuDemarrer.visible) menuDemarrer.close();
+            if (recents.visible) recents.close();
+            if (typeof fenetres !== "undefined" && fenetres) fenetres.activerBureau();
+        }
+        // « Applications ouvertes » : l'etagere des fenetres en cours.
+        onRecentsDemande: {
+            if (recents.visible) recents.close();
+            else recents.ouvrir();
+        }
     }
 
     // ══ 3 bis. LA BARRE LATERALE ══════════════════════════════════════════
@@ -1197,6 +1218,77 @@ ApplicationWindow {
         }
         function onModeChange(mode) {
             bureau.veilleMode = mode;
+        }
+    }
+
+    // ══ LES APPLICATIONS OUVERTES — le bouton « recents » d'Android ══
+    // Une etagere de cartes qui monte au-dessus de la barre : chaque fenetre
+    // ouverte y a sa carte, un toucher y bascule. Meme source que le dock —
+    // barreTaches.ouvertures — donc jamais deux verites sur « ce qui tourne ».
+    Popup {
+        id: recents
+        objectName: "recents"
+        modal: true
+        Overlay.modal: Rectangle { color: "transparent" }
+        focus: true
+        padding: 0
+        x: (bureau.width - width) / 2
+        y: bureau.height - height - 90
+        width: Math.min(620, bureau.width - 32)
+        height: 128
+        background: Panneau {
+            rayon: 20
+            teinte: Theme.panneau
+            flou: true
+            ox: recents.x
+            oy: recents.y
+            ecranL: bureau.width
+            ecranH: bureau.height
+        }
+        contentItem: ListView {
+            id: listeRecents
+            anchors.fill: parent
+            anchors.margins: 10
+            orientation: ListView.Horizontal
+            spacing: 8
+            clip: true
+            model: barreTaches.ouvertures
+            delegate: Rectangle {
+                required property var modelData
+                width: 92
+                height: listeRecents.height
+                radius: 14
+                color: tapC.pressed ? Theme.verre3 : (survolC.hovered ? Theme.verre2 : "transparent")
+                readonly property var appC: bureau.appParClasse(modelData.classe || "")
+                IconeApp {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: 12
+                    taille: 34
+                    app: appC ? appC : ({ ico: "i-fenetre", src: "linux", img: "" })
+                }
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 8
+                    width: parent.width - 8
+                    text: String(modelData.titre || "").replace(/ - Vivaldi$/, "")
+                    color: Theme.palette.onSurface
+                    font.family: Theme.police
+                    font.pixelSize: 11
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                }
+                HoverHandler { id: survolC; cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    id: tapC
+                    onTapped: {
+                        recents.close();
+                        if (typeof fenetres !== "undefined" && fenetres)
+                            fenetres.activer(String(modelData.id || ""), false);
+                    }
+                }
+            }
         }
     }
 
