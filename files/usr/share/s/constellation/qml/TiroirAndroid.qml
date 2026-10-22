@@ -303,8 +303,8 @@ Item {
             TapHandler {
                 id: tapD
                 onTapped: {
-                    tiroir.hote.dire(pont.ouvrirDossier(ligneDossier.modelData.chemin));
-                    tiroir.menu.close();
+                    Session.bureau.dire(pont.ouvrirDossier(ligneDossier.modelData.chemin));
+                    Session.menu.close();
                 }
             }
         }

@@ -127,7 +127,7 @@ ColumnLayout {
                     }
                     TapHandler {
                         id: tapOnglet
-                        onTapped: demarrerC.menu.vue = modelData.cle
+                        onTapped: Session.menu.vue = modelData.cle
                     }
                 }
             }
@@ -187,19 +187,14 @@ ColumnLayout {
                 app: modelData
                 width: grilleApps.cellWidth - 6
                 height: grilleApps.cellHeight - 6
-                onOuvrir: {
-                    demarrerC.hote.dire(pont.lancer(app.id));
-                    pont.effacerBadge(app.id);
-                    demarrerC.hote.relire();
-                    demarrerC.menu.close();
-                }
+                onOuvrir: Session.menu.lancerApp(app)
                 onEpingler: function (oui) {
                     pont.epingler(app.id, oui);
-                    demarrerC.hote.relire();
-                    demarrerC.hote.dire(oui ? (app.nom + " epinglee")
+                    Session.bureau.relire();
+                    Session.bureau.dire(oui ? (app.nom + " epinglee")
                                             : (app.nom + " retiree de la barre"));
                 }
-                onMenuDemande: function (ex, ey) { demarrerC.hote.ouvrirMenuContextuel(app, ex, ey); }
+                onMenuDemande: function (ex, ey) { Session.bureau.ouvrirMenuContextuel(app, ex, ey); }
             }
         }
     }
@@ -258,8 +253,8 @@ ColumnLayout {
                         detail: modelData.detail
                         glyphe: modelData.ico
                         onChoisi: {
-                            demarrerC.hote.dire(pont.ouvrirDossier(modelData.chemin));
-                            demarrerC.menu.close();
+                            Session.bureau.dire(pont.ouvrirDossier(modelData.chemin));
+                            Session.menu.close();
                         }
                     }
                 }
@@ -292,7 +287,7 @@ ColumnLayout {
                             cle: modelData.cle
                             nom: modelData.nom
                             detail: modelData.detail
-                            onChoisie: demarrerC.hote.appliquerTheme(modelData.cle)
+                            onChoisie: Session.bureau.appliquerTheme(modelData.cle)
                         }
                     }
                 }
@@ -348,7 +343,7 @@ ColumnLayout {
                             }
                             HoverHandler { cursorShape: Qt.PointingHandCursor }
                             TapHandler {
-                                onTapped: demarrerC.hote.choisirFond(modelData)
+                                onTapped: Session.bureau.choisirFond(modelData)
                             }
                         }
                     }
@@ -417,7 +412,7 @@ ColumnLayout {
                         glyphe: modelData.ico
                         grave: modelData.grave
                         onChoisi: {
-                            demarrerC.menu.close();
+                            Session.menu.close();
                             pont.session(modelData.act);
                         }
                     }

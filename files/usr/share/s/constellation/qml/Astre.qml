@@ -520,6 +520,15 @@ Item {
     DragHandler {
         id: glisser
         target: astre
+        // PERSONNE NE REPREND CETTE PRISE — correctif du 2026-10-21. Le
+        // DragHandler de selection du ciel (Constellation.qml,
+        // « cadreGlissement ») est pose sur l'ANCETRE de toute etoile, et
+        // par defaut un DragHandler APPROUVE qu'on lui reprenne la prise.
+        // Trace au banc : l'etoile prenait la prise, avancait de 20 px, et
+        // le cadre la lui volait — l'etoile restait figee jusqu'au lacher.
+        // On garde le droit de PRENDRE, on retire celui de se laisser PRENDRE.
+        grabPermissions: PointerHandler.CanTakeOverFromItems
+                         | PointerHandler.CanTakeOverFromHandlersOfDifferentType
         cursorShape: Qt.ClosedHandCursor
         onActiveChanged: {
             if (active) {

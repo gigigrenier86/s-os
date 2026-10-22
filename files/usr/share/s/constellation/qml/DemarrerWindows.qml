@@ -577,8 +577,8 @@ Item {
                     glyphe: modelData.ico
                     aide: modelData.nom
                     onClique: {
-                        demarrer.hote.dire(pont.ouvrirDossier(modelData.chemin));
-                        demarrer.menu.close();
+                        Session.bureau.dire(pont.ouvrirDossier(modelData.chemin));
+                        Session.menu.close();
                     }
                 }
             }
@@ -614,7 +614,7 @@ Item {
                     text: modelData.nom
                     grave: modelData.grave
                     onTriggered: {
-                        demarrer.menu.close();
+                        Session.menu.close();
                         pont.session(modelData.act);
                     }
                 }

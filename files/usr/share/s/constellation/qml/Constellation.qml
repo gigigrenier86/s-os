@@ -34,6 +34,27 @@ ApplicationWindow {
                                 ? fenetres.mode() : "geler"
     property int fenetresInactives: 0
 
+    // ── UN POPUP BLOQUANT EST OUVERT ──────────────────────────────────────
+    // LE CIEL ET L'ACCUEIL SE DESACTIVENT TANT QU'IL L'EST — correctif du
+    // 2026-10-21, apres que « modal: true » n'a RIEN change chez
+    // l'utilisateur. Mesure au banc (vrais clics QTest dans la vraie scene) :
+    // un TapHandler ne prend qu'une prise PASSIVE a l'appui, et le point
+    // continue sa route jusqu'aux gestionnaires du ciel et des etoiles poses
+    // DESSOUS, Overlay modal ou pas. D'ou les deux symptomes, une seule cause :
+    // un onglet clique dans le menu Demarrer de Constellation atteignait le
+    // TapHandler gauche du ciel, qui referme le menu (pile JS relevee :
+    // Constellation.qml « if (menuDemarrer.visible) menuDemarrer.close() ») ;
+    // et en Android, une tuile du tiroir lancait son application ET l'etoile
+    // posee juste en dessous (« lancer b », puis « lancer a », un seul clic).
+    // Un item desactive ne recoit plus rien : on ne parie plus sur la
+    // propagation. Le clic HORS du popup le ferme toujours — c'est l'Overlay
+    // modal (closePolicy) qui s'en charge, pas le ciel.
+    readonly property bool surcouche: menuDemarrer.visible || personnaliser.visible
+                                      || saisie.visible || ouvrirAvec.visible
+    // Un item desactive perd le focus ; le ciel le reprend des que le popup
+    // part, sinon taper sur le bureau n'ouvrirait plus le menu.
+    onSurcoucheChanged: if (!surcouche) ciel.forceActiveFocus()
+
     // ── CONSTELLATION VIVANTE — L'INTERRUPTEUR COMMUN ─────────────────────
     // Tout mouvement CONTINU du chantier vivant (derive des etoiles,
     // respiration du fond, reaction au son) se gate sur ce seul booleen. Un
@@ -559,6 +580,7 @@ ApplicationWindow {
         id: ciel
         anchors.fill: parent
         focus: true
+        enabled: !bureau.surcouche
 
         // LE NOMBRE MAGIQUE « 70 », NOMME — nettoyage du 2026-10-20. Six
         // occurrences, en cinq endroits, utilisaient le meme litteral pour
@@ -656,26 +678,19 @@ ApplicationWindow {
         // par l'utilisateur le 2026-10-21, tous themes confondus : « les
         // icones ne sont pas deplacables, comme verrouillees ».
         //
-        // CORRIGE EN DESACTIVANT « cadreGlissement » AU PRESS, avant que le
-        // seuil de glissement ne tranche qui gagne — pas APRES, dans
-        // onActiveChanged. Un PointHandler separe, qui ne prend jamais de
-        // prise exclusive, observe le point en continu (y compris le
-        // relachement, meme quand cadreGlissement est desactive) et bascule
-        // « enabled » : desactive au press si le doigt est sur une etoile,
-        // jamais degrade sinon.
-        PointHandler {
-            id: surveillerPresse
-            acceptedButtons: Qt.LeftButton
-            onPointChanged: {
-                if (point.pressed) {
-                    var cible = ciel.childAt(point.position.x, point.position.y);
-                    cadreGlissement.enabled = !(cible !== null && cible.app !== undefined);
-                } else {
-                    cadreGlissement.enabled = true;
-                }
-            }
-        }
-
+        // CE QUE CE CORRECTIF FAISAIT ETAIT FAUX, ET C'EST MESURE — le
+        // 2026-10-21, au banc, trace des prises a l'appui. Un PointHandler
+        // devait desactiver ce cadre quand l'appui tombait sur une etoile, en
+        // lisant « point.pressed » — qui N'EXISTE PAS sur un point de
+        // gestionnaire : il valait « undefined », la garde ne s'est jamais
+        // declenchee, et le PointHandler est parti. Ce que la trace montre :
+        // l'etoile prend la prise exclusive, avance de 20 px, puis ce cadre la
+        // lui REPREND (annulation, puis prise exclusive du cadre) — l'etoile
+        // se fige pour tout le reste du geste. Le vrai garde est donc du cote
+        // de l'etoile : son DragHandler n'APPROUVE plus qu'on lui reprenne la
+        // prise (Astre.qml, « grabPermissions »). Et comme une etoile, plus
+        // profonde que le ciel, voit le mouvement AVANT lui, c'est toujours
+        // elle qui franchit le seuil la premiere.
         DragHandler {
             id: cadreGlissement
             target: null
@@ -697,9 +712,8 @@ ApplicationWindow {
         }
 
         Rectangle {
-            // « cadreGlissement » ne s'active plus jamais sur une etoile
-            // (voir « surveillerPresse » ci-dessus) : le garde sur
-            // « surUneEtoile » n'a plus de raison d'etre.
+            // « cadreGlissement » ne peut plus prendre la prise d'une etoile
+            // (voir « grabPermissions » dans Astre.qml).
             visible: cadreGlissement.active
             x: Math.min(cadreGlissement.depart.x, cadreGlissement.centroid.position.x)
             y: Math.min(cadreGlissement.depart.y, cadreGlissement.centroid.position.y)
@@ -1004,6 +1018,8 @@ ApplicationWindow {
     Loader {
         anchors.fill: parent
         active: Theme.estAndroid
+        // Meme garde que le ciel, meme raison : il est pose PAR-DESSUS lui.
+        enabled: !bureau.surcouche
         sourceComponent: Component { AccueilAndroid { } }
     }
 
