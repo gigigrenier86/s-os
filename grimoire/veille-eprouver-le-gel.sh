@@ -22,12 +22,14 @@
 # qui la désigne, et vérifie ce que le noyau fait vraiment. Aucune fenêtre de
 # l'utilisateur n'est touchée.
 #
-# LE PIÈGE DU NOM DE LA PORTÉE, TROUVÉ ICI
+# LE PIÈGE DU NOM DE LA PORTÉE, TROUVÉ ICI — LEVÉ LE 2026-10-22
 #
 # La première version du banc créait « s-banc-veille.scope » et s'étonnait que
 # rien ne gèle. C'était le garde-fou qui faisait son travail : veille.py ne
-# gèle QUE les portées « app-*.scope » (voir son en-tête). Un banc dont l'unité
-# ne porte pas ce préfixe mesure le refus, pas le gel.
+# gelait QUE les portées « app-*.scope » (voir son en-tête). Depuis le
+# 2026-10-22, les programmes Windows vivent dans « s-win-*.scope » (CLAUDE.md
+# « Item 5 ») : veille.py accepte désormais TOUTE portée « .scope » posée sous
+# « app.slice », et ce banc le vérifie sur les deux préfixes.
 #
 # LE PIÈGE DES DEUX FICHIERS, TROUVÉ ICI AUSSI ET PLUS COÛTEUX
 #
@@ -40,18 +42,23 @@ set -uo pipefail
 DEPOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="$DEPOT/files/usr/lib/s"
 UNITE=app-s-banc-veille
+UNITE_WIN=s-win-s-banc-veille
 
 [[ -f "$LIB/veille.py" ]] || { echo "ÉCHEC : $LIB/veille.py introuvable" >&2; exit 1; }
 
-nettoyer() { systemctl --user stop "$UNITE.scope" >/dev/null 2>&1 || true; }
+nettoyer() {
+    systemctl --user stop "$UNITE.scope" >/dev/null 2>&1 || true
+    systemctl --user stop "$UNITE_WIN.scope" >/dev/null 2>&1 || true
+}
 trap nettoyer EXIT
 
 nettoyer
 systemd-run --user --scope --unit="$UNITE" -q -- sleep 400 &
+systemd-run --user --scope --unit="$UNITE_WIN" -q -- sleep 400 &
 sleep 1.5
 
 cd "$LIB" || exit 1
-python3 - "$UNITE" <<'PYFIN'
+python3 - "$UNITE" "$UNITE_WIN" <<'PYFIN'
 import os, sys, time
 sys.path.insert(0, ".")
 from PySide6.QtCore import QCoreApplication
@@ -79,6 +86,22 @@ if veille.portee(pid) != C:
           file=sys.stderr)
     raise SystemExit(1)
 print("banc            : pid=%d, portée reconnue" % pid)
+
+# LA PORTÉE WINDOWS. Depuis le 2026-10-22, les programmes Windows naissent dans
+# « s-win-*.scope » (CLAUDE.md « Item 5 »). veille.portee() doit la reconnaître
+# comme gelable, au même titre que « app-*.scope » — sinon le Quick Resume ne
+# toucherait jamais une app Windows.
+unite_w = sys.argv[2] if len(sys.argv) > 2 else ""
+CW = os.path.join(veille.app_slice() or "", unite_w + ".scope")
+if not os.path.isdir(CW):
+    print("ÉCHEC : la portée Windows jetable %s n'existe pas" % CW, file=sys.stderr)
+    raise SystemExit(1)
+pid_w = int(open(os.path.join(CW, "cgroup.procs")).read().split()[0])
+if veille.portee(pid_w) != CW:
+    print("ÉCHEC : veille.portee() refuse la portée Windows s-win-*.scope",
+          file=sys.stderr)
+    raise SystemExit(1)
+print("banc Windows    : pid=%d, portée s-win reconnue" % pid_w)
 
 rates = []
 

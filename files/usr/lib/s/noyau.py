@@ -587,6 +587,22 @@ def sauver_placees(placees):
 # Les gestes
 # --------------------------------------------------------------------------
 
+def _scope_si_windows(cmd, entree):
+    """Enveloppe un lancement Windows dans une portée systemd (Quick Resume).
+
+    « gio launch » ne crée pas de portée pour les .desktop Windows (mesuré,
+    CLAUDE.md « Item 5 ») : l'application hérite du cgroup de l'appelant, donc
+    impossible à geler seule. Une portée « systemd-run --scope » lui donne la
+    sienne, sans toucher au wineserver résident (s-windows.service), et la
+    délégation cgroup de l'utilisateur suffit à la geler ensuite.
+    """
+    if entree.get("src") != "windows" and entree.get("moteur") != "windows":
+        return cmd
+    nom = (entree.get("id") or "app").replace(".", "-")[:20]
+    unit = "s-win-%s-%d.scope" % (nom, int(time.time() * 1000000))
+    return ["systemd-run", "--user", "--scope", "--collect", "--unit=" + unit] + cmd
+
+
 def lancer(entree):
     """Lancer par le .desktop lui-meme ou par l'action du catalogue unifie / recherche web.
 
@@ -614,7 +630,7 @@ def lancer(entree):
     if ident.startswith("cmd:"):
         return executer_commande(ident[len("cmd:"):], en_root=False, dans_terminal=True)
     if entree.get("action"):
-        cmd = shlex.split(entree["action"])
+        cmd = _scope_si_windows(shlex.split(entree["action"]), entree)
         try:
             subprocess.Popen(cmd, start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -633,6 +649,7 @@ def lancer(entree):
         if not brut:
             return False, "aucune commande dans %s" % os.path.basename(fichier)
         cmd = shlex.split(brut)
+    cmd = _scope_si_windows(cmd, entree)
     try:
         subprocess.Popen(cmd, start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

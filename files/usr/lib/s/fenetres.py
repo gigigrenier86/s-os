@@ -540,6 +540,27 @@ class Fenetres(QObject):
     def _portee(self, fenetre):
         return veille.portee(fenetre.get("pid") or 0)
 
+    def _marquer_geles(self):
+        """Pose « gelee » sur chaque fenetre montree, pour la pastille suspendu.
+
+        La barre ne sait rien des cgroups : elle ne recoit qu'un drapeau par
+        fenetre. Ici, « gelee » dit si la portee de ce programme est dans
+        « _geles » — c'est-a-dire arrete par la veille (Quick Resume). Le champ
+        reprend la distinction de _geler() : « .scope » sous app.slice, qu'elle
+        soit « app-*.scope » (natif) ou « s-win-*.scope » (Windows).
+        """
+        for f in self._liste:
+            portee = self._portee(f)
+            f["gelee"] = bool(portee and portee in self._geles)
+
+    def _envoyer(self):
+        """Re-previens la barre, seulement si la liste a change pour elle."""
+        charge = json.dumps(self._liste)
+        if charge == self._dernier_envoi:
+            return
+        self._dernier_envoi = charge
+        self.changees.emit(charge)
+
     def _ranger(self, idents):
         if not idents:
             return False
@@ -570,6 +591,8 @@ class Fenetres(QObject):
                 if portee in self._geles:
                     self._geles.discard(portee)
                     _sauver_geles(self._geles)
+            self._marquer_geles()
+            self._envoyer()
             return
 
     def _geler(self, idents):
@@ -609,12 +632,16 @@ class Fenetres(QObject):
             if veille.geler(portee):
                 self._geles.add(portee)
                 _sauver_geles(self._geles)
+        self._marquer_geles()
+        self._envoyer()
 
     def _tout_degeler(self):
         for portee in list(self._geles):
             veille.degeler(portee)
         self._geles.clear()
         _sauver_geles(self._geles)
+        self._marquer_geles()
+        self._envoyer()
 
     def _veiller(self, liste):
         """La regle : une seule fenetre debout, les autres au repos.
@@ -817,11 +844,8 @@ class Fenetres(QObject):
         # clic dans la barre active « S - barre » et en produit un, sans que la
         # liste montrable ait bouge d'un octet. Chaque envoi coute un JSON.parse
         # et une reevaluation de toutes les liaisons qui lisent la liste.
-        charge = json.dumps(self._liste)
-        if charge == self._dernier_envoi:
-            return
-        self._dernier_envoi = charge
-        self.changees.emit(charge)
+        self._marquer_geles()
+        self._envoyer()
 
     def arreter(self):
         """A l'extinction : on relache tout, et on retient ce qu'on a vu.

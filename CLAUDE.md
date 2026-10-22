@@ -8,6 +8,49 @@ Interface en français.
 
 ---
 
+## 2026-10-22 — le Quick Resume étendu à Windows, mesuré sur la machine
+
+Une application Windows réduite se gèle désormais comme les applications Linux :
+son programme s'arrête (cgroup.freeze) et repart instantanément au clic, un
+flocon ❄ s'affiche sur sa tuile tant qu'elle est suspendue. Mesuré sur la
+machine, PURPLE (Windows) et Vivaldi (Linux) côte à côte, mode « geler » actif.
+
+### Le mécanisme « Item 5 », mesuré la veille, enfin déployé
+
+- **Chaque lancement Windows naît dans sa propre portée** `s-win-*.scope`
+  (`systemd-run --user --scope --collect`) — `noyau._scope_si_windows()`, sur
+  les deux chemins : le catalogue (`action`) et l'application (`.desktop`).
+  `gio launch` n'en crée pas seul ; le wineserver reste dans
+  `s-windows.service`, séparé et jamais gelé.
+- **`veille.py` accepte toute portée `.scope` sous `app.slice`**, plus seulement
+  `app-*.scope` : le filtre juste est `.scope` (programme lancé) vs `.service`
+  (infrastructure — wineserver, portails, s-android-* — qui refuse toujours le
+  gel).
+- **Un flocon sur la tuile** : `fenetres.py` pose `gelee` sur chaque fenêtre
+  montrée (`_marquer_geles()`, re-émis par `_envoyer()`), `Barre.qml` l'affiche
+  en pastille (`i-flocon`, nouveau glyphe).
+
+### Le piège du déploiement, trouvé sur cette machine
+
+`/usr` est monté en **lecture seule** (composefs/OSTree) : `sudo cp` vers
+`/usr/lib/s` échoue avec « read-only file system ». Le test manuel exige
+`sudo ostree admin unlock` (hotfix, perdu au redémarrage) ; le définitif passe
+par le commit + la reconstruction d'image, comme le chantier précédent.
+
+### Ce qui reste à vérifier : GameGuard
+
+**Non testé.** Geler Lineage 2 (nProtect GameGuard) fige aussi les processus de
+GameGuard eux-mêmes : leurs battements de cœur cessent, ce qui peut valoir une
+déconnexion — voire un signalement. À éprouver en vrai avant de compter dessus.
+
+### Ce qui a été touché
+
+`noyau.py` (`_scope_si_windows`), `veille.py` (filtre `.scope`), `fenetres.py`
+(`_marquer_geles`, `_envoyer`, drapeau `gelee`), `Barre.qml` (pastille flocon),
+`Glyphes.js` (`i-flocon`), `grimoire/veille-eprouver-le-gel.sh` (contrôle du
+préfixe `s-win-*`). Validé par le banc (`TOUT PASSE`, garde-fous inclus) et les
+deux vérificateurs de construction, dépôt passé en argument.
+
 ## 2026-10-22 — le glisser-déposer inter-mondes, mesuré sur la machine
 
 Un fichier déposé sur une tuile de la barre s'ouvre désormais dans le monde de

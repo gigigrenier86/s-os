@@ -87,7 +87,8 @@ Window {
             // « Unable to assign [undefined] to bool » (releve dans le journal
             // du demarrage de la coquille).
             active: f.active === true,
-            reduite: f.reduite === true
+            reduite: f.reduite === true,
+            gelee: f.gelee === true
         };
     }
 
@@ -1281,6 +1282,7 @@ Window {
                         required property string titre
                         required property bool active
                         required property bool reduite
+                        required property bool gelee
                         // Par identifiant d'abord (le cas courant : la classe
                         // d'une fenetre est presque toujours l'id de son
                         // .desktop) — par classe partagee ensuite, pour les
@@ -1368,6 +1370,29 @@ Window {
                                     nom: tuile.app ? (tuile.app.ico || "i-boite") : "i-boite"
                                     couleur: Theme.texte2
                                     visible: !icoF.visible
+                                }
+
+                                // LA PASTILLE « SUSPENDU » — le flocon dit que le
+                                // programme de cette fenetre est arrete par la
+                                // veille (Quick Resume). Posee sur l'icone comme
+                                // une pastille de notification, pour ne pas
+                                // elargir la tuile.
+                                Rectangle {
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.rightMargin: -2
+                                    anchors.bottomMargin: -2
+                                    width: 11; height: 11; radius: 5.5
+                                    color: Theme.verre3
+                                    border.color: Theme.bord
+                                    border.width: 1
+                                    visible: tuile.gelee
+                                    Glyphe {
+                                        anchors.centerIn: parent
+                                        width: 8; height: 8
+                                        nom: "i-flocon"
+                                        couleur: Theme.texte
+                                    }
                                 }
                             }
 

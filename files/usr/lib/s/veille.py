@@ -53,8 +53,10 @@ toujours, ce que ce balayage existe precisement pour empecher.
 
 ═══ CE QU'ON REFUSE DE GELER, ET POURQUOI LA REGLE EST COURTE ═══════════════
 
-On ne gele QUE les portees « app-*.scope » posees directement sous
-« app.slice ». Rien d'autre. Cette seule phrase protege tout le reste, et ce
+On ne gele QUE les portees « .scope » posees directement sous « app.slice ».
+Rien d'autre. Les programmes Windows lances par S vivent depuis le
+2026-10-22 dans « s-win-*.scope » (CLAUDE.md « Item 5 ») : ce sont des
+« .scope » comme les autres, geles au meme titre que « app-*.scope ». Cette seule phrase protege tout le reste, et ce
 n'est pas une precaution theorique — c'est le releve de la machine :
 
     s-constellation   session-2.scope        pas sous app.slice  -> refuse
@@ -65,6 +67,7 @@ n'est pas une precaution theorique — c'est le releve de la machine :
     wineserver        app.slice/s-windows.service   .service     -> refuse
     portails, kdeconnect, mpris-proxy        .service            -> refuse
     code, vivaldi     app.slice/app-*.scope                      -> ACCEPTE
+    app Windows        app.slice/s-win-*.scope                   -> ACCEPTE
 
 Les quatre pieces du bureau vivent dans la portee de SESSION, jamais dans
 app.slice : geler le compositeur figerait l'ecran entier sans que rien puisse
@@ -107,7 +110,7 @@ def _chemin_cgroup(pid):
 
 
 def portee(pid):
-    """La portee « app-*.scope » qui contient ce processus, ou None.
+    """La portee « .scope » sous app.slice qui contient ce processus, ou None.
 
     Rend un chemin absolu sous /sys/fs/cgroup. None veut dire « ce processus
     n'est pas un programme lance par l'utilisateur » — et donc qu'on n'y
@@ -138,7 +141,11 @@ def portee(pid):
     if i + 1 >= len(morceaux):
         return None
     feuille = morceaux[i + 1]
-    if not feuille.startswith("app-") or not feuille.endswith(".scope"):
+    # .scope OU .service : la portée d'un programme lance par l'utilisateur est
+    # une « .scope » (app-*.scope pour les apps natives, s-win-*.scope pour les
+    # programmes Windows depuis le 2026-10-22). Les « .service » (wineserver,
+    # portails, s-android-*) sont l'infrastructure de la session : jamais gele.
+    if not feuille.endswith(".scope"):
         return None
     chemin = os.path.join(RACINE, *morceaux[:i + 2])
     if not os.path.isfile(os.path.join(chemin, "cgroup.freeze")):
@@ -242,7 +249,7 @@ def portees_gelees():
     trouvees = []
     try:
         for nom in os.listdir(base):
-            if not nom.startswith("app-") or not nom.endswith(".scope"):
+            if not nom.endswith(".scope"):
                 continue
             chemin = os.path.join(base, nom)
             # LA DEMANDE, PAS L'ETAT. Voir l'en-tete : une tache coincee dans
