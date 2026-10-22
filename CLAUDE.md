@@ -8,6 +8,41 @@ Interface en français.
 
 ---
 
+## 2026-10-22 — le glisser-déposer inter-mondes, mesuré sur la machine
+
+Un fichier déposé sur une tuile de la barre s'ouvre désormais dans le monde de
+cette application. Mesuré sur la machine, les trois mondes :
+
+- **Linux** — `noyau.ouvrir_avec` (l'application précise) sinon `ouvrir_fichier`.
+- **Windows** — `/usr/bin/s-ouvrir-exe` (le handler par défaut sous Wine/Proton).
+- **Android** — copie dans `~/Partage` puis `am start -a VIEW` dans le conteneur
+  (`lxc-attach`), élevé SANS mot de passe par `s-android-ouvrir` + la règle
+  polkit `50-s-android-ouvrir.rules` (program == s-android-ouvrir, wheel actif).
+
+### Deux pièges nommés, et la mesure qui les a tués
+
+1. **Un `DropArea` dans un délégué de `Repeater` ne reçoit PAS les dépôts
+   externes.** Le curseur restait « interdit » sur les tuiles, alors que le même
+   `DropArea` posé en enfant direct de la fenêtre recevait (vérifié par un
+   `DropArea` de diagnostic pleine fenêtre : il recevait, la tuile non). Le
+   correctif est un `DropArea` unique sur la fenêtre de la barre, qui retrouve
+   la tuile sous le curseur via `Repeater.itemAt()` + `mapToItem` (les tuiles
+   d'un Repeater ne sont pas dans `children`). `Qt.Tool` et
+   `WindowDoesNotAcceptFocus` n'étaient PAS en cause — restaurés.
+2. **Le binder `waydroidplatform` refuse `launchIntent`** (transaction 13 :
+   « envoi refuse »). Le geste Android standard `am start` passe par `lxc-attach`
+   (root) ; `s-android-ouvrir` est le SEUL geste élevé, validé sur son URI
+   (`file:///sdcard/Partage/*`).
+
+### Ce qui a été touché
+
+`Constellation.qml` (DropArea de réception du bureau), `Barre.qml` (DropArea
+global + repérage de tuile), `s-constellation` (slot `deposer`), `noyau.py`
+(`deposer`, `_deposer_android`), `s-android-ouvrir` (neuf), la règle polkit
+(neuve), `verifier-constellation.py` (contrôle du DropArea + slot `deposer`).
+Construit et validé par `verifier-constellation.py` (41 slots, aucun
+avertissement) et `verifier-tuiles.py`. Commits : `6d634d8`, `df53936`.
+
 ## 2026-10-21, soir — le menu ne lançait plus, l'élévation root échouait, et un nettoyage
 
 L'utilisateur signale que les 3 bogues du matin persistent et que « la plupart des
