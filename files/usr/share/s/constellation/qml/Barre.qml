@@ -287,12 +287,8 @@ Window {
             ? hauteur + placeMenu : hauteur
     visible: !efface
     color: "transparent"
-    // Qt.Tool RETIRE : une fenêtre « tool » ne reçoit pas les dépôts externes
-    // sous Wayland (le compositeur n'y route pas le glisser-déposer — mesuré :
-    // le bureau, sans Qt.Tool, reçoit ; la barre, avec, refuse). Fenetres.py
-    // exclut déjà la classe « s-constellation » de la barre des tâches, donc
-    // retirer Qt.Tool ne la fait pas s'afficher elle-même.
-    flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+    flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+           | Qt.WindowDoesNotAcceptFocus
 
     // ══ LE DÉPÔT SUR LA BARRE — le geste inter-mondes ════════════════════════
     // UN SEUL DropArea, SUR TOUTE LA FENÊTRE, et pas un par tuile : un DropArea
