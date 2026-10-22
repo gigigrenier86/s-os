@@ -8,6 +8,47 @@ Interface en français.
 
 ---
 
+## 2026-10-21, soir — le menu ne lançait plus, l'élévation root échouait, et un nettoyage
+
+L'utilisateur signale que les 3 bogues du matin persistent et que « la plupart des
+programmes de maintenance ne se lancent pas ou meurent à l'action » (S — Pilotes,
+Diagnostic, Nettoyer S…). Deux causes distinctes, prouvées par les journaux de la
+machine.
+
+### Le menu Démarrer ne lançait plus — un identifiant racine dans les délégués
+
+`coquille.log` portait, à chaque clic : `DemarrerConstellation.qml:194: ReferenceError:
+demarrerC is not defined`. C'est le bogue que `Session.qml` documente déjà — « dans les
+délégués du menu, l'identifiant racine ne résout pas » — réintroduit par la refonte des
+thèmes du 2026-10-20, qui a créé `demarrerC` et l'a utilisé dans les délégués. Corrigé en
+remplaçant `demarrerC.menu`/`demarrerC.hote` par `Session.menu`/`Session.bureau` (le
+singleton) dans les trois menus (DemarrerConstellation, DemarrerWindows, TiroirAndroid),
+et `onOuvrir` par le motif éprouvé `Session.menu.lancerApp(app)`. Le correctif des 3
+bogues (`grabPermissions` dans Astre.qml, `surcouche` dans Constellation.qml) est inclus.
+
+### L'élévation root échouait — /etc/pam.d/polkit-1 absent
+
+`polkit.log` portait, répété : `polkit-agent-helper-1: pam_authenticate failed:
+Authentication failure`. `/etc/pam.d/polkit-1` est absent et le repli vendeur n'est pas
+lu : polkit retombait sur `/etc/pam.d/other` = `pam_deny`. Toute élévation (`pkexec`,
+`fwupd`, `rpm-ostree`) mourait à l'action, pendant que la connexion fonctionnait.
+Corrigé en posant `files/etc/pam.d/polkit-1` (`include system-auth`).
+
+### Nettoyage — ce qui était inutile, retiré
+
+- Caches Python (`__pycache__`, `*.pyc`), `bench.exe` (binaire .NET référencé nulle
+  part), `image.toml` (documenté inutilisé), `galerie/constellation/archive-page-web/`
+  (l'ancien bureau web).
+- Du build : Gemini CLI, Antigravity, Zoom, LibreOffice Calc + Impress — tous à zéro
+  lancement dans `usage.json`, pendant que Claude Code (35), VS Code (80), RetroArch (7)
+  restent. Node est conservé (outil de dev général) ; `gemini.desktop` aussi (raccourci
+  web Vivaldi, indépendant de la CLI).
+
+Quatre commits poussés (`15aac03` constellation, `c79a9b7` systeme, `5bc1f09` nettoyage,
+`f5744d4` windows/web — ce dernier était le travail de l'utilisateur, committé tel quel).
+Rien n'est déployé à l'heure où j'écris.
+
+
 ## 2026-10-21 — trois bogues réels après le premier usage des thèmes, et un piège de grab Qt Quick
 
 Les thèmes du 2026-10-20/21 (ci-dessous) ont été construits, poussés, et **déployés** —
