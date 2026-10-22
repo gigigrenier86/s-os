@@ -233,6 +233,10 @@ class PontLeurre(QObject):
     def ouvrirAvec(self, ident, fichier_desktop):
         return ident
 
+    @Slot(str, str, result=str)
+    def deposer(self, ident, chemin):
+        return "depot simule"
+
     @Slot(str, bool, result=str)
     def creerSurLeBureau(self, nom, est_dossier):
         return nom
@@ -618,6 +622,25 @@ def verifier_un_theme():
                 plaintes.append("%s : %d au lieu de %d" % (nom_obj, vu_obj, attendu_obj))
             else:
                 print("  %-13s : %d elements" % (nom_obj[:13], vu_obj))
+
+        # LA ZONE DE RÉCEPTION DES DÉPÔTS — le glisser-déposer inter-mondes
+        # commence ici. Un DropArea absent, ou qui n'accepte plus les fichiers,
+        # chargerait sans un mot : le contrôle nomme la cible au lieu de la
+        # supposer (même raison que « repeaterCiel » ci-dessus).
+        depot_ok = False
+        for enfant in racine.findChildren(QObject):
+            try:
+                if enfant.objectName() == "depot":
+                    depot_ok = "text/uri-list" in (enfant.property("keys") or [])
+                    break
+            except (RuntimeError, AttributeError, TypeError, ValueError):
+                pass
+        if not depot_ok:
+            print("ECHEC : la zone de depot « depot » est introuvable ou "
+                  "n'accepte plus text/uri-list.", file=sys.stderr)
+            plaintes.append("zone de depot absente ou mauvaise clef")
+        else:
+            print("  depot         : zone de reception text/uri-list")
 
         for m in manquants:
             plaintes.append("slot absent du leurre : " + m)

@@ -22,12 +22,15 @@ rien apporter.
 """
 
 import json
+import mimetypes
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
+import urllib.parse
 
 
 ETAT = os.path.join(
@@ -1520,6 +1523,61 @@ def ouvrir_avec(chemin, fichier_desktop):
     except OSError as err:
         return False, str(err)
     return True, "ouvert"
+
+
+def _deposer_android(chemin):
+    """Copie un fichier dans le dossier Partage d'Android, puis l'ouvre avec
+    l'application qu'Android y associe (intent VIEW)."""
+    partage = os.path.expanduser("~/Partage")
+    nom = os.path.basename(chemin)
+    try:
+        os.makedirs(partage, exist_ok=True)
+        shutil.copy2(chemin, os.path.join(partage, nom))
+    except OSError as err:
+        return False, str(err)
+
+    # L'intent VIEW ne passe PAS par le binder « waydroidplatform » : la
+    # transaction « launchIntent » y est refusée (mesuré le 2026-10-22,
+    # « transaction 13 : envoi refuse »). « am start » est le geste Android
+    # standard ; il tourne DANS le conteneur via lxc-attach, élevé par pkexec
+    # (un mot de passe peut être demandé la première fois).
+    mime = mimetypes.guess_type(nom)[0] or "*/*"
+    uri = "file:///sdcard/Partage/" + urllib.parse.quote(nom)
+    try:
+        subprocess.Popen(
+            ["pkexec", "/usr/bin/s-android-ouvrir", uri, mime],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True, "ouvert sous Android"
+    except OSError as err:
+        return False, str(err)
+
+
+def deposer(ident, chemin):
+    """Déposer un fichier sur la tuile d'une application : l'ouvrir dans le
+    monde de cette application (Linux natif, Windows/Proton, Android)."""
+    if not chemin:
+        return False, "aucun fichier"
+    if chemin.startswith("file://"):
+        chemin = urllib.parse.unquote(urllib.parse.urlparse(chemin).path)
+    if not os.path.exists(chemin):
+        return False, "ce fichier n'existe plus"
+    apps = inventaire()
+    app = apps.get(ident) if ident else None
+    src = (app or {}).get("src", "linux")
+    if src == "android":
+        return _deposer_android(chemin)
+    if src == "windows":
+        try:
+            subprocess.Popen(["/usr/bin/s-ouvrir-exe", chemin],
+                             start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True, "ouvert sous Windows"
+        except OSError as err:
+            return False, str(err)
+    if app and app.get("fichier") and os.path.isfile(app["fichier"]):
+        return ouvrir_avec(chemin, app["fichier"])
+    return ouvrir_fichier(chemin)
 
 
 def composer_etoiles():

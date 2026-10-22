@@ -1,0 +1,24 @@
+#!/usr/bin/bash
+# S — ouvrir un fichier dans Android (intent VIEW), le geste du glisser-déposer.
+#
+# POURQUOI CE FICHIER EXISTE. Le binder « waydroidplatform » refuse la
+# transaction « launchIntent » (mesuré le 2026-10-22 : « transaction 13 : envoi
+# refuse »). Le geste Android standard est « am start », mais il tourne DANS le
+# conteneur, donc via lxc-attach, qui exige root. Ce script est le SEUL
+# commandé par pkexec (la règle 50-s-android-ouvrir.rules l'autorise sans mot
+# de passe pour un utilisateur actif), et il ne fait que ce geste : rien
+# d'autre n'est élevé. On n'autorise jamais lxc-attach en entier.
+set -euo pipefail
+
+URI="${1:-}"
+MIME="${2:-*/*}"
+
+# LE SEUL URI QU'ON ACCEPTE : le dossier Partage, rien d'autre. Le chemin est
+# déjà encodé (%20 pour les espaces) par le noyau avant d'arriver ici.
+case "$URI" in
+    file:///sdcard/Partage/*) ;;
+    *) echo "s-android-ouvrir : uri refuse" >&2; exit 1 ;;
+esac
+
+lxc-attach -P /var/lib/waydroid/lxc -n android -- \
+    am start -a android.intent.action.VIEW -d "$URI" -t "$MIME"

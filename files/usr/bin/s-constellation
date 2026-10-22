@@ -387,6 +387,11 @@ class Pont(QObject):
         ok, dit = noyau.ouvrir_avec(chemin, fichier_desktop)
         return dit
 
+    @Slot(str, str, result=str)
+    def deposer(self, ident, chemin):
+        ok, dit = noyau.deposer(ident, chemin)
+        return dit
+
     @Slot(str, bool, result=str)
     def creerSurLeBureau(self, nom, est_dossier):
         ok, dit = noyau.creer(noyau.dossier_bureau(), nom, est_dossier)

@@ -1,0 +1,15 @@
+// S - ouvrir un fichier dans Android sans mot de passe (intent VIEW).
+//
+// Le glisser-déposer inter-mondes copie le fichier dans ~/Partage puis lance
+// « s-android-ouvrir » (élevé) pour le geste « am start » dans le conteneur.
+// Sans cette règle, chaque dépôt demanderait un mot de passe — ce qui tuerait
+// le geste. Restreint à CE script (program == /usr/bin/s-android-ouvrir), à un
+// utilisateur réellement assis devant la machine (subject.active), rien
+// d'autre : jamais lxc-attach ni une commande arbitraire.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/bin/s-android-ouvrir" &&
+        subject.isInGroup("wheel") && subject.active) {
+        return polkit.Result.YES;
+    }
+});

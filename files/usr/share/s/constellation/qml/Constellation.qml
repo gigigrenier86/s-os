@@ -593,6 +593,31 @@ ApplicationWindow {
         // l'ecran avant d'etre fait. Seule la lisibilite est corrigee.
         readonly property real margeBasCiel: 70
 
+        // ══ RÉCEPTION DES DÉPÔTS DE FICHIERS — premier jalon du glisser-déposer ══
+        // Jusqu'ici Constellation savait OFFRIR un fichier au glisser (Astre.qml,
+        // Drag.active -> start_drag), mais jamais RECEVOIR un dépôt venu de
+        // l'extérieur. Ce DropArea attrape les fichiers déposés sur le bureau et
+        // les montre en bulle — le « PREUVE » qui valide que la scène reçoit bien
+        // les dépôts. La route vers Windows/Android viendra après ce jalon.
+        DropArea {
+            id: depot
+            objectName: "depot"
+            anchors.fill: parent
+            keys: ["text/uri-list"]
+            onDropped: function (drop) {
+                // SEUL UN DÉPÔT EXTERNE NOUS INTÉRESSE ICI. Une étoile-fichier
+                // (Astre.qml) porte aussi « text/uri-list » quand on la déplace :
+                // son dépôt a un « source » (l'étoile), alors qu'un fichier venu
+                // de Dolphin ou d'un autre monde n'en a pas (source == null).
+                // Sans cette garde, reposer une étoile afficherait « Dépôt reçu ».
+                if (drop.source) return;
+                if (drop.hasUrls && drop.urls.length > 0) {
+                    console.log("DEPOT RECU : " + drop.urls.join(", "));
+                    bureau.dire("Dépôt reçu : " + drop.urls.join(", "));
+                }
+            }
+        }
+
         // Capture universelle du clavier sur le bureau :
         // Quand l'utilisateur tape sur le clavier n'importe où sur le bureau,
         // sans avoir préalablement cliqué sur un champ ou un menu, on ouvre

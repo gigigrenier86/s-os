@@ -287,8 +287,68 @@ Window {
             ? hauteur + placeMenu : hauteur
     visible: !efface
     color: "transparent"
-    flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
-           | Qt.WindowDoesNotAcceptFocus
+    // Qt.Tool RETIRE : une fenêtre « tool » ne reçoit pas les dépôts externes
+    // sous Wayland (le compositeur n'y route pas le glisser-déposer — mesuré :
+    // le bureau, sans Qt.Tool, reçoit ; la barre, avec, refuse). Fenetres.py
+    // exclut déjà la classe « s-constellation » de la barre des tâches, donc
+    // retirer Qt.Tool ne la fait pas s'afficher elle-même.
+    flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+
+    // ══ LE DÉPÔT SUR LA BARRE — le geste inter-mondes ════════════════════════
+    // UN SEUL DropArea, SUR TOUTE LA FENÊTRE, et pas un par tuile : un DropArea
+    // dans un délégué de Repeater ne reçoit PAS les dépôts externes (limitation
+    // Qt Quick, mesurée — le curseur restait « interdit »). Celui-ci, enfant
+    // direct de la fenêtre, les reçoit ; il retrouve la tuile sous le curseur
+    // pour router le fichier dans son monde.
+    DropArea {
+        id: depotBarre
+        anchors.fill: parent
+        keys: ["text/uri-list"]
+        onDropped: function (drop) {
+            // Dépôt externe seulement : « drop.source » n'existe que pour un
+            // glissement interne (étoile).
+            if (drop.source) return;
+            if (!drop.hasUrls || drop.urls.length === 0) return;
+
+            // Retrouve les Repeaters de tuiles de la mise en page active (les
+            // tuiles d'un Repeater ne sont PAS dans « children » : on passe par
+            // « itemAt », qui les rend). Chaque thème nomme le sien :
+            // « groupesBarre » (Windows/Android), « epinglesBarre » (Constellation).
+            var reps = [];
+            if (miseEnPage.item) {
+                var file = [miseEnPage.item];
+                while (file.length > 0) {
+                    var n = file.pop();
+                    if (n.objectName === "groupesBarre" || n.objectName === "epinglesBarre")
+                        reps.push(n);
+                    for (var k = 0; k < n.children.length; k++) file.push(n.children[k]);
+                }
+            }
+
+            // La tuile dont le rectangle contient le point de dépôt.
+            var tuile = null;
+            for (var r = 0; r < reps.length && !tuile; r++) {
+                var rep = reps[r];
+                for (var i = 0; i < rep.count && !tuile; i++) {
+                    var t = rep.itemAt(i);
+                    if (!t || t.width <= 0 || t.height <= 0) continue;
+                    var p = t.mapToItem(depotBarre, 0, 0);
+                    if (drop.x >= p.x && drop.x <= p.x + t.width
+                        && drop.y >= p.y && drop.y <= p.y + t.height)
+                        tuile = t;
+                }
+            }
+
+            // La tuile porte « app » (l'objet application) : son « id » est
+            // l'identifiant à router.
+            if (tuile && tuile.app && tuile.app.id) {
+                var dit = pont.deposer(tuile.app.id, drop.urls[0]);
+                if (Session.bureau) Session.bureau.dire(dit);
+            } else if (Session.bureau) {
+                Session.bureau.dire("reps=" + reps.length + " tuile=" + (tuile ? "oui" : "non"));
+            }
+        }
+    }
 
     // CE QUE LA BARRE AFFICHE DE LA VEILLE, ET QU'ELLE NE CALCULE PAS. Le mode
     // et le compte des fenetres oubliees viennent de Constellation, qui les
@@ -1074,6 +1134,7 @@ Window {
                 spacing: 8
 
                 Repeater {
+                    objectName: "epinglesBarre"
                     model: bureau.donnees.epingles
                     delegate: Item {
                         id: itemEp
