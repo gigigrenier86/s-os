@@ -248,7 +248,7 @@ Popup {
                         delegate: Item {
                             id: vignette
                             required property string modelData
-                            width: (grilleFonds.width - 36) / 4
+                            width: Math.max(4, (grilleFonds.width - 36) / 4)
                             height: Math.round(width * 9 / 16)
                             Rectangle { anchors.fill: parent; radius: 8; color: "#000000" }
                             FondEcran {
@@ -312,7 +312,7 @@ Popup {
                             id: miniature
                             required property var modelData
                             readonly property bool choisie: Theme.fondId === "image:" + modelData.chemin
-                            width: (grilleFonds.width - 36) / 4
+                            width: Math.max(4, (grilleFonds.width - 36) / 4)
                             height: Math.round(width * 9 / 16)
                             Rectangle { anchors.fill: parent; radius: 8; color: Theme.carte }
                             // DECODEE A LA TAILLE DE LA MINIATURE, jamais a la
@@ -347,7 +347,7 @@ Popup {
                     // apercus. Elle tourne dans un fil ; la reponse revient par
                     // pont.imageChoisie.
                     Rectangle {
-                        width: (grilleFonds.width - 36) / 4
+                        width: Math.max(4, (grilleFonds.width - 36) / 4)
                         height: Math.round(width * 9 / 16)
                         radius: 8
                         color: survolParcourir.hovered ? Theme.verre2 : Theme.carte

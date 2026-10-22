@@ -283,7 +283,7 @@ ColumnLayout {
                         model: Theme.themes
                         delegate: CarteTheme {
                             required property var modelData
-                            width: Math.floor((Math.max(0, colReglages.width) - 20) / 3)
+                            width: Math.max(4, Math.floor((Math.max(0, colReglages.width) - 20) / 3))
                             cle: modelData.cle
                             nom: modelData.nom
                             detail: modelData.detail
