@@ -171,13 +171,44 @@ s_dire "$NOM" "Ouverture…" application-x-executable
 # cherchent leurs ressources en chemin relatif et ne trouvent rien ailleurs.
 cd "$DOSSIER" 2>/dev/null || true
 
-DEBUT=$(date +%s)
-case "${CIBLE,,}" in
-    *.msi) "$WINELOADER" "$S_WIN_PFX/drive_c/windows/system32/msiexec.exe" /i "$CIBLE" ;;
-    *)     "$WINELOADER" "$CIBLE" ;;
-esac
-CODE=$?
-DUREE=$(( $(date +%s) - DEBUT ))
+# LES LANCEURS WEBVIEW2 PLANTENT AU DEMARRAGE UNE FOIS SUR DEUX OU TROIS.
+#
+# Mesure du 2026-10-13 sur Launcher-SOW (Tauri + WebView2) : le programme se
+# ferme en 4 a 8 s avec « code 5 », qui est en fait 0xC0000005 tronque a un octet
+# — un acces memoire invalide dans RevokeDragDrop (ole32), appele pendant que le
+# lanceur detruit sa propre fenetre apres un echec de son moteur web. C'est une
+# course : environ un lancement sur trois tient. Et chaque echec laisse des
+# « msedgewebview2.exe » orphelins qui retiennent le profil du programme, ce qui
+# fait echouer les essais suivants a coup sur (mesure : huit echecs de suite
+# avec les orphelins, un succes sur trois sans eux).
+#
+# On rejoue donc le chemin direct — en tuant ce que l'essai rate a laisse — avant
+# de se rabattre sur le conteneur. Seuls les echecs RAPIDES en code 5 sont
+# rejoues : un programme qui tourne puis se ferme n'est pas concerne.
+s_webview_orphelins() {
+    ps -eo pid,args 2>/dev/null | awk '/[m]sedgewebview2\.exe/ {print $1}'
+}
+
+ESSAIS=0
+while :; do
+    AVANT=" $(s_webview_orphelins | tr '\n' ' ') "
+    DEBUT=$(date +%s)
+    case "${CIBLE,,}" in
+        *.msi) "$WINELOADER" "$S_WIN_PFX/drive_c/windows/system32/msiexec.exe" /i "$CIBLE" ;;
+        *)     "$WINELOADER" "$CIBLE" ;;
+    esac
+    CODE=$?
+    DUREE=$(( $(date +%s) - DEBUT ))
+
+    [ "$CODE" -eq 5 ] && [ "$DUREE" -lt 12 ] && [ "$ESSAIS" -lt 6 ] || break
+    ESSAIS=$((ESSAIS + 1))
+    for pid in $(s_webview_orphelins); do
+        case "$AVANT" in *" $pid "*) ;; *) kill "$pid" 2>/dev/null ;; esac
+    done
+    echo "$(date -Is) plantage au demarrage (code 5 en ${DUREE}s) pour $NOM — essai $((ESSAIS + 1))" \
+        >> "$S_ETAT/windows-repli.log"
+    sleep 2
+done
 
 # LE FILET, ET IL EST BORNE.
 #

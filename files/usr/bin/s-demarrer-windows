@@ -1,0 +1,99 @@
+#!/usr/bin/bash
+# S — basculer vers le vrai Windows du double amorcage, par une entree UEFI
+# standard, jamais une VM ni un ecran partage. S reste l'OS par defaut : cette
+# bascule est un choix explicite pour UN SEUL demarrage (BootNext), jamais un
+# reglage permanent (BootOrder) — S doit demarrer par lui-meme la fois suivante.
+#
+# CE QUI DECIDE QUE CE GESTE EST POSSIBLE. S doit deja tourner en UEFI. Sur
+# cette machine, S a demarre en BIOS legacy pur jusqu'au chantier du
+# 2026-09-26 : Windows, clone sur la Seagate, est GPT/UEFI-seul — un GRUB en
+# mode legacy ne peut pas executer un chargeur PE32+ comme bootmgfw.efi, c'est
+# une incompatibilite de firmware, pas quelque chose qu'un script peut
+# contourner. Voir CLAUDE.md pour le chantier complet : reduire nvme0n1p3,
+# creer un ESP dans l'espace libere, poser le composant EFI (bootupctl),
+# confirmer le mode UEFI au firmware.
+#
+# LA CIBLE SE TROUVE PAR CONTENU, JAMAIS PAR UN CHEMIN FIGE — meme regle que
+# s-monter-windows (2026-08-23) : deviner un chemin de peripherique est la
+# faute la plus repetee de ce depot. Windows a ete clone sur la Seagate au
+# moment d'ecrire ceci, mais rien ici ne suppose qu'il y reste : on cherche,
+# parmi TOUTES les partitions de type ESP de la machine, celle qui porte
+# vraiment un Windows Boot Manager, en la montant et en regardant dedans.
+#
+# NON TESTE AU MOMENT D'ECRIRE CECI. /sys/firmware/efi n'existe pas encore sur
+# cette machine (S demarre en BIOS) : efibootmgr ne peut rien faire tant que
+# ce n'est pas vrai, et ce script n'a donc pu etre eprouve que par lecture —
+# la garde ci-dessous s'arrete proprement plutot que de laisser efibootmgr
+# echouer avec un message cryptique. A confirmer une fois le passage en UEFI
+# fait.
+set -uo pipefail
+source /usr/bin/s-monde
+
+if [[ ! -d /sys/firmware/efi ]]; then
+    s_echec "Windows demande UEFI" \
+"S demarre encore en BIOS — impossible de basculer vers Windows tant que le \
+passage en UEFI n'est pas fait (voir le chantier dans CLAUDE.md)."
+fi
+
+# --- Trouver l'ESP qui porte vraiment Windows -------------------------------
+GUID_ESP="c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+mapfile -t CANDIDATS < <(
+    lsblk -Pbo NAME,PARTTYPE,PKNAME 2>/dev/null | awk -v g="$GUID_ESP" '
+        $0 ~ "PARTTYPE=\"" g "\"" {
+            n=""; k=""
+            if (match($0, /NAME="[^"]+"/))   n = substr($0, RSTART+6, RLENGTH-7)
+            if (match($0, /PKNAME="[^"]+"/)) k = substr($0, RSTART+8, RLENGTH-9)
+            if (n != "") print n, k
+        }'
+)
+
+SONDE="$(mktemp -d)"
+DEV="" DISQUE="" PARTNUM=""
+for ligne in "${CANDIDATS[@]}"; do
+    read -r nom disque <<<"$ligne"
+    p="/dev/$nom"
+    if s_root mount -o ro "$p" "$SONDE" 2>/dev/null; then
+        if [[ -f "$SONDE/EFI/Microsoft/Boot/bootmgfw.efi" ]]; then
+            s_root umount "$SONDE" 2>/dev/null
+            DEV="$p"; DISQUE="/dev/$disque"
+            PARTNUM="$(lsblk -no PARTN "$p" 2>/dev/null | tr -d ' ')"
+            break
+        fi
+        s_root umount "$SONDE" 2>/dev/null
+    fi
+done
+rmdir "$SONDE" 2>/dev/null
+
+if [[ -z "$DEV" ]]; then
+    s_echec "Windows introuvable" \
+"Aucune partition EFI de cette machine ne porte de Windows Boot Manager."
+fi
+
+# --- Chercher une entree UEFI « Windows » deja posee, sinon la creer une fois
+BOOTNUM="$(s_root efibootmgr -v 2>/dev/null \
+    | sed -n -E 's/^Boot([0-9A-Fa-f]{4})\*?[[:space:]]+Windows([[:space:]]|$).*/\1/p' \
+    | head -1)"
+
+if [[ -z "$BOOTNUM" ]]; then
+    s_root efibootmgr --create --disk "$DISQUE" --part "$PARTNUM" \
+        --loader '\EFI\Microsoft\Boot\bootmgfw.efi' --label "Windows" >/dev/null \
+        || s_echec "Impossible de creer l'entree UEFI Windows" \
+"efibootmgr a refuse de creer l'entree sur $DISQUE, partition $PARTNUM."
+    BOOTNUM="$(s_root efibootmgr -v 2>/dev/null \
+        | sed -n -E 's/^Boot([0-9A-Fa-f]{4})\*?[[:space:]]+Windows([[:space:]]|$).*/\1/p' \
+        | head -1)"
+fi
+
+if [[ -z "$BOOTNUM" ]]; then
+    s_echec "Entree UEFI Windows introuvable" \
+"L'entree vient d'etre creee mais efibootmgr ne la retrouve pas."
+fi
+
+# BootNext, jamais BootOrder : un seul demarrage sur Windows, S reste l'OS par
+# defaut a chaque redemarrage suivant — c'est la demande explicite qui a lance
+# ce chantier.
+s_root efibootmgr -n "$BOOTNUM" >/dev/null \
+    || s_echec "Bascule refusee" "efibootmgr n'a pas pu poser BootNext vers $BOOTNUM."
+
+s_dire "Redemarrage vers Windows" "S reprendra la main au prochain demarrage."
+systemctl reboot

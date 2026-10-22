@@ -162,3 +162,40 @@ for ligne in "${COMPTES[@]}"; do
         dire "$compte : ~/Windows pointe vers $CIBLE"
     fi
 done
+
+# --- Un raccourci retour vers S, sur le Bureau de chaque vrai compte Windows
+#
+# DEMANDE DE L'UTILISATEUR (2026-09-27) : « Etoile S, Etoile Windows » — la
+# bascule doit etre symetrique et visible des DEUX cotes, pas seulement cote
+# S. Techniquement, redemarrer Windows NORMALEMENT suffit deja a revenir a
+# S : s-demarrer-windows pose BootNext, jamais BootOrder, donc S reste l'OS
+# par defaut au demarrage SUIVANT. Ce raccourci ne fait rien de plus qu'un
+# redemarrage normal — il le rend explicite et visible, cote Windows, comme
+# l'etoile l'est deja cote S.
+#
+# ON NE DEVINE PAS LES COMPTES WINDOWS, ON LES REGARDE — meme regle que la
+# detection de la partition elle-meme, plus haut dans ce fichier. Un dossier
+# sous Users/ sans Desktop/ n'est pas un vrai compte ; Public, Default,
+# Default User et All Users sont ecartes par leur nom, ce sont des gabarits
+# systeme, jamais une vraie session.
+#
+# NON VERIFIE AU MOMENT D'ECRIRE CECI, meme reserve que le reste de ce
+# fichier (ligne 37) : aucun montage reel de Windows n'a encore ete exerce
+# par ce service, sur aucune machine. A confirmer avec le reste du chantier.
+if [[ -d "$CIBLE/Users" ]]; then
+    for profil in "$CIBLE"/Users/*/; do
+        [[ -d "${profil}Desktop" ]] || continue
+        nom="$(basename "$profil")"
+        case "$nom" in
+            Public|Default|"Default User"|"All Users") continue ;;
+        esac
+        raccourci="${profil}Desktop/Redemarrer vers S.bat"
+        [[ -e "$raccourci" ]] && continue
+        cat > "$raccourci" <<'BAT'
+@echo off
+echo Redemarrage vers S...
+shutdown /r /t 0
+BAT
+        dire "$nom : raccourci pose sur le Bureau Windows (Redemarrer vers S.bat)"
+    done
+fi

@@ -1,0 +1,8 @@
+[Unit]
+Description=S Web - copie les favoris s'ils ont change
+After=s-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/s-web-sauvegarder
+TimeoutStartSec=30

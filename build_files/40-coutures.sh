@@ -674,4 +674,85 @@ command -v mpv >/dev/null \
     || { echo "ECHEC : mpv absent — le lecteur IPTV n'aurait rien pour decoder un flux." >&2; exit 1; }
 echo "  s-iptv : lecteur IPTV natif (mpv), playlists M3U/Xtream Codes fournies par l'utilisateur"
 
+# --- Archives : Ark et 7-Zip, une dependance declaree, pas devinee ----------
+# « ark » et « 7zip » sont deja dans l'image de base Bazzite (verifie le
+# 2026-09-22 dans un conteneur jetable) — poses explicitement dans
+# 27-applications.sh malgre tout, pour ne plus en dependre par accident.
+# « noyau.py::compresser() » appelle « ark » depuis le 2026-08-26 (le geste
+# « Compresser » du clic droit) : ce garde verifie que le code et la machine
+# s'accordent toujours, pas que l'un des deux a jamais manque.
+grep -q '_outil("ark")' /usr/lib/s/noyau.py \
+    || { echo "ECHEC : noyau.py n'appelle plus ark — ce garde vise le mauvais code." >&2; exit 1; }
+command -v ark >/dev/null \
+    || { echo "ECHEC : ark absent — le geste « Compresser » du clic droit echouerait en silence." >&2; exit 1; }
+command -v 7z >/dev/null \
+    || { echo "ECHEC : 7z absent." >&2; exit 1; }
+echo "  archives : ark et 7z presents, la couture de compression tient"
+
+# --- Basculer vers Windows par une entree UEFI, un seul demarrage ----------
+# Demande de l'utilisateur (2026-09-26) : « je veux un vrai Switch » — pas une
+# VM, pas un ecran partage. S doit deja tourner en UEFI pour que ce geste
+# fonctionne (chantier a part, voir CLAUDE.md) ; le script lui-meme se tait
+# proprement (s_echec) si /sys/firmware/efi n'existe pas, plutot que de
+# laisser efibootmgr echouer avec un message cryptique.
+test -x /usr/bin/s-demarrer-windows \
+    || { echo "ECHEC : s-demarrer-windows absent ou non executable." >&2; exit 1; }
+bash -n /usr/bin/s-demarrer-windows \
+    || { echo "ECHEC : s-demarrer-windows contient une erreur de syntaxe." >&2; exit 1; }
+grep -q '/sys/firmware/efi' /usr/bin/s-demarrer-windows \
+    || { echo "ECHEC : s-demarrer-windows ne verifie plus le mode UEFI — echouerait en silence sur une machine encore en BIOS." >&2; exit 1; }
+# BootNext, jamais BootOrder : S doit rester l'OS par defaut, meme apres avoir
+# bascule une fois — c'est la demande explicite qui a lance ce chantier.
+grep -q -- '-n "\$BOOTNUM"' /usr/bin/s-demarrer-windows \
+    || { echo "ECHEC : s-demarrer-windows ne pose plus BootNext — Windows pourrait devenir le defaut permanent." >&2; exit 1; }
+test -s /usr/share/applications/s-demarrer-windows.desktop \
+    || { echo "ECHEC : le lanceur « Demarrer sur Windows » a disparu." >&2; exit 1; }
+command -v efibootmgr >/dev/null \
+    || { echo "ECHEC : efibootmgr absent — la bascule vers Windows n'aurait aucun outil pour poser l'entree UEFI." >&2; exit 1; }
+echo "  s-demarrer-windows : bascule UEFI vers Windows, un seul demarrage (BootNext)"
+
+# --- S Web : le blocage pousse au maximum, et un filet pour les favoris ---
+# DEMANDE DE L'UTILISATEUR (2026-10-13) : « accentue le bloqueur de pubs et
+# popup, comme si c'etait inexistant ». L'extension deja forcee dans S Web
+# depuis le 2026-09-07 (« ddkjiahejlhfcafbddmgiahcphecmpfh », uBlock Origin
+# Lite, de Raymond Hill) supporte une configuration administrateur via
+# « browser.storage.managed » — lu dans son propre code
+# (« js/admin.js::adminReadEx »), pas devine. Les cles reellement supportees
+# et leur forme exacte (« rulesets » avec prefixes « +ruleset-id »/« +default »,
+# « defaultFiltering » 0-3, « strictBlockMode », « popupBlockMode »,
+# « showBlockedCount ») viennent de la lecture de son code source installe,
+# pas de la documentation du uBlock Origin classique (MV2), qui est une
+# extension differente avec un mecanisme different.
+python3 -c "import json; json.load(open('/etc/vivaldi/policies/managed/s-web.json'))" \
+    || { echo "ECHEC : s-web.json n'est plus un JSON valide." >&2; exit 1; }
+grep -q '"DefaultPopupsSetting": 2' /etc/vivaldi/policies/managed/s-web.json \
+    || { echo "ECHEC : le blocage de popups de Vivaldi lui-meme n'est plus force." >&2; exit 1; }
+grep -q '"strictBlockMode": true' /etc/vivaldi/policies/managed/s-web.json \
+    || { echo "ECHEC : strictBlockMode n'est plus pose pour uBlock Origin Lite." >&2; exit 1; }
+grep -q '"+annoyances-cookies"' /etc/vivaldi/policies/managed/s-web.json \
+    || { echo "ECHEC : les listes « annoyances » ne sont plus forcees — bannieres cookies, overlays, etc. reviendraient." >&2; exit 1; }
+echo "  s-web.json : blocage pousse au maximum (strict, mode complet, listes annoyances forcees)"
+
+# Le verrou de Vivaldi ne se nettoie jamais seul sur cette machine (mesure du
+# 2026-10-13, voir l'en-tete de s-web) — Chromium conclut a tort a un crash a
+# chaque demarrage. s-web verifie donc lui-meme, avant de lancer.
+grep -q 'SingletonLock' /usr/bin/s-web \
+    || { echo "ECHEC : s-web ne nettoie plus le verrou perime — exit_type: Crashed reviendrait a chaque fermeture." >&2; exit 1; }
+
+# Le filet pour les favoris : la cause de la perte n'a pas ete retrouvee (voir
+# l'en-tete de s-web-sauvegarder), donc ce qui est pose ici ne la corrige
+# pas — il la rend sans consequence par une copie reguliere.
+test -x /usr/bin/s-web-sauvegarder \
+    || { echo "ECHEC : s-web-sauvegarder absent ou non executable." >&2; exit 1; }
+bash -n /usr/bin/s-web-sauvegarder \
+    || { echo "ECHEC : s-web-sauvegarder contient une erreur de syntaxe." >&2; exit 1; }
+test -s /usr/lib/systemd/user/s-web-sauvegarder.timer \
+    || { echo "ECHEC : s-web-sauvegarder.timer absent." >&2; exit 1; }
+test -s /usr/lib/systemd/user/s-web-sauvegarder.service \
+    || { echo "ECHEC : s-web-sauvegarder.service absent — le timer n'aurait rien a declencher." >&2; exit 1; }
+systemctl --global enable s-web-sauvegarder.timer
+test -L /etc/systemd/user/s-session.target.wants/s-web-sauvegarder.timer \
+    || { echo "ECHEC : s-web-sauvegarder.timer n'est pas tire par s-session.target." >&2; exit 1; }
+echo "  s-web-sauvegarder.timer : copie horodatee des favoris, une fois par heure si le contenu a change"
+
 echo "=== 40-coutures : fait ==="

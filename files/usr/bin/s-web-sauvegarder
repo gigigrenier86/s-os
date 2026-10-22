@@ -1,0 +1,43 @@
+#!/usr/bin/bash
+# S Web — filet de securite pour les favoris : une copie horodatee, a
+# intervalle regulier, PAS une solution a la cause.
+#
+# DEMANDE DE L'UTILISATEUR (2026-10-13) : « quand je ferme S Web, je perds
+# mes onglets et mes favoris ». Les onglets suivent deja RestoreOnStartup=1
+# (corrige le 2026-09-18, toujours en place, verifie). Les favoris, eux,
+# etaient bien perdus — mesure sur cette machine : sur les 28 entrees du vrai
+# fichier Bookmarks, 26 sont les favoris PAR DEFAUT de Vivaldi (des liens
+# sponsorises poses d'office sur tout profil neuf), 2 seulement etaient
+# personnels. La CAUSE exacte n'a pas ete retrouvee : le journal systeme
+# autour du moment suspect ne montre ni crash ni kill — le processus Vivaldi
+# tournait en continu depuis deux jours sans interruption visible.
+# « Bookmarks.bak », le seul cran de recul que Chromium garde lui-meme, ne
+# contenait deja plus les favoris perdus au moment du diagnostic : la perte
+# s'est etalee sur plusieurs ecritures avant d'etre remarquee, et un seul
+# cran ne suffit jamais a couvrir ca.
+#
+# CE SCRIPT NE CORRIGE DONC PAS LA CAUSE, INCONNUE : il pose un FILET qui la
+# rend sans consequence. Une copie du fichier reel, prise a intervalle
+# regulier, et SEULEMENT quand le contenu a change — pour qu'une future
+# perte, quelle qu'en soit la cause, se repare par une simple copie au lieu
+# de favoris reecrits a la main.
+source /usr/bin/s-monde
+
+BOOKMARKS="$S_WEB/Default/Bookmarks"
+DEST="$S_ETAT/sauvegardes-web"
+GARDER=100
+
+# Rien a sauvegarder si S Web n'a jamais tourne — pas une erreur.
+[ -s "$BOOKMARKS" ] || exit 0
+mkdir -p "$DEST"
+
+dernier="$(ls -t "$DEST"/Bookmarks-*.json 2>/dev/null | head -1)"
+if [ -n "$dernier" ] && cmp -s "$BOOKMARKS" "$dernier"; then
+    exit 0
+fi
+
+horodatage="$(date +%Y%m%d-%H%M%S)"
+cp "$BOOKMARKS" "$DEST/Bookmarks-$horodatage.json"
+
+# Rotation : ne garder que les GARDER copies les plus recentes.
+ls -t "$DEST"/Bookmarks-*.json 2>/dev/null | tail -n "+$((GARDER + 1))" | xargs -r rm -f

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Demarrer sur Windows
+GenericName=Basculer vers le vrai Windows du double amorcage, un seul demarrage
+Comment=Redemarre la machine sur le vrai Windows (Seagate) — S reprend la main au demarrage suivant
+Exec=/usr/bin/s-demarrer-windows
+Icon=system-reboot
+Terminal=false
+Categories=System;
+Keywords=windows;demarrer;reboot;double amorcage;uefi;

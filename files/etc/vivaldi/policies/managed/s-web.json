@@ -2,7 +2,28 @@
     "RestoreOnStartup": 1,
     "HomepageLocation": "file:///usr/share/s/web/demarrage.html",
     "HomepageIsNewTabPage": false,
+    "DefaultPopupsSetting": 2,
     "ExtensionInstallForcelist": [
         "ddkjiahejlhfcafbddmgiahcphecmpfh;https://clients2.google.com/service/update2/crx"
-    ]
+    ],
+    "3rdparty": {
+        "extensions": {
+            "ddkjiahejlhfcafbddmgiahcphecmpfh": {
+                "rulesets": [
+                    "+default",
+                    "+annoyances-cookies",
+                    "+annoyances-overlays",
+                    "+annoyances-social",
+                    "+annoyances-widgets",
+                    "+annoyances-others",
+                    "+annoyances-notifications",
+                    "+annoyances-ai"
+                ],
+                "defaultFiltering": 3,
+                "popupBlockMode": true,
+                "strictBlockMode": true,
+                "showBlockedCount": true
+            }
+        }
+    }
 }

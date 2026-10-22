@@ -1,0 +1,12 @@
+[Unit]
+Description=S Web - filet de securite pour les favoris, une copie par heure si le contenu a change
+
+[Timer]
+OnCalendar=hourly
+# La session n'est pas forcement ouverte a l'heure prevue : rattrape au
+# demarrage de session suivant plutot que de perdre l'intervalle manque.
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=s-session.target

@@ -29,6 +29,38 @@
 # remplace jamais : les deux cohabitent sans conflit.
 source /usr/bin/s-monde
 
+# LE VERROU NE SE NETTOIE JAMAIS SEUL SUR CETTE MACHINE.
+#
+# MESURE LE 2026-10-13, SIGNALE PAR L'UTILISATEUR (« je perds mes onglets et
+# mes favoris en fermant S Web ») : en fermant Vivaldi PROPREMENT (SIGTERM,
+# process confirme disparu, cgroup vide), « SingletonLock » est reste en
+# place, datant d'un lancement DEUX JOURS plus tot — jamais mis a jour,
+# jamais supprime. Au demarrage suivant, Chromium trouve ce verrou, voit que
+# le PID qu'il nomme n'existe plus, et conclut a un CRASH de la session
+# precedente — ce qu'elle n'etait pas. « exit_type: CrashedOnlyOnce », trouve
+# dans Preferences le meme soir, vient de la.
+#
+# CE QUE CA EXPLIQUE, ET CE QUE CA N'EXPLIQUE PAS. Un « crash » detecte peut
+# perturber la restauration de SESSION (les onglets) ; il ne devrait pas
+# toucher aux FAVORIS, lus depuis un fichier separe quel que soit l'exit_type.
+# La perte des favoris elle-meme reste donc partiellement inexpliquee — voir
+# s-web-sauvegarder, le filet pose pour cette raison precise. Mais un verrou
+# jamais nettoye, a chaque fermeture, est en soi un defaut qui vaut d'etre
+# corrige independamment de cette seconde question.
+#
+# ON NE SE FIE PAS A CHROMIUM POUR LE FAIRE : il ne l'a jamais fait sur cette
+# machine, et la cause de son propre manquement n'est pas elucidee. On
+# verifie donc soi-meme, avant de lancer, que le PID nomme par le verrou est
+# bien vivant — et on nettoie s'il ne l'est pas.
+verrou="$S_WEB/SingletonLock"
+if [ -L "$verrou" ]; then
+    cible="$(readlink "$verrou")"
+    pid="${cible##*-}"
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+        rm -f "$verrou" "$S_WEB/SingletonCookie" "$S_WEB/SingletonSocket"
+    fi
+fi
+
 premier_lancement=1
 [ -d "$S_WEB" ] && premier_lancement=0
 
