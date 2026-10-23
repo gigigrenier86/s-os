@@ -4,6 +4,6 @@ Name=S
 Comment=Constellation — le bureau de S
 Exec=/usr/bin/s-session
 TryExec=/usr/bin/s-session
-DesktopNames=S
+DesktopNames=KDE
 Icon=s-logo
 X-KDE-PluginInfo-Name=s
