@@ -630,12 +630,11 @@ test -s /usr/share/applications/s-sauvegarder.desktop \
     || { echo "ECHEC : le lanceur « S — Sauvegarder » a disparu." >&2; exit 1; }
 echo "  s-sauvegarder : filet pour reglages/ciel/lanceurs, sur le grand disque si branche"
 
-# --- LECTEUR IPTV NATIF — mpv, jamais un service qui fournit des chaines ---
+# --- LECTEUR IPTV NATIF — VLC, jamais un service qui fournit des chaines ---
 # Demande de l'utilisateur : un lecteur natif, sur le patron deja etabli
-# (build_files/29-iptv.sh installe mpv ; ce fichier depose le programme, le
+# (build_files/29-iptv.sh installe vlc ; ce fichier depose le programme, le
 # QML et le lanceur). Aucune chaine n'est fournie par S : l'utilisateur
-# apporte sa propre playlist M3U ou son abonnement Xtream Codes, exactement
-# comme il le fait deja avec Ibo Player Pro / CAP Player sous Wine.
+# apporte sa propre playlist M3U ou son abonnement Xtream Codes.
 test -x /usr/bin/s-iptv \
     || { echo "ECHEC : s-iptv absent ou non executable." >&2; exit 1; }
 test -s /usr/lib/s/iptv.py \
@@ -645,11 +644,10 @@ python3 -c "import ast; ast.parse(open('/usr/lib/s/iptv.py').read())" \
 python3 -c "import ast; ast.parse(open('/usr/bin/s-iptv').read())" \
     || { echo "ECHEC : s-iptv contient une erreur de syntaxe." >&2; exit 1; }
 # L'adresse d'un flux vient d'une playlist, souvent prise chez un tiers : sans
-# « -- » avant elle, une ligne commencant par « - » serait lue par mpv comme une
-# OPTION (--script=, --input-commands=, --o=). Mesure du 2026-09-18 : une ligne
-# « --version » imprimait la version de mpv au lieu de s'ouvrir comme un flux.
+# « -- » avant elle, une ligne commencant par « - » serait lue par vlc comme une
+# OPTION. Meme garde-fou que mpv portait avant lui (mesure du 2026-09-18).
 grep -q '"--", url' /usr/bin/s-iptv \
-    || { echo "ECHEC : s-iptv n'isole plus l'adresse du flux par « -- » — une playlist pourrait injecter des options dans mpv." >&2; exit 1; }
+    || { echo "ECHEC : s-iptv n'isole plus l'adresse du flux par « -- » — une playlist pourrait injecter des options dans vlc." >&2; exit 1; }
 # Meme raison que s-constellation : un cache QML perime, laisse par un essai a
 # date reelle, serait relu sans verification a la place du QML deploye.
 grep -qF 'os.environ["QML_DISK_CACHE"] = "none"' /usr/bin/s-iptv \
@@ -662,9 +660,9 @@ test -s /usr/share/applications/s-iptv.desktop \
     || { echo "ECHEC : s-iptv.desktop absent — aucune etoile pour le lecteur IPTV." >&2; exit 1; }
 grep -q '^Exec=/usr/bin/s-iptv$' /usr/share/applications/s-iptv.desktop \
     || { echo "ECHEC : s-iptv.desktop ne pointe plus vers /usr/bin/s-iptv." >&2; exit 1; }
-command -v mpv >/dev/null \
-    || { echo "ECHEC : mpv absent — le lecteur IPTV n'aurait rien pour decoder un flux." >&2; exit 1; }
-echo "  s-iptv : lecteur IPTV natif (mpv), playlists M3U/Xtream Codes fournies par l'utilisateur"
+command -v vlc >/dev/null \
+    || { echo "ECHEC : vlc absent — le lecteur IPTV n'aurait rien pour decoder un flux." >&2; exit 1; }
+echo "  s-iptv : lecteur IPTV natif (vlc), playlists M3U/Xtream Codes fournies par l'utilisateur"
 
 # --- Archives : Ark et 7-Zip, une dependance declaree, pas devinee ----------
 # « ark » et « 7zip » sont deja dans l'image de base Bazzite (verifie le

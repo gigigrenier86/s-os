@@ -1,7 +1,7 @@
 // Principal.qml — la fenetre entiere du lecteur IPTV de S.
 //
 // Palette dupliquee depuis Theme.qml de Constellation (memes valeurs), pas
-// partagee : cette fenetre vit hors de l'arbre QML du bureau, comme mpv
+// partagee : cette fenetre vit hors de l'arbre QML du bureau, comme vlc
 // lui-meme vivra hors de cette fenetre — un programme, une fenetre, gere
 // comme n'importe quelle autre par la coquille.
 import QtQuick

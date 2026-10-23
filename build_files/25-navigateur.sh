@@ -126,6 +126,15 @@ fi
 command -v desktop-file-validate >/dev/null 2>&1 && desktop-file-validate "$F"
 echo "  lanceur       : vivaldi-stable.desktop vise /usr/lib/opt/vivaldi/vivaldi directement"
 
+# Le lien /usr/bin/vivaldi-stable lui-meme reste mort : il vise /opt/vivaldi/
+# vivaldi (= /var/opt/vivaldi/vivaldi), le pont qui ne se refait jamais — les
+# codecs que Vivaldi telecharge font de /var/opt/vivaldi un VRAI dossier, et
+# tmpfiles.d refuse de poser un lien par-dessus. Le correctif du 2026-08-23
+# n'avait touche QUE les .desktop ; on finit en re-pointant le lien vers
+# l'image — meme regle : viser le chemin de L'IMAGE, jamais le pont.
+ln -sf /usr/lib/opt/vivaldi/vivaldi /usr/bin/vivaldi-stable
+echo "  lien           : /usr/bin/vivaldi-stable repointe vers /usr/lib/opt/vivaldi/vivaldi"
+
 # --------------------------------------------------------------------------
 # Demande du 2026-09-07 : « on retire vivaldi et on met S Web en avant »
 # --------------------------------------------------------------------------

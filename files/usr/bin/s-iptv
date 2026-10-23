@@ -13,12 +13,13 @@ Ce n'est PAS un service qui fournit des chaines : il n'embarque, ne cache
 ni ne redistribue aucun contenu. La provenance de ce qui joue reste
 entierement celle que l'utilisateur a lui-meme fournie.
 
-CE QUI DECODE ET AFFICHE LA VIDEO : mpv, jamais reimplemente ici. mpv gere
+CE QUI DECODE ET AFFICHE LA VIDEO : VLC, jamais reimplemente ici. VLC gere
 deja tout ce qu'un flux IPTV peut prendre comme forme — HLS, TS brut, RTMP,
 multicast UDP — mieux que ne le ferait un pipeline maison. Il tourne dans
 SA PROPRE fenetre, geree comme n'importe quelle autre par fenetres.js et
 fenetres.py : aucune couture nouvelle a poser cote compositeur, exactement
 le meme principe deja en place pour les fenetres Windows et Android.
+(mpv a ete remplace par VLC le 2026-10-23, sur demande de l'utilisateur.)
 """
 
 import os
@@ -59,7 +60,7 @@ class Pont(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._playlists = iptv.charger_playlists()
-        self._processus = None   # subprocess.Popen de mpv, ou None
+        self._processus = None   # subprocess.Popen de vlc, ou None
 
     # ---- Playlists ---------------------------------------------------
     @Slot(result="QVariant")
@@ -122,14 +123,10 @@ class Pont(QObject):
             self._processus = subprocess.Popen(
                 # « -- » : FIN DES OPTIONS, ET IL EST INDISPENSABLE. L'adresse vient
                 # d'une playlist, souvent prise chez un tiers, et une ligne de flux
-                # qui commence par « - » serait sinon lue par mpv comme une OPTION —
-                # « --script= », « --input-commands= », « --o= » ecrivent ou
-                # executent. Mesure du 2026-09-18 avec mpv 0.41 : une ligne
-                # « --version » imprimait la version au lieu de s'ouvrir comme un
-                # flux ; avec « -- » elle est traitee comme un nom de fichier.
-                ["mpv", "--force-window=yes",
-                 f"--force-media-title={titre_fenetre}",
-                 f"--title={titre_fenetre}",
+                # qui commence par « - » serait sinon lue par vlc comme une OPTION.
+                # Meme garde-fou que mpv portait avant lui (mesure du 2026-09-18).
+                ["vlc", "--meta-title", titre_fenetre,
+                 "--no-video-title-show",
                  "--", url],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
@@ -138,7 +135,7 @@ class Pont(QObject):
             )
         except FileNotFoundError:
             self.erreurChargement.emit(
-                "mpv est introuvable sur cette machine — rien ne peut lire le flux.")
+                "vlc est introuvable sur cette machine — rien ne peut lire le flux.")
             return
         self.lectureChangee.emit(True, titre or "")
 
