@@ -39,7 +39,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.environ.get("S_LIB") or "/usr/lib/s")
-import android_plateforme as ap  # noqa: E402
+import android_plateforme as ap  # noqa: E402  # pyright: ignore[reportMissingImports]
 
 DELAI_DEMARRAGE = 240
 # Ou l'APK est depose pour qu'Android le voie : le dossier de donnees est a
@@ -93,6 +93,10 @@ def plateforme_prete(delai=DELAI_DEMARRAGE, demarrer=True):
         if not ap.service_commander("start"):
             echec("Android n'a pas demarre",
                   "Voir : sudo journalctl -u s-android.service")
+    else:
+        # SOMMEIL PROFOND (chantier 3) : un conteneur gele ne repond pas au
+        # binder. Degeler avant de connecter — no-op s'il ne l'etait pas.
+        ap.degeler_si_besoin()
     plateforme = ap.obtenir(delai)
     if plateforme is None and demarrer:
         echec("Android ne repond pas",

@@ -1,0 +1,17 @@
+// S - sommeil profond d'Android sans mot de passe (lxc-freeze / lxc-unfreeze).
+//
+// La veille profonde (chantier 3) gele le conteneur Android quand plus aucune
+// fenetre waydroid.* n'est visible depuis un moment, et le degele au retour.
+// Le geste est « s-android-sommeil » (lxc-freeze / lxc-unfreeze), eleve. Sans
+// cette regle, chaque sommeil/reveil demanderait un mot de passe — ce qui
+// tuerait le geste. Restreint a CE script
+// (program == /usr/bin/s-android-sommeil), a un utilisateur reellement assis
+// devant la machine (subject.active), rien d'autre : jamais lxc-attach ni une
+// commande arbitraire.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/bin/s-android-sommeil" &&
+        subject.isInGroup("wheel") && subject.active) {
+        return polkit.Result.YES;
+    }
+});

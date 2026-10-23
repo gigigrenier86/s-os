@@ -1,0 +1,27 @@
+#!/usr/bin/bash
+# S - sommeil profond d'Android : geler ou degeler le conteneur LXC entier.
+#
+# Le conteneur (lxc-start -F -P /var/lib/waydroid/lxc -n android) est gelee par
+# lxc-freeze et degele par lxc-unfreeze — le geste demande par la veille profonde
+# (chantier 3). Idempotent : geler un conteneur deja gele, ou degeler un
+# conteneur deja degele, rend 0. Un conteneur ARRETE rend non-zero (rien a
+# faire) — l'appelant l'ignore.
+#
+# Eleve SANS mot de passe par 50-s-android-sommeil.rules (program == ce script,
+# wheel actif) : jamais un lxc-attach ni une commande arbitraire.
+set -euo pipefail
+
+LXCPATH=/var/lib/waydroid/lxc
+
+case "${1:-}" in
+    geler)
+        exec /usr/bin/lxc-freeze -P "$LXCPATH" -n android
+        ;;
+    degeler)
+        exec /usr/bin/lxc-unfreeze -P "$LXCPATH" -n android
+        ;;
+    *)
+        echo "usage : s-android-sommeil geler|degeler" >&2
+        exit 2
+        ;;
+esac

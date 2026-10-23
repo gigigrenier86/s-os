@@ -300,3 +300,23 @@ def service_commander(verbe, delai=60):
         if r.returncode == 0:
             return True
     return False
+
+
+SOMMEIL = "/usr/bin/s-android-sommeil"
+
+
+def degeler_si_besoin(delai=30):
+    """Degeler le conteneur Android s'il etait en sommeil profond (idempotent).
+
+    « lxc-unfreeze » sur un conteneur deja degele est un no-op immediat ; sur un
+    conteneur arrete il echoue, et l'appelant l'ignore. Le geste passe par
+    pkexec + 50-s-android-sommeil.rules, sans mot de passe. On ne l'appelle
+    qu'AVANT de parler a Android (jamais en boucle) : c'est le seul moment ou un
+    conteneur gele empecherait la connexion binder d'aboutir.
+    """
+    try:
+        subprocess.run(["pkexec", SOMMEIL, "degeler"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=delai)
+    except (OSError, subprocess.TimeoutExpired):
+        pass

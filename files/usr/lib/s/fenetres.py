@@ -34,6 +34,7 @@ DANS LES DEUX SENS, ET PAR DEUX CHEMINS DIFFERENTS :
 import json
 import os
 import signal
+import subprocess
 import time
 
 from PySide6.QtCore import QObject, QTimer, Signal, Slot
@@ -99,6 +100,14 @@ def _sauver_geles(portees):
 
 MODES = ("non", "geler")
 MODE_DEFAUT = "geler"
+
+# LE SOMMEIL PROFOND D'ANDROID (chantier 3). Quand plus aucune fenetre
+# « waydroid.* » n'est visible depuis ces delais, le conteneur est gele
+# (lxc-freeze) puis, apres un plus long repos, arrete (systemctl stop). En
+# millisecondes, pour QTimer. Le reveil est immediat des qu'une fenetre Android
+# revient — et le lancement d'une application degele avant de parler au binder.
+DELAI_SOMMEIL = 5 * 60 * 1000    # 5 min -> sommeil profond (gel)
+DELAI_ARRET = 30 * 60 * 1000     # 30 min -> arret complet
 
 # LE DELAI ENTRE « range-la » ET « endors-le ». Le gel est immediat et brutal :
 # applique dans la milliseconde qui suit la demande de reduction, il fige le
@@ -219,6 +228,18 @@ class Fenetres(QObject):
         self._bureau_voulu = False
         self._vues = _charger_vues()
         self._ecrit = 0.0
+        # LE SOMMEIL PROFOND D'ANDROID. Deux minuteurs a coup unique : le
+        # premier gele le conteneur (lxc-freeze), le second l'arrete
+        # (systemctl stop). Tous deux repartent de zero des qu'une fenetre
+        # waydroid.* redevient visible.
+        self._android_vu = 0.0
+        self._android_gel = False
+        self._android_sommeil = QTimer(self)
+        self._android_sommeil.setSingleShot(True)
+        self._android_sommeil.timeout.connect(self._android_geler)
+        self._android_arret = QTimer(self)
+        self._android_arret.setSingleShot(True)
+        self._android_arret.timeout.connect(self._android_arreter)
         # LE RESTE D'UNE SESSION TUEE NET, ET RIEN D'AUTRE. Un plantage
         # laisserait des programmes figes que plus rien ne degele. On relache
         # donc ce que la session precedente avait ECRIT avoir gele — pas ce
@@ -561,6 +582,72 @@ class Fenetres(QObject):
         self._dernier_envoi = charge
         self.changees.emit(charge)
 
+    # ---- Le sommeil profond d'Android --------------------------------------
+    def _android_visible(self):
+        """Vrai si une fenetre Android (waydroid.*) est visible, non reduite."""
+        return any(str(f.get("classe", "")).startswith("waydroid.")
+                   and not f.get("reduite")
+                   for f in (self._toutes or self._liste))
+
+    def _android_suivre(self):
+        """Branche le sommeil profond sur la visibilite des fenetres Android.
+
+        Une fenetre visible reveille (degel) et remet les minuteurs a zero ;
+        aucune fenetre visible depuis la derniere fois lance le compte a rebours.
+        On ne lance les minuteurs que si Android a deja ete vu — jamais pour un
+        conteneur qui n'a pas tourne dans cette session.
+        """
+        if self._android_visible():
+            self._android_vu = time.time()
+            self._android_sommeil.stop()
+            self._android_arret.stop()
+            self._android_reveiller()
+        elif self._android_vu:
+            if not self._android_sommeil.isActive():
+                self._android_sommeil.start(DELAI_SOMMEIL)
+            if not self._android_arret.isActive():
+                self._android_arret.start(DELAI_ARRET)
+
+    def _android_demander(self, verbe):
+        """geler/degeler le conteneur, par pkexec (polkit sans mot de passe)."""
+        try:
+            r = subprocess.run(["pkexec", "/usr/bin/s-android-sommeil", verbe],
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=30)
+            return r.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+
+    def _android_geler(self):
+        """Sommeil profond : gele le conteneur Android entier."""
+        if self._android_gel:
+            return
+        if self._android_demander("geler"):
+            self._android_gel = True
+
+    def _android_reveiller(self):
+        """Degeler le conteneur Android s'il etait gele."""
+        if not self._android_gel:
+            return
+        if self._android_demander("degeler"):
+            self._android_gel = False
+
+    def _android_arreter(self):
+        """Apres un long repos : arreter completement Android (systemctl stop).
+
+        On degele D'ABORD : arreter un conteneur gele laisserait lxc-start
+        bloquer sur un SIGTERM que personne ne traite.
+        """
+        if self._android_gel:
+            self._android_demander("degeler")
+            self._android_gel = False
+        try:
+            subprocess.run(["systemctl", "stop", "s-android.service"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
     def _ranger(self, idents):
         if not idents:
             return False
@@ -833,6 +920,7 @@ class Fenetres(QObject):
         repli = self._repli
         self._veiller(self._liste)
         self._corriger_bureau(dernier_actif, repli)
+        self._android_suivre()
         # Nettoyage des ensembles de suivi pour les fenetres qui ont disparu
         ids_actuels = {f.get("id") for f in self._toutes}
         self._fermetures.intersection_update(ids_actuels)
