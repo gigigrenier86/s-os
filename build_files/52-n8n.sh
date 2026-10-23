@@ -20,7 +20,13 @@ dnf5 install -y gcc-c++ make python3-devel
 
 # On force le prefixe /usr : Fedora regle deja npm ainsi, mais la regle de ce
 # depot est de VERIFIER plutot que de supposer — le controle est plus bas.
-NPM_CONFIG_PREFIX=/usr npm install -g n8n
+#
+# HOME vaut /root dans l'image, lien vers /var/roothome — un lien MORT pendant
+# la construction. npm ecrit son cache et ses journaux dans $HOME/.npm ; sans
+# cette redirection, il meurt sur « ENOTDIR: mkdir '/root' » (mesure sur le
+# build 39895389676). /tmp est un tmpfs monte par le Containerfile : rien n'y
+# fuit dans l'image.
+HOME=/tmp NPM_CONFIG_PREFIX=/usr npm install -g n8n
 
 # Retirer la chaine de construction : elle ne doit pas rester dans l'image.
 dnf5 remove -y gcc-c++ make python3-devel
@@ -29,7 +35,7 @@ dnf5 remove -y gcc-c++ make python3-devel
 # Le controle qui compte vraiment : rien n'a-t-il atterri hors de /usr ?
 # Un npm qui poserait dans /usr/local ecrirait dans /var (lien ostree) et
 # « reussirait » en silence — l'echec le pire des deux.
-RACINE="$(NPM_CONFIG_PREFIX=/usr npm root -g)"
+RACINE="$(HOME=/tmp NPM_CONFIG_PREFIX=/usr npm root -g)"
 case "$RACINE" in
   /usr/*) : ;;
   *) echo "ECHEC : node_modules global hors de /usr ($RACINE)." >&2; exit 1 ;;
@@ -44,4 +50,4 @@ case "$N8N_BIN" in
 esac
 
 # Une ligne cosmetique ne doit JAMAIS faire tomber une image bonne par ailleurs.
-/usr/bin/n8n --version 2>/dev/null | sed 's/^/  n8n         /' || true
+HOME=/tmp /usr/bin/n8n --version 2>/dev/null | sed 's/^/  n8n         /' || true
