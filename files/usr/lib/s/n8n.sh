@@ -18,7 +18,8 @@ case "${1:-}" in
       python3 -c 'import secrets; print(secrets.token_hex(32))' > "$CLE"
       chmod 600 "$CLE"
     fi
-    export N8N_ENCRYPTION_KEY="$(cat "$CLE")"
+    N8N_ENCRYPTION_KEY="$(cat "$CLE")"
+    export N8N_ENCRYPTION_KEY
     export N8N_USER_FOLDER="$DATA"
     # Lie au port de bouclage SEUL, jamais expose au reseau — meme choix que
     # s-sora (127.0.0.1:8613). Pour y acceder a distance, on passe par le RDP
