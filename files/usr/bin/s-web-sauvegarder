@@ -23,7 +23,9 @@
 # de favoris reecrits a la main.
 source /usr/bin/s-monde
 
-BOOKMARKS="$S_WEB/Default/Bookmarks"
+# Depuis la fusion du 2026-10-23, S Web vit dans le profil Vivaldi par defaut :
+# le filet suit le fichier reel, la ou il se trouve desormais.
+BOOKMARKS="$HOME/.config/vivaldi/Default/Bookmarks"
 DEST="$S_ETAT/sauvegardes-web"
 GARDER=100
 

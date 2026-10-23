@@ -1,72 +1,38 @@
 #!/usr/bin/bash
-# S Web — un navigateur a part entiere, pas une fenetre de plus sur Vivaldi.
+# S Web — le navigateur de S, sur le profil Vivaldi par defaut.
+#
+# DEMANDE DE L'UTILISATEUR (2026-10-23) : « S Web ouvre parfois des onglets et
+# des favoris de sessions differentes ». MESURE sur la machine : deux profils
+# Vivaldi tournaient en meme temps — le profil par defaut (~/.config/vivaldi),
+# ou vivent les comptes Microsoft 365 / Google / MEWS connectes par RapidO,
+# Gemini, Office et n8n (tous lances en « --app= », donc sur le profil defaut),
+# et le profil separe S_WEB (~/.local/share/S/web) que ce script posait.
+# Deux instances (~3,2 Go RSS cumule), memes fenetres indiscernables : c'etait
+# ca, les « sessions differentes ».
+#
+# DECISION : S Web rejoint le profil par defaut. Un seul moteur (~1,6 Go
+# rendus), les comptes deja connectes restent, et le blocage ne perd rien : la
+# politique geree /etc/vivaldi/policies/managed/s-web.json (uBlock Origin Lite
+# force, popups bloques, RestoreOnStartup=1) est une politique MACHINE, elle
+# s'applique a tous les profils, pas seulement a S Web.
 #
 # Le moteur EST Vivaldi (deja dans l'image) : on ne reimplemente pas un
-# bloqueur de pubs/traqueurs quand l'amont en maintient deja un vrai, a base
-# de listes de filtres (EasyList et consorts) mises a jour toutes seules.
-# Mesure sur cette machine le 2026-09-07, sur un profil totalement neuf,
-# sans le moindre reglage : 40 sources de blocage de pubs deja abonnees,
-# 1 source de blocage de traqueurs, popups bloques par defaut. C'est le
-# comportement de base de Vivaldi, pas quelque chose que S a construit.
-#
-# Ce que S ajoute : une IDENTITE separee. S Web ne partage ni l'historique,
-# ni les cookies, ni les extensions d'aucun autre usage de Vivaldi sur cette
-# machine — son propre profil, sous S_WEB, cree au premier lancement par
-# Vivaldi lui-meme (--user-data-dir cree le dossier s'il manque).
-#
-# BOGUE TROUVE LE 2026-09-18, SIGNALE PAR L'UTILISATEUR : « en reouvrant S,
-# les onglets precedemment ouverts ne sont plus la ». La strategie geree
-# posait « RestoreOnStartup=4 » (toujours ouvrir demarrage.html, jamais la
-# session precedente) — pensee a l'origine pour habiller le tout PREMIER
-# onglet, elle s'applique en realite a CHAQUE lancement : RestoreOnStartup
-# gouverne tout le demarrage du navigateur, pas un onglet en particulier.
-# Chaque fermeture de S Web effacait donc les onglets ouverts, sans
-# exception. La strategie geree porte maintenant « RestoreOnStartup=1 »
-# (continuer la ou on etait, le comportement normal d'un navigateur) ; c'est
-# ce script qui pose demarrage.html, et seulement au tout premier lancement
-# — detecte par l'absence du dossier de profil, avant que Vivaldi ne le
-# cree. Un URL passe en argument s'ajoute a la session restauree, il ne la
-# remplace jamais : les deux cohabitent sans conflit.
-source /usr/bin/s-monde
+# bloqueur de pubs/traqueurs quand l'amont en maintient deja un vrai.
 
 # LE VERROU NE SE NETTOIE JAMAIS SEUL SUR CETTE MACHINE.
 #
-# MESURE LE 2026-10-13, SIGNALE PAR L'UTILISATEUR (« je perds mes onglets et
-# mes favoris en fermant S Web ») : en fermant Vivaldi PROPREMENT (SIGTERM,
-# process confirme disparu, cgroup vide), « SingletonLock » est reste en
-# place, datant d'un lancement DEUX JOURS plus tot — jamais mis a jour,
-# jamais supprime. Au demarrage suivant, Chromium trouve ce verrou, voit que
-# le PID qu'il nomme n'existe plus, et conclut a un CRASH de la session
-# precedente — ce qu'elle n'etait pas. « exit_type: CrashedOnlyOnce », trouve
-# dans Preferences le meme soir, vient de la.
-#
-# CE QUE CA EXPLIQUE, ET CE QUE CA N'EXPLIQUE PAS. Un « crash » detecte peut
-# perturber la restauration de SESSION (les onglets) ; il ne devrait pas
-# toucher aux FAVORIS, lus depuis un fichier separe quel que soit l'exit_type.
-# La perte des favoris elle-meme reste donc partiellement inexpliquee — voir
-# s-web-sauvegarder, le filet pose pour cette raison precise. Mais un verrou
-# jamais nettoye, a chaque fermeture, est en soi un defaut qui vaut d'etre
-# corrige independamment de cette seconde question.
-#
-# ON NE SE FIE PAS A CHROMIUM POUR LE FAIRE : il ne l'a jamais fait sur cette
-# machine, et la cause de son propre manquement n'est pas elucidee. On
-# verifie donc soi-meme, avant de lancer, que le PID nomme par le verrou est
-# bien vivant — et on nettoie s'il ne l'est pas.
-verrou="$S_WEB/SingletonLock"
+# MESURE LE 2026-10-13 : en fermant Vivaldi PROPREMENT, « SingletonLock » reste
+# en place ; au demarrage suivant, Chromium le trouve, voit que le PID nomme
+# n'existe plus, et conclut a tort a un CRASH de la session precedente. On
+# verifie donc soi-meme, avant de lancer, que le PID du verrou est bien vivant.
+# Re-cible sur le profil par defaut depuis la fusion du 2026-10-23.
+verrou="$HOME/.config/vivaldi/SingletonLock"
 if [ -L "$verrou" ]; then
     cible="$(readlink "$verrou")"
     pid="${cible##*-}"
     if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
-        rm -f "$verrou" "$S_WEB/SingletonCookie" "$S_WEB/SingletonSocket"
+        rm -f "$verrou" "$HOME/.config/vivaldi/SingletonCookie" "$HOME/.config/vivaldi/SingletonSocket"
     fi
 fi
 
-premier_lancement=1
-[ -d "$S_WEB" ] && premier_lancement=0
-
-if [ "$premier_lancement" = 1 ]; then
-    exec /usr/lib/opt/vivaldi/vivaldi --user-data-dir="$S_WEB" --no-first-run \
-        "file:///usr/share/s/web/demarrage.html" "$@"
-fi
-
-exec /usr/lib/opt/vivaldi/vivaldi --user-data-dir="$S_WEB" --no-first-run "$@"
+exec /usr/lib/opt/vivaldi/vivaldi --no-first-run "$@"

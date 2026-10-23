@@ -32,7 +32,11 @@ case "${1:-}" in
     exec /usr/bin/n8n start
     ;;
   --ouvrir)
-    exec /usr/bin/vivaldi --app="http://127.0.0.1:5678" &
+    # Meme correctif que les lanceurs RapidO/Gemini/Office : viser le chemin de
+    # L'IMAGE (/usr/lib/opt/vivaldi/vivaldi), jamais /usr/bin/vivaldi — un lien
+    # mort sur cette machine depuis le 2026-08-23 (-> /opt/vivaldi -> /var/opt,
+    # et /var/opt/vivaldi est un vrai dossier de codecs, pas le pont).
+    exec /usr/lib/opt/vivaldi/vivaldi --app="http://127.0.0.1:5678"
     ;;
   *)
     echo "usage : s-n8n --lancer | --ouvrir" >&2

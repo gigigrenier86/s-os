@@ -545,57 +545,40 @@ test -L /etc/systemd/user/s-session.target.wants/s-nouveautes.service \
     || { echo "ECHEC : s-nouveautes.service n'est pas tire par s-session.target." >&2; exit 1; }
 echo "  s-nouveautes.service : annonce de version, tire par s-session.target"
 
-# --- S WEB — un profil separe sur le vrai bloqueur de Vivaldi ---------------
-# 2026-09-07 : mesure sur cette machine, sur un profil totalement neuf, sans
-# le moindre reglage — 40 sources de blocage de pubs, 1 source de blocage de
-# traqueurs, popups bloques, deja actifs par defaut chez Vivaldi lui-meme.
-# S Web n'ajoute qu'une identite separee (S_WEB, dans s-monde) ; le controle
-# porte donc sur cette separation, pas sur un blocage qu'on n'a rien construit.
+# --- S WEB — le navigateur de S, sur le profil Vivaldi par defaut -----------
+# 2026-10-23 : « S Web ouvre parfois des sessions differentes » — mesure, deux
+# profils Vivaldi tournaient en meme temps (defaut + S_WEB), ~3,2 Go RSS cumule.
+# S Web rejoint le profil par defaut : un seul moteur, comptes MS/Google
+# conserves, et le blocage ne perd rien (s-web.json est une politique machine,
+# elle s'applique a tous les profils). Le controle porte sur l'ABSENCE de
+# --user-data-dir : un S Web qui reposerait un profil separe recreerait la
+# scission qu'on vient de fermer.
 test -x /usr/bin/s-web \
     || { echo "ECHEC : s-web absent ou non executable." >&2; exit 1; }
-grep -qF -- '--user-data-dir="$S_WEB"' /usr/bin/s-web \
-    || { echo "ECHEC : s-web ne pointe plus vers un profil separe — il partagerait celui d'un autre usage de Vivaldi." >&2; exit 1; }
-grep -q '^S_WEB=' /usr/bin/s-monde \
-    || { echo "ECHEC : S_WEB n'est plus declaree dans s-monde." >&2; exit 1; }
+if grep -q -- '--user-data-dir' /usr/bin/s-web; then
+    echo "ECHEC : s-web pose encore un profil separe — la scission des sessions reviendrait." >&2; exit 1
+fi
 test -s /usr/share/applications/s-web.desktop \
     || { echo "ECHEC : s-web.desktop absent — aucune etoile pour S Web." >&2; exit 1; }
 test -s /usr/share/icons/hicolor/256x256/apps/s-web.png \
     || { echo "ECHEC : s-web.png absent — l'etoile retomberait sur une icone generique." >&2; exit 1; }
 grep -q '^Icon=s-web$' /usr/share/applications/s-web.desktop \
     || { echo "ECHEC : s-web.desktop ne vise plus sa propre icone." >&2; exit 1; }
-echo "  s-web : navigateur S, profil separe sous \$S_DATA/web, icone propre"
+echo "  s-web : navigateur S, profil Vivaldi par defaut (comptes conserves), icone propre"
 
-# --- S WEB — page de demarrage propre, jamais le speed-dial de Vivaldi -----
-# 2026-09-07 : « vivaldi ne devrait plus s'afficher ». Le moteur ne peut pas
-# etre invisible (c'est Vivaldi), mais son ecran d'accueil, lui, l'est —
-# remplace par strategie geree, jamais par un Preferences.json trafique : ces
-# cles sont protegees par une signature MAC que Chromium verifie a chaque
-# lancement.
-#
-# NewTabPageLocation a ete essayee en premier et refutee par la mesure : elle
-# se declare « OK » dans vivaldi://policy mais le Speed Dial de Vivaldi ne la
-# consulte pas — un defaut de Vivaldi, pas de configuration.
-#
-# RestoreOnStartup=4 + RestoreOnStartupURLs a suivi, et a tenu jusqu'au
-# 2026-09-18 : signale par l'utilisateur (« en reouvrant S, les onglets
-# precedemment ouverts ne sont plus la »), RestoreOnStartup gouverne TOUT
-# demarrage du navigateur, pas seulement le premier — chaque fermeture de
-# S Web effacait la session en cours. La strategie geree ne pose plus que
-# « RestoreOnStartup=1 » (continuer la ou on etait) ; c'est s-web lui-meme
-# qui ouvre demarrage.html en argument de ligne de commande, seulement au
-# tout premier lancement (absence du dossier de profil) — un URL en
-# argument s'ajoute a la session restauree, il ne l'ecrase jamais.
-test -s /usr/share/s/web/demarrage.html \
-    || { echo "ECHEC : demarrage.html absent — S Web ouvrirait le speed-dial de Vivaldi." >&2; exit 1; }
+# --- S WEB — la politique geree : session restauree, blocage force ----------
+# RestoreOnStartup=1 (continuer la ou on etait) vaut desormais pour le profil
+# par defaut, le meme que RapidO/Gemini/Office/n8n. La page demarrage.html,
+# posee au premier lancement de l'ancien profil separe, n'a plus de raison
+# d'etre : le profil par defaut a deja son propre accueil. Le fichier reste —
+# il porte un signet vers s-telecharger, verifie plus haut dans ce script.
 test -s /etc/vivaldi/policies/managed/s-web.json \
-    || { echo "ECHEC : la strategie de demarrage de S Web est absente." >&2; exit 1; }
+    || { echo "ECHEC : la strategie de S Web est absente." >&2; exit 1; }
 python3 -c "import json,sys; json.load(open('/etc/vivaldi/policies/managed/s-web.json'))" \
     || { echo "ECHEC : s-web.json (strategie) n'est pas un JSON valide." >&2; exit 1; }
 grep -q '"RestoreOnStartup": *1' /etc/vivaldi/policies/managed/s-web.json \
     || { echo "ECHEC : RestoreOnStartup n'est plus a 1 — S Web perdrait la session a chaque fermeture." >&2; exit 1; }
-grep -q 'demarrage.html' /usr/bin/s-web \
-    || { echo "ECHEC : s-web ne pose plus demarrage.html au premier lancement." >&2; exit 1; }
-echo "  s-web : page de demarrage posee au premier lancement, session restauree ensuite"
+echo "  s-web : session restauree (RestoreOnStartup=1), politique geree"
 
 # --- S WEB — uBlock Origin Lite force-installe, jamais reimplemente --------
 # 2026-09-18 : l'utilisateur signale des popups en rafale et des videos qui
