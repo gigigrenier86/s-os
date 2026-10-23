@@ -370,6 +370,14 @@ test -L /etc/systemd/user/s-session.target.wants/s-egaliseur.service \
     || { echo "ECHEC : s-egaliseur.service n'est pas tire par s-session.target." >&2; exit 1; }
 echo "  s-egaliseur.service : resident, tire par s-session.target"
 
+# --- N8N — l'atelier d'automatisation, resident et natif ---------------------
+test -s /usr/lib/systemd/user/s-n8n.service \
+    || { echo "ECHEC : s-n8n.service absent — n8n n'aurait aucun serveur resident." >&2; exit 1; }
+systemctl --global enable s-n8n.service
+test -L /etc/systemd/user/s-session.target.wants/s-n8n.service \
+    || { echo "ECHEC : s-n8n.service n'est pas tire par s-session.target." >&2; exit 1; }
+echo "  s-n8n.service : resident, tire par s-session.target"
+
 # --- LA LETTRE P: A DEMENAGE AVEC LA CREATION DU PREFIXE ---------------------
 # On ancre sur l'APPEL et non sur le mot : la version precedente cherchait
 # « s-partage » dans s-ouvrir-exe et aurait continue de passer sur une simple

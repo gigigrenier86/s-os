@@ -1,0 +1,37 @@
+[Unit]
+Description=S - n8n, l'atelier d'automatisation resident
+Documentation=https://docs.n8n.io/
+
+# POURQUOI RESIDENTE. n8n porte des automatisations qui doivent tourner meme
+# quand personne ne regarde l'ecran : un cron qui range les telechargements,
+# un webhook que le telephone frappe en rentrant du travail, un pont qui
+# deplace un fichier d'un monde a l'autre. Une unite lancee a la main mourrait
+# avec le terminal qui l'a lancee — meme piege que le wineserver, mesure le
+# 2026-08-26. C'est au gestionnaire de session de porter un processus qui doit
+# survivre a son lanceur.
+
+# MEME PATRON QUE s-windows.service ET s-egaliseur.service : PartOf (jamais
+# Requires) — n8n ne doit jamais retarder l'ouverture de session ni la faire
+# echouer. Il se leve avec la session et retombe avec elle.
+PartOf=s-session.target
+After=s-session.target
+
+# UNE PANNE PERSISTANTE DOIT S'ARRETER ET SE VOIR, PAS TOURNER A VIDE.
+# Meme regle que s-windows.service : cinq departs en cinq minutes suffisent,
+# au-dela l'unite passe en « failed (start-limit-hit) », ce qui se voit.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/s/n8n.sh --lancer
+Restart=on-failure
+RestartSec=2
+
+# n8n initialise sa base SQLite au premier lancement ; sur un disque lent cela
+# peut depasser les 45 s par defaut de systemd. Marge large, comme
+# s-windows.service (180).
+TimeoutStartSec=180
+
+[Install]
+WantedBy=s-session.target

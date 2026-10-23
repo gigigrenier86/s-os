@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=n8n
+Comment=L'atelier d'automatisation de S
+Exec=/usr/lib/s/n8n.sh --ouvrir
+Icon=applications-development
+Categories=Development;Utility;
+Terminal=false
