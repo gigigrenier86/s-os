@@ -555,7 +555,8 @@ echo "  s-nouveautes.service : annonce de version, tire par s-session.target"
 # scission qu'on vient de fermer.
 test -x /usr/bin/s-web \
     || { echo "ECHEC : s-web absent ou non executable." >&2; exit 1; }
-if grep -q -- '--user-data-dir' /usr/bin/s-web; then
+s_web_script=/usr/bin/s-web
+if grep -q -- '--user-data-dir' "$s_web_script"; then
     echo "ECHEC : s-web pose encore un profil separe — la scission des sessions reviendrait." >&2; exit 1
 fi
 test -s /usr/share/applications/s-web.desktop \
