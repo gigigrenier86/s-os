@@ -2240,15 +2240,24 @@ ApplicationWindow {
     // bureau reste derriere les autres fenetres — c'est ce qu'on attend d'un
     // bureau, et c'est ce qui rendrait une bulle invisible pile quand elle
     // sert. Voir Bulle.qml pour ce qui a ete mesure.
-    Bulle { id: bulle }
+    Bulle {
+        id: bulle
+        onActionChoisie: function(ident, cle) {
+            // La bulle ne connait pas le serveur : c'est ici qu'on remonte le
+            // choix. « notifications » vaut null quand le nom du bus etait
+            // deja pris — alors le clic ne fait rien, comme il se doit.
+            if (typeof notifications !== "undefined" && notifications)
+                notifications.agir(ident, cle);
+        }
+    }
 
     // « notifications » est nul quand le nom du bus etait deja pris. Un
     // Connections sans cible ne fait rien, et le bureau s'ouvre quand meme :
     // un bureau sans bulles reste un bureau.
     Connections {
         target: typeof notifications !== "undefined" ? notifications : null
-        function onMontrer(id, app, titre, corps, duree, urgence, appId) {
-            bulle.poser(id, app, titre, corps, duree, urgence);
+        function onMontrer(id, app, titre, corps, duree, urgence, appId, actions) {
+            bulle.poser(id, app, titre, corps, duree, urgence, actions);
             // CONSTELLATION VIVANTE — le badge. Une notification qui ne peut
             // pas etre rattachee a une etoile (Windows, ou un nom Linux
             // ambigu) ne pose rien : voir appParNotification().

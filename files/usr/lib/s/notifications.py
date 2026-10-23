@@ -15,11 +15,11 @@ Le correctif du matin a detache l'appel et l'a borne a cinq secondes : plus
 rien ne gele. Mais les phrases de S partaient dans le vide. Une coquille qui ne
 sait pas afficher une notification n'est pas finie ; ce fichier la finit.
 
-CE QU'IL NE FAIT PAS, ET C'EST DELIBERE. Pas d'historique, pas de boutons
-d'action, pas de son, pas d'images en ligne. Il declare donc « body » et rien
-d'autre dans ses capacites : annoncer « actions » sans dessiner de boutons
-ferait afficher aux applications des choix qui n'apparaissent nulle part — le
-succes silencieux, transpose a l'interface.
+CE QU'IL NE FAIT PAS, ET C'EST DELIBERE. Pas d'historique, pas de son, pas
+d'images en ligne. Il declare « body » et « actions » dans ses capacites : les
+boutons d'action sont dessines par la scene (Bulle.qml) et remontes au poseur
+par le signal « ActionInvoked » quand on les choisit. La cle « default », si
+l'application la fournit, part au clic sur le corps de la bulle.
 
 POURQUOI dbus-python ET NON QtDBus, ALORS QUE TOUT LE RESTE DE LA COQUILLE EST
 EN Qt. Trois formes ont ete essayees sur la machine, et la mesure a tranche :
@@ -54,7 +54,7 @@ et se taire en silence est precisement ce que ce projet refuse.
 
 import threading
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, Slot
 
 import dbus
 import dbus.service
@@ -70,6 +70,23 @@ ECARTEE = 2
 FERMEE_PAR_APPEL = 3
 
 
+def _actions_vers_qml(actions):
+    """La liste d'actions du bus (cle, libelle, cle, libelle...) en paires.
+
+    La specification porte les actions en une liste plate qui alterne la cle
+    et le libelle localise. La scene QML attend des paires {cle, nom}, plus
+    faciles a lier qu'une liste plate a decouper a chaque affichage. Une liste
+    absente ou impaire (un libelle sans cle) ne pose rien : un bouton sans
+    action est exactement le succes silencieux que ce projet refuse.
+    """
+    paires = []
+    if not isinstance(actions, (list, tuple)):
+        return paires
+    for i in range(0, len(actions) - 1, 2):
+        paires.append({"cle": str(actions[i]), "nom": str(actions[i + 1])})
+    return paires
+
+
 class Serveur(QObject):
     """Ce que la scene QML ecoute.
 
@@ -80,8 +97,9 @@ class Serveur(QObject):
 
     # id, application, titre, corps, duree en millisecondes (0 = ne part pas
     # tout seul), urgence 0/1/2, identifiant d'etoile (CONSTELLATION VIVANTE
-    # -- vide si aucune source ne l'a fourni, jamais devine)
-    montrer = Signal(int, str, str, str, int, int, str)
+    # -- vide si aucune source ne l'a fourni, jamais devine), actions (paires
+    # {cle, nom} -- la cle « default » y figure telle quelle)
+    montrer = Signal(int, str, str, str, int, int, str, list)
     retirer = Signal(int)
 
     DUREE_PAR_DEFAUT = 5000
@@ -96,7 +114,7 @@ class Serveur(QObject):
         self._service = None
         self._synchrones = {}
 
-    def poser(self, application, remplace, titre, corps, indices, delai):
+    def poser(self, application, remplace, titre, corps, actions, indices, delai):
         # L'INDICE « SYNCHRONE » N'EST PAS UN DETAIL ICI : c'est celui que
         # s_dire passe a chaque phrase de S, avec la clef « s-couture ». Il
         # veut dire « remplace la precedente, ne l'empile pas ». Sans lui, une
@@ -142,7 +160,8 @@ class Serveur(QObject):
 
         self._vivantes.add(ident)
         self.montrer.emit(ident, str(application or ""), str(titre or ""),
-                          str(corps or ""), duree, urgence, app_id)
+                          str(corps or ""), duree, urgence, app_id,
+                          _actions_vers_qml(actions))
         return ident
 
     def fermer(self, ident, raison=ECARTEE):
@@ -158,6 +177,20 @@ class Serveur(QObject):
         if self._service is not None:
             self._service.NotificationClosed(ident, int(raison))
         return True
+
+    @Slot(int, str)
+    def agir(self, ident, cle):
+        """Une action choisie par l'utilisateur, remontee au poseur.
+
+        Le clic sur un bouton de la bulle (Bulle.qml) arrive ici. On remonte
+        « ActionInvoked » a qui avait pose la notification, puis on ferme la
+        bulle : la specification veut qu'une action choisie ferme la
+        notification, sauf resident, que S ne porte pas.
+        """
+        ident = int(ident)
+        if self._service is not None:
+            self._service.ActionInvoked(ident, str(cle))
+        self.fermer(ident, ECARTEE)
 
     def _prochain_id(self, remplace):
         if remplace:
@@ -182,8 +215,8 @@ class Service(dbus.service.Object):
     @dbus.service.method(NOM, in_signature="susssasa{sv}i", out_signature="u")
     def Notify(self, app_name, replaces_id, app_icon, summary, body, actions,
                hints, expire_timeout):
-        return self._serveur.poser(app_name, replaces_id, summary, body, hints,
-                                   expire_timeout)
+        return self._serveur.poser(app_name, replaces_id, summary, body,
+                                   actions, hints, expire_timeout)
 
     @dbus.service.method(NOM, in_signature="u", out_signature="")
     def CloseNotification(self, id):
@@ -191,13 +224,17 @@ class Service(dbus.service.Object):
 
     @dbus.service.method(NOM, in_signature="", out_signature="as")
     def GetCapabilities(self):
-        # HONNETE PLUTOT QUE FLATTEUR : S affiche un titre et un corps.
-        return ["body"]
+        # HONNETE PLUTOT QUE FLATTEUR : titre, corps, et boutons d'action.
+        return ["body", "actions"]
 
     @dbus.service.method(NOM, in_signature="", out_signature="ssss")
     def GetServerInformation(self):
         # Le nom, l'editeur, la version, puis la version de la specification.
         return ("Constellation", "S", "1", "1.2")
+
+    @dbus.service.signal(NOM, signature="us")
+    def ActionInvoked(self, id, action_key):
+        pass
 
     @dbus.service.signal(NOM, signature="uu")
     def NotificationClosed(self, id, reason):

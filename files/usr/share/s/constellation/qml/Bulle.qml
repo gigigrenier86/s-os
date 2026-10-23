@@ -58,15 +58,32 @@ Window {
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
            | Qt.WindowDoesNotAcceptFocus
 
+    // Un bouton d'action a ete choisi. La coquille (Constellation.qml) branche
+    // ce signal sur le serveur de notifications, qui remonte « ActionInvoked »
+    // au poseur. La bulle ne connait pas le serveur : elle ne fait que dire
+    // « ce bouton-ci, sur CETTE notification-la ».
+    signal actionChoisie(int ident, string cle)
+
     // --- L'etat -----------------------------------------------------------
     property var fileAttente: []
-    property var courante: ({ id: 0, app: "", titre: "", corps: "", urgence: 1 })
+    property var courante: ({ id: 0, app: "", titre: "", corps: "", urgence: 1,
+                              actions: [], defaut: "" })
 
     // On n'en montre qu'une a la fois. Une pile de bulles demande une gestion
     // de place, d'ordre et de recouvrement que S n'a pas ; une file, non.
-    function poser(id, app, titre, corps, duree, urgence) {
+    function poser(id, app, titre, corps, duree, urgence, actions) {
+        actions = actions || [];
+        // « actions » arrive en paires {cle, nom}. La cle « default » n'est pas
+        // un bouton : c'est le clic sur le corps de la bulle (voir zoneClic).
+        var boutons = [];
+        var defaut = "";
+        for (var i = 0; i < actions.length; i++) {
+            if (actions[i].cle === "default") defaut = actions[i].cle;
+            else boutons.push(actions[i]);
+        }
         var avis = { id: id, app: app, titre: titre, corps: corps,
-                     duree: duree, urgence: urgence };
+                     duree: duree, urgence: urgence, actions: boutons,
+                     defaut: defaut };
         // UN MEME IDENTIFIANT REMPLACE, il ne s'ajoute pas : c'est ainsi qu'une
         // application met a jour sa propre notification (une copie qui avance,
         // un telechargement qui progresse).
@@ -97,6 +114,10 @@ Window {
         fileAttente = reste;
     }
 
+    function action(cle) {
+        actionChoisie(courante.id, cle);
+    }
+
     function suivante() {
         vie.stop();
         if (fileAttente.length > 0) {
@@ -104,7 +125,8 @@ Window {
             fileAttente = fileAttente.slice(1);
             afficher(avis);
         } else {
-            courante = { id: 0, app: "", titre: "", corps: "", urgence: 1 };
+            courante = { id: 0, app: "", titre: "", corps: "", urgence: 1,
+                         actions: [], defaut: "" };
         }
     }
 
@@ -233,6 +255,45 @@ Window {
                     font.pixelSize: 10
                     elide: Text.ElideRight
                 }
+
+                // LES BOUTONS D'ACTION — la demande d'appairage de KDE Connect,
+                // un « Accepter »/« Refuser », vit ici. Sans eux, un clic sur la
+                // bulle la fermait sans jamais repondre a l'application.
+                Flow {
+                    id: rangeeBoutons
+                    visible: courante.actions.length > 0
+                    width: parent.width
+                    spacing: 8
+                    Repeater {
+                        model: courante.actions
+                        delegate: Rectangle {
+                            height: 30
+                            width: Math.max(72, libelle.implicitWidth + 30)
+                            radius: 15
+                            color: survolBouton.hovered ? Theme.verre3 : Theme.verre2
+                            border.color: survolBouton.hovered ? Theme.bordVif : Theme.bord
+                            border.width: 1
+
+                            Text {
+                                id: libelle
+                                anchors.centerIn: parent
+                                text: modelData.nom
+                                color: Theme.texte
+                                font.family: Theme.police
+                                font.pixelSize: 12
+                            }
+
+                            HoverHandler {
+                                id: survolBouton
+                                cursorShape: Qt.PointingHandCursor
+                            }
+
+                            TapHandler {
+                                onTapped: bulle.action(modelData.cle)
+                            }
+                        }
+                    }
+                }
             }
 
             HoverHandler {
@@ -242,7 +303,12 @@ Window {
 
             TapHandler {
                 id: zoneClic
-                onTapped: bulle.suivante()
+                onTapped: {
+                    if (courante.defaut !== "")
+                        bulle.action(courante.defaut);
+                    else
+                        bulle.suivante();
+                }
             }
         }
     }

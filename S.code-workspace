@@ -36,6 +36,14 @@
 		},
 		"[shellscript]": { "editor.tabSize": 4, "editor.insertSpaces": true },
 		"[python]": { "editor.tabSize": 4, "editor.rulers": [79] },
+		// --- Python / Pylance ------------------------------------------
+		// Les modules de S vivent dans files/usr/lib/s (installes ensuite
+		// dans /usr/lib/s). Les gestes de files/usr/bin les importent via
+		// sys.path : sans ceci, Pylance signale « Impossible de resoudre
+		// l'importation android_plateforme ».
+		"python.analysis.extraPaths": [
+			"files/usr/lib/s"
+		],
 		"[qml]": { "editor.tabSize": 4 },
 		// --- Le depot est lu par des scripts, pas seulement par toi ------
 		// Une fin de ligne Windows dans un script casse le shebang : « bad
