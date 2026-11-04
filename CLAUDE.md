@@ -11,8 +11,11 @@ Interface en français.
 ## 2026-11-04 — n8n retiré, et la base Bazzite est passée à Fedora 45 pendant la nuit
 
 Demande de l'utilisateur : « retire n8n ». Il l'a demandée après trois constructions échouées de suite, toutes
-à `52-n8n.sh`, toutes pour une cause d'amont différente. **Rien de cela n'est dans l'image publiée** :
-`:latest` est resté sur `27ddf78`, donc rien de cassé n'a atteint la machine.
+à `52-n8n.sh`, toutes pour une cause d'amont différente. **Pendant ces pannes `:latest` est resté sur
+`27ddf78`** : rien de cassé n'a atteint la machine. **État final, mesuré le 2026-11-04 :** construction verte
+(`e9337c0`, 6 pannes corrigées au total, voir plus bas), image signée (`cosign verify` code 0,
+`sha256:6cbc0c34…`), déployée par `bootc upgrade` en file pour le prochain démarrage (Fedora 45, noyau
+`7.2.15-ogc1.1.fc45`) ; **le redémarrage n'a pas encore eu lieu**.
 
 ### Ce qui a été retiré
 
@@ -61,14 +64,41 @@ chiffre les identifiants d'éventuels workflows) reste ; après `bootc upgrade`,
    machine a sous Fedora 44 ; `kcm-fcitx5` est facultatif (il exige `libPlasma.so.7`, introuvable dans un
    Fedora 45 nu). **Non éprouvé en CI à l'écriture de ces lignes.**
 
+5. **`ostree container commit` n'existe plus sous Fedora 45** (« deprecated, use `bootc container lint` »,
+   puis « Not in an ostree-based container environment ») : dernier geste du `Containerfile`, remplacé par
+   `bootc container lint`. C'est lui qui a montré que `40-coutures.sh` passait enfin en entier.
+6. **Le disque était plein (97 %, 6,7 Go libres) et `bootc upgrade` a refusé** : « Insufficient free space
+   (available: 0 bytes required: 7.7 GB) ». La base Fedora 45 a 286 couches qui ne partagent **rien** avec
+   l'ancienne (« layers already present: 0 »), donc le téléchargement est entier. 51 Go dormaient dans
+   `/var/lib/containers` (stockage podman root : trois restes de reconstructions locales d'août, aucun
+   conteneur) ; l'utilisateur a autorisé de supprimer **la seule** `s-os:<none>` de 21,3 Go (28 Go libres
+   ensuite). Restent `s-os:latest` (18,4 Go) et `bazzite:stable` (11,6 Go), toujours là. Mesurer avec
+   `pkexec du -xh --max-depth=3 /sysroot/ostree/deploy/default` : `du` sans élévation ne voit ni
+   `/var/lib/containers` ni les déploiements.
+
+### Autres constats
+
+- **L'étiquette de version ment sur la base** : `VERSION="44.$(date …)"` est figé dans
+  `.github/workflows/build.yml`, donc `44.20261104.e9337c0` désigne une image Fedora **45**. Cosmétique,
+  non corrigé (une correction déclencherait une construction). Le noyau (`ostree.linux`) dit la vérité.
+- **Déploiement en attente vérifié fichier par fichier** : `corriger_webview2.py`, `s-ouvrir-exe`,
+  `s-grand-disque` et `noyau.py` identiques au dépôt ; `n8n` absent ; `VERSION_ID=45` ; `fcitx5` présent.
+  Diff annoncé : 2532 paquets mis à jour, 13 rétrogradés, 62 retirés, 286 ajoutés.
+- **Retour possible** : l'ancien déploiement Fedora 44 reste en file de repli (`bootc rollback`, ~8 s, sans
+  réseau — mesuré le 2026-08-25).
+
 ### Ce que cette passe ne prouve pas
 
-- **Aucune construction sur Fedora 45 n'a encore abouti.** Les étapes jusqu'à `51-telechargements.sh` passent
-  (mesuré le 2026-11-04). **Correction d'une erreur de ma part :** j'ai écrit, plus tôt dans la journée, que
-  `40-coutures.sh` et mes contrôles RecompLauncher étaient déjà passés en CI. **C'est faux** : `40-coutures.sh`
-  est le DERNIER pas du `Containerfile`, après `53-allegement.sh`, et il n'a tourné dans aucune des
-  constructions échouées. Ces contrôles n'ont été exercés qu'à la main (`py_compile`, motif contre
-  `s-ouvrir-exe`, `verifier-webview2.py`).
+- **Le premier démarrage sur Fedora 45 n'a pas eu lieu.** À regarder en premier : la session Constellation
+  s'ouvre ; Android démarre (module SELinux `s_android`, jamais essayé sur ce noyau) ; la saisie fcitx5 ;
+  `s-windows.service` et RecompLauncher ; les quatre témoins habituels (version bootée, cache QML à 0,
+  repos processeur plat, aucune unité en `activating`/`auto-restart`).
+- **Correction d'une erreur de ma part.** J'ai écrit, plus tôt dans la journée, que `40-coutures.sh` et mes
+  contrôles RecompLauncher étaient déjà passés en CI. **C'était faux** : `40-coutures.sh` est le DERNIER pas du
+  `Containerfile`, après `53-allegement.sh`, et il n'avait tourné dans aucune des constructions échouées.
+  **Il a tourné pour la première fois le 2026-11-04** (la construction qui a échoué sur `ostree container
+  commit`) : mes contrôles RecompLauncher y figurent (« s-ouvrir-exe : corrige RevokeDragDrop des programmes
+  WebView2 »), puis la construction `e9337c0` est passée en entier.
 - **Rien n'indique que `52-n8n.sh` aurait fini de passer** avec `--before` : le test a été arrêté.
 
 ---
