@@ -30,18 +30,11 @@ dnf5 install -y code
 rm -f /etc/yum.repos.d/vscode.repo
 
 # ------------------------------------------------------------- Node.js ----
-# Fedora versionne Node : « nodejs24 » porte le moteur, et ce sont
-# « nodejs24-bin » et « nodejs24-npm-bin » qui posent les liens /usr/bin/node
-# et /usr/bin/npm. La version est NOMMEE, plus resolue par le chemin.
-#
-# CE QUE LE CHEMIN A COUTE, MESURE LE 2026-11-04. « install /usr/bin/node »
-# prend ce que la base propose de plus recent. Quand Bazzite :stable est passe
-# de Fedora 44 a 45, il a pris Node 26.3.1, et n8n 2.45.7 a cesse de se
-# construire : @confluentinc/kafka-javascript n'a pas de binaire precompile pour
-# l'ABI de Node 26, se compile depuis les sources (librdkafka, libcurl) et
-# echoue. Node 24.18.0, lui, est le Node d'une construction qui passait la
-# veille, et Fedora 44 comme 45 le fournissent tous deux.
-dnf5 install -y nodejs24-bin nodejs24-npm-bin
+# Fedora 44 versionne Node : le paquet s'appelle « nodejs20 », et ce sont
+# « nodejs20-bin » et « nodejs20-npm-bin » qui posent les liens sans numero.
+# On installe donc par le CHEMIN plutot que par le nom — ainsi le script
+# survivra au passage a Node 22 ou 24 sans qu'on y touche.
+dnf5 install -y /usr/bin/node /usr/bin/npm
 
 # -------------------------------------------------------- Claude Code -----
 # Il existe un depot RPM officiel et SIGNE — verifie le 2026-08-20 :
@@ -80,13 +73,6 @@ for b in /usr/bin/code /usr/bin/node /usr/bin/npm /usr/bin/claude; do
     [[ -e "$b" ]] || { echo "ABSENT : $b" >&2; manque=1; }
 done
 [[ "$manque" -eq 0 ]] || exit 1
-
-# Le Node de l'image est le 24, et ca se verifie : un « alternatives » qui
-# pointerait ailleurs reproduirait la panne de n8n sans qu'aucun controle ne le dise.
-case "$(/usr/bin/node --version 2>/dev/null)" in
-    v24.*) : ;;
-    *) echo "ECHEC : /usr/bin/node n'est pas Node 24 ($(/usr/bin/node --version 2>&1))." >&2; exit 1 ;;
-esac
 
 # --------------------------------------------------------------------------
 # Le rapport, et pourquoi il ne peut plus rien casser

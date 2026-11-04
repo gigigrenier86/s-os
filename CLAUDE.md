@@ -8,6 +8,62 @@ Interface en français.
 
 ---
 
+## 2026-11-04 — n8n retiré, et la base Bazzite est passée à Fedora 45 pendant la nuit
+
+Demande de l'utilisateur : « retire n8n ». Il l'a demandée après trois constructions échouées de suite, toutes
+à `52-n8n.sh`, toutes pour une cause d'amont différente. **Rien de cela n'est dans l'image publiée** :
+`:latest` est resté sur `27ddf78`, donc rien de cassé n'a atteint la machine.
+
+### Ce qui a été retiré
+
+`build_files/52-n8n.sh`, `files/usr/lib/s/n8n.sh`, `s-n8n.service`, `s-n8n.desktop`, le bloc du
+`Containerfile`, le contrôle de `40-coutures.sh` (activation par `s-session.target`), deux commentaires.
+`26-outils.sh` est revenu à son état d'avant l'épinglage de Node 24 (sans n8n, plus de raison de le forcer).
+**Les données de l'utilisateur ne sont pas touchées** : `~/.local/share/s/n8n/` (dont `.encryption-key`, qui
+chiffre les identifiants d'éventuels workflows) reste ; après `bootc upgrade`, l'unité `s-n8n.service` disparaît.
+
+### Les trois pannes, dans l'ordre où elles sont tombées — utile si n8n revient un jour
+
+1. **`npm install -g n8n` prenait `latest`.** Le 2 novembre : 2.45.7, la construction passe ; le 3 :
+   2.46.4, `EBADPLATFORM` sur `@napi-rs/canvas-linux-arm64-musl` (dépendance *optionnelle* devenue exigible).
+   Le passage nocturne du 3 novembre en est mort aussi.
+2. **`ghcr.io/ublue-os/bazzite:stable` est passé de Fedora 44 à 45 le 2026-11-03.** Notre `Containerfile`
+   part de `:stable` : toute construction a changé de version majeure d'OS sans qu'un commit le dise.
+   `dnf5 install /usr/bin/node` a alors pris `nodejs26` ; `@confluentinc/kafka-javascript` n'a pas de binaire
+   précompilé pour cette ABI, se compile depuis les sources (librdkafka, libcurl) et échoue. Fedora 44 et 45
+   fournissent tous deux `nodejs24` (24.18.0) : avec lui, `52-n8n.sh` rejoué dans un conteneur `fedora:45`
+   installe 2343 paquets sans compiler, `n8n --version` = 2.45.7.
+3. **`@langchain/langgraph-sdk@1.12.10` : tarball 404** (métadonnée publiée à 01:36 UTC, fichier absent du
+   registre), pile pendant la construction. `npm --before=<date>` résout tout l'arbre tel qu'à cette date ;
+   essayé en conteneur, **interrompu avant son verdict** quand n8n a été retiré — donc non prouvé.
+
+### À retenir, au-delà de n8n
+
+- **`FROM …:stable` n'est pas une version.** L'amont publie `stable-44` et `stable-45` (relevé avec
+  `skopeo list-tags docker://ghcr.io/ublue-os/bazzite`) : le jour où `stable` bascule, S change d'OS à la
+  construction suivante. **L'utilisateur a choisi de suivre Fedora 45** (question posée avant d'agir) ; rien n'a
+  encore été construit ni déployé sur 45, et ses effets (kwin, Qt, Waydroid, SELinux, signature) sont à
+  mesurer. Pour rester sur 44 : `FROM ghcr.io/ublue-os/bazzite:stable-44`.
+- **Une installation qui résout un arbre au jour de la construction casse un matin au hasard.** Épingler
+  la version du paquet ne suffit pas : les dépendances flottent. `--before=<date>` (npm) ou un `package-lock`
+  sont les deux remèdes.
+- **Une construction qui échoue à la même étape trois fois avec trois messages différents** n'a pas trois
+  bogues : elle a une source non épinglée. Rejouer le script seul dans un conteneur `fedora:<N>`
+  (`podman run --rm --security-opt label=disable -v $PWD:/ctx:ro …`, le `label=disable` évitant le
+  `Permission denied` de SELinux) coûte 3 minutes contre 15 par construction CI.
+- **L'API publique de GitHub dit où la construction est morte** même sans droits admin :
+  `gh run view <id> --log-failed` marche avec le `gh` de `~/.local/bin`, et
+  `gh api repos/…/actions/runs/<id>/jobs` donne les durées par étape.
+
+### Ce que cette passe ne prouve pas
+
+- **Aucune construction sur Fedora 45 n'a encore abouti.** Les 30 premières étapes passent (mesuré le
+  2026-11-04), `40-coutures.sh` et mes contrôles RecompLauncher compris ; la fin et le démarrage de l'image
+  restent à voir.
+- **Rien n'indique que `52-n8n.sh` aurait fini de passer** avec `--before` : le test a été arrêté.
+
+---
+
 ## 2026-11-03, soir — remise à jour après les sessions Cline : rien à fusionner, un diagnostic DirectX 12 à ranger
 
 Demande de l'utilisateur : « met toi à jour avec ce que j'ai fait avec Cline ». Cline (VS Code, modèle

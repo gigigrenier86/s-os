@@ -5,7 +5,7 @@
 # des favoris de sessions differentes ». MESURE sur la machine : deux profils
 # Vivaldi tournaient en meme temps — le profil par defaut (~/.config/vivaldi),
 # ou vivent les comptes Microsoft 365 / Google / MEWS connectes par RapidO,
-# Gemini, Office et n8n (tous lances en « --app= », donc sur le profil defaut),
+# Gemini et Office (tous lances en « --app= », donc sur le profil defaut),
 # et le profil separe S_WEB (~/.local/share/S/web) que ce script posait.
 # Deux instances (~3,2 Go RSS cumule), memes fenetres indiscernables : c'etait
 # ca, les « sessions differentes ».
