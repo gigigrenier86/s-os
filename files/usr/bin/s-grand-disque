@@ -151,7 +151,7 @@ for ligne in "${COMPTES[@]}"; do
     maison="${ligne#* }"
     lien="$maison/Disque"
     if [[ -L "$lien" ]]; then
-        continue
+        :   # lien deja la — mais on NE saute PAS le chown plus bas (voir ci-dessous)
     elif [[ -e "$lien" ]]; then
         dire "ATTENTION : $lien existe deja et n'est pas un lien — rien touche"
     else
@@ -162,6 +162,10 @@ for ligne in "${COMPTES[@]}"; do
     # Le disque appartient a celui qui s'en sert. Sans ca, il est a root et
     # l'utilisateur ne peut rien y ecrire — un disque de 4 To en lecture seule
     # ressemble a une panne.
+    #
+    # ET UN `continue` SUR LE LIEN DEJA PRESENT SAUTAIT TOUT CE BLOC (mesure du
+    # 2026-10-25) : apres un reformatage, le disque neuf restait a root alors que
+    # ~/Disque existait deja depuis des mois.
     #
     # ET C'EST EXACTEMENT CE QUI EST ARRIVE LE 2026-08-25. Ce bloc annoncait
     # « appartient desormais a RyuRex » et le disque restait a root : sur un

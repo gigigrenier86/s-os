@@ -8,6 +8,188 @@ Interface en français.
 
 ---
 
+## 2026-11-03, soir — remise à jour après les sessions Cline : rien à fusionner, un diagnostic DirectX 12 à ranger
+
+Demande de l'utilisateur : « met toi à jour avec ce que j'ai fait avec Cline ». Cline (VS Code, modèle
+`deepseek-v4-pro`) garde ses sessions dans `~/.cline/data/sessions/<id>/<id>.messages.json` ; les appels
+d'édition y portent le nom `editor`. Lues une à une, sans toucher à `secrets.json` ni `providers.json`.
+
+### L'état du dépôt et de l'image
+
+- **Tout ce que Cline a édité est déjà commité.** Ses sessions d'édition (21 au 23 octobre : thèmes QML,
+  notifications à boutons d'action, `n8n.sh`, `S.code-workspace`…) sont dans l'historique jusqu'à `27ddf78`.
+  Ses trois sessions suivantes (25 oct. 03:14, 25 oct. 19:59, 27 oct. → 3 nov.) **n'ont fait aucun appel
+  `editor`** : diagnostic seulement.
+- **L'image bootée est `HEAD`** : `rpm-ostree status` dit `44.20261026.27ddf78`, signée, et `git rev-list`
+  donne 0/0 avec `origin/main`. Rien n'attend d'être construit côté Cline.
+- **Une modification non commitée reste, d'auteur non établi** : `files/usr/bin/s-grand-disque`
+  (`continue` → `:` sur un lien `~/Disque` déjà présent, pour ne plus sauter le `chown` du disque reformaté ;
+  mtime 2026-10-25 16:21, commentaire « mesure du 2026-10-25 »). **Aucun appel `editor` de Cline ne la
+  porte** — ce n'est donc pas démontré que ce soit Cline. Syntaxe vérifiée (`bash -n`), **comportement non
+  rejoué** : à relire puis commiter, ou à jeter.
+- Cline n'a **pas de vision** (il le dit lui-même : « je ne peux pas lire l'image ») : une capture partagée
+  avec lui est invisible. C'est le travail du Voyeur ici.
+
+### FFRS.exe (25 octobre) : un mur déjà nommé, rien n'a été contourné
+
+Le dossier `/var/mnt/disque/FINAL FANTASY RESONANCE/` est un repack dont le « crack » installe des pilotes
+noyau (`SimpleSvm.sys`, `hyperkd.sys`, un hyperviseur en anneau 0). C'est exactement la limite 1 de ce
+fichier : Wine n'a pas de noyau Windows où charger un `.sys`. Cline a refusé de chercher un contournement,
+et son seul constat technique tient : aucun réglage de Proton n'y change quoi que ce soit. **Rien n'a été
+tenté ici non plus**, et l'entrée de grimoire demandée n'existe pas : un grimoire range ce qui a
+*fonctionné*, et ceci n'a pas fonctionné.
+
+### PURPLE / « DirectX 12 » (27 octobre → 3 novembre) : Aion 2 ne démarre pas sur l'UHD 630
+
+L'utilisateur a lancé un autre jeu depuis PURPLE et a eu un message sur DirectX 12. Cline a lu le rapport
+de crash d'Unreal Engine dans
+`AppData/Local/AION2/Saved_Global/Crashes/UECC-…/CrashContext.runtime-xml`, **revérifié ici le
+2026-11-03** :
+
+```
+GameName = UE-AION2    EngineVersion = 5.3.2    SecondsSinceStart = 0
+ErrorMessage = Unhandled Exception: EXCEPTION_ACCESS_VIOLATION reading address 0x0000000000000000
+```
+
+et `Binaries/Win64/` d'Aion 2 ne porte que `D3D12/` : **aucun module D3D11, donc aucun repli**.
+`vulkaninfo` (revérifié) liste deux GPU, l'Intel UHD 630 (`anv`) et `llvmpipe`, et des fonctionnalités
+qui diffèrent entre les deux — `sparseBinding`, `shaderStorageImageReadWithoutFormat` et
+`shaderSampledImageArrayNonUniformIndexingNative` valent `false` sur un GPU et `true` sur l'autre.
+
+**Hypothèse de Cline, non établie :** VKD3D-Proton ne peut pas créer le périphérique D3D12 (niveau 12_0) sans
+ces fonctionnalités, donc le moteur plante au démarrage. Ce qui est *mesuré* : le crash, l'absence de
+DX11, et l'écart de fonctionnalités Vulkan. Ce qui est *supposé* : que ce soit CES fonctionnalités qui
+causent l'accès à zéro. (Une documentation n'est pas une machine ; je n'ai pas relu les exigences de
+VKD3D-Proton, et `sparseBinding` n'est pas forcément obligatoire pour 12_0.)
+
+**La mesure qui trancherait**, et que personne n'a faite : lancer avec le seul GPU logiciel,
+`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json s-ouvrir-exe …/PurpleLauncher.exe` puis Play —
+Cline a vérifié que `VK_ICD_FILENAMES` masque bien l'Intel sur cette machine alors que
+`MESA_VK_DEVICE_SELECT` ne le fait pas. Si le jeu passe l'écran DX12 (même injouablement lent), la cause est
+le GPU ; sinon, relever la sortie de VKD3D avec `VKD3D_DEBUG=warn` et `VKD3D_LOG_FILE` dans l'environnement du
+lancement. L'utilisateur a conclu avant de la faire (« je me doutais que l'ordi le prendrait pas »).
+
+**Ce que ça ne change pas :** Lineage II continue de tourner, et l'écran de PURPLE lui-même.
+
+### Ce que cette passe ne prouve pas
+
+- **Je n'ai rien lu de l'écran de l'utilisateur** : le message « DirectX 12 » n'est connu que par le récit de
+  Cline (qui ne voyait pas l'image) et par le rapport de crash.
+- **Seules les trois sessions récentes ont été lues en détail** ; les sept plus anciennes ont été comptées
+  (appels `editor`, fichiers cités), pas relues, et leurs éditions sont supposées commitées parce que
+  `HEAD` les contient — vérifié par `git status`, pas fichier par fichier.
+- **Rien de ceci n'est commité**, ni mon travail sur RecompLauncher plus bas.
+
+---
+
+## 2026-11-03 — RecompLauncher « installé mais ne se lance pas » : un appel que Wine ne refuse pas
+
+L'utilisateur : « j'ai installé recomplauncher pour windows, il a installé tout bien mais ne se lance
+pas ». Installé = `.exe` d'installation NSIS passé par `s-ouvrir-exe`, programme posé dans
+`AppData/Local/RecompLauncher`, lanceur `s-windows-2e8b387b2270.desktop` moissonné. Le programme
+(Tauri 2 : Rust + WebView2) sortait en **« code 5 » en 4 à 10 s, sans fenêtre**.
+
+### Le diagnostic, et ce qui l'a rendu court
+
+1. **Le journal de S nommait déjà la famille.** `~/.local/state/S/windows-repli.log` portait
+   `plantage au demarrage (code 5 en 4s) pour recomplauncher.exe — essai 2…6`, la même ligne que
+   Launcher-SOW le 2026-10-13. Le commentaire de `s-ouvrir-exe` décrivait ce « code 5 » comme
+   `0xC0000005` tronqué à un octet, dans `RevokeDragDrop` (ole32).
+2. **Mesurer le taux avant de croire à une course.** Treize lancements, processus orphelins
+   `msedgewebview2.exe` tués entre chaque : **13 échecs sur 13**. Le contournement de Launcher-SOW
+   (rejouer jusqu'à ce qu'une des trois tente passe) ne pouvait donc pas marcher ici.
+3. **`WINEDEBUG=+seh` donne la pile, et c'est elle qui tranche.** Lancer le `.exe` à la main, depuis le
+   dossier du programme, avec l'environnement de S :
+   `. /usr/bin/s-monde; . /usr/lib/s/windows.sh; s_windows_charger; cd <dossier>;`
+   `WINEDEBUG=+seh,+err,warn+module timeout 25 "$WINELOADER" <programme>.exe > journal 2>&1`.
+   Chercher `Exception 0xc0000005`, puis `Backtrace:` :
+
+   ```
+   =>0 ole32 (+0x34d7d)              movq (%rax),%rax   <- pointeur invalide
+     1 recomplauncher (+0x39eb6e)    appel de RevokeDragDrop
+     2 recomplauncher (+0xa88fca)
+     3 user32 (+0x612e5)             <- EnumChildWindows
+   ```
+
+   Juste avant : `NtUserGetSystemMenu not supported on other process window 0xc9017c` — la fenêtre
+   visée n'appartient pas au programme.
+
+### La cause
+
+Au démarrage, **wry** (le moteur de fenêtres de Tauri) énumère les fenêtres *filles* de la vue WebView2 et
+fait `RevokeDragDrop` puis `RegisterDragDrop` sur chacune, pour poser son propre glisser-déposer. Or ces
+fenêtres vivent dans `msedgewebview2.exe` : **WebView2 est toujours hors processus**. Windows refuse
+l'appel pour une fenêtre étrangère. **Wine range le pointeur `OleDropTargetInterface` en propriété de
+fenêtre, lisible depuis n'importe quel processus, et appelle `Release()` dessus sans vérifier à qui la
+fenêtre appartient** : le pointeur n'est valable que chez Chromium, d'où l'accès invalide. C'est le bogue
+amont [WineHQ 60225](https://list.winehq.org/hyperkitty/list/wine-bugs@list.winehq.org/thread/E7FIV7JZO43D4IRJ5FTKBBFGRC5KRNOR/)
+(une autre application Tauri, wine-11.0), non corrigé à ce jour dans GE-Proton11-11.
+
+- **Une course ou un plantage certain**, selon que Chromium a déjà enregistré sa cible quand wry arrive :
+  Launcher-SOW (un sur trois tient) ; RecompLauncher (jamais).
+- **Ce n'est pas la destruction de la fenêtre du programme** après un échec du moteur web, comme
+  `s-ouvrir-exe` l'écrivait le 2026-10-13 : le commentaire est corrigé.
+- **WebView2 absent n'est pas en cause** : le runtime 151 est là et démarre (processus `msedgewebview2.exe`
+  vivants), c'est le programme hôte qui tombe. `winver`, DXVK et le préfixe n'ont **pas** été essayés
+  séparément : le correctif seul suffit, sans toucher à aucun de ces réglages.
+
+### Le correctif : `corriger_webview2.py`, appelé par `s-ouvrir-exe` à chaque lancement
+
+`/usr/lib/s/corriger_webview2.py` rend `RevokeDragDrop` sans effet **dans le programme** (`xor eax,eax ; ret`).
+Pas de compilateur Windows sur la machine, et `/usr` est en lecture seule : on ne patche ni Wine ni Proton,
+on patche l'exécutable, **par signature et non par décalage** — la case `ole32!RevokeDragDrop` de la table
+d'imports, puis le tremplin `jmp [case]` que le compilateur génère (un seul patch de 6 octets couvre tous
+ses appelants), ou les `call [case]` directs.
+
+- **Ne touche que** les exécutables 64 bits qui importent `RevokeDragDrop` **et** embarquent WebView2
+  (`WebView2Loader.dll` à côté ou dans le binaire) : un programme ordinaire révoque *ses* fenêtres.
+- **Sauvegarde `<programme>.avant-s`** à la première correction (vérifiée identique à l'original) ;
+  **idempotent** ; écrit dans un fichier voisin puis renomme. **Rejoué à chaque lancement**, parce qu'un
+  programme qui se met à jour remplace son exécutable.
+- **Ne bloque jamais un lancement** : une panne du correctif se tait, le programme est lancé tel quel.
+- La boucle de relance de `s-ouvrir-exe` reste en filet.
+
+**Éprouvé** : le même `.exe` copié puis corrigé tient 20 s (délai écoulé, code 124) là où l'original sort en
+4 s ; puis par le vrai geste (`S_BIN`/`S_LIB` du dépôt) la fenêtre s'ouvre, photographiée par
+`kwin-capturer-la-coquille.sh` — l'écran « Choisissez votre langue » (copie corrigée), puis une page « Bienvenue dans RecompLauncher »
+(programme d'origine corrigé en place, lancé par `s-ouvrir-exe`). L'outil est aussi éprouvé **dans les deux sens** sur un PE64 fabriqué
+(`build_files/verifier-webview2.py`, appelé par `40-coutures.sh`) : filtre WebView2 retiré → le contrôle
+échoue sur « programme sans WebView2 touche » ; détection aveugle → sur « tremplin non neutralise ».
+
+### La méthode, pour le prochain programme Windows qui « s'installe et ne se lance pas »
+
+1. **Lire `windows-repli.log` d'abord** : un code répété (`5`, `255`, `82`) nomme déjà une famille.
+2. **Isoler un lancement à la main** avec les traces Wine ci-dessus ; ne pas deviner depuis l'écran.
+3. **Mesurer le taux** sur une dizaine d'essais, orphelins tués entre chaque : « une fois sur trois » et
+   « jamais » ne se soignent pas pareil. **Tuer par un script à part, jamais `pkill -f`/`pgrep -f` dans la
+   ligne de commande qui contient le motif** : le shell se tue lui-même (c'est arrivé deux fois pendant
+   cette passe, code 144).
+4. **Lire la pile, pas le dernier message** : le dernier message d'un plantage Wine est celui du processus
+   *qui s'effondre*, rarement de celui qui a provoqué.
+5. **Chercher l'amont** (`bugs.winehq.org`, recherche sur le symbole fautif) avant de forger.
+6. **Essayer le correctif sur une COPIE du programme**, dans le même préfixe, avant de toucher à
+   l'original. Un programme corrigé en place garde son `.avant-s`.
+7. Si le défaut est dans le **programme** et non dans la configuration de Wine, un patch par signature
+   rejoué à chaque lancement vaut mieux qu'une règle par programme.
+
+### Ce que cette passe ne prouve pas
+
+- **Rien n'est dans l'image ni commité.** Le correctif tourne depuis le dépôt (`S_BIN`/`S_LIB`) ;
+  `/usr/bin/s-ouvrir-exe` déployé ne contient pas encore l'appel. **L'exécutable de RecompLauncher est
+  déjà corrigé sur disque**, donc il s'ouvre même par l'ancien geste tant qu'il ne se met pas à jour.
+- **Seule la fenêtre de démarrage a été vue.** Aucun jeu n'a été ajouté ni lancé depuis RecompLauncher ;
+  les jeux « recompilés » qu'il lance sont des programmes natifs Windows distincts, jamais essayés ici.
+- **Neutraliser l'appel suppose que `RegisterDragDrop` qui suit se comporte** : il n'a pas été vérifié que
+  le glisser-déposer *dans* la fenêtre de RecompLauncher fonctionne (le programme tient et s'affiche, rien
+  de plus).
+- **Le même défaut peut toucher d'autres programmes Tauri**, mais le correctif n'a servi que sur celui-ci.
+  Launcher-SOW (dont le lancement tenait une fois sur trois) n'a pas été rejoué avec.
+- **Le balayage par motif** (`construction-eprouver-les-motifs.sh`, 35 contrôles verts) **n'inclut pas** le
+  nouveau contrôle de `40-coutures.sh` : le motif a été vérifié à la main contre `s-ouvrir-exe`, pas par
+  lui. Cause non cherchée.
+
+---
+
 ## 2026-10-22 — le Quick Resume étendu à Windows, mesuré sur la machine
 
 Une application Windows réduite se gèle désormais comme les applications Linux :
@@ -13011,7 +13193,10 @@ OS qui démarre.
    [`banc/le-demenagement.md`](banc/le-demenagement.md).
 7. **L'UHD 630 borne le périmètre « jeux »** au rétro, à l'indé et à l'émulation.
    Lineage 2, moteur de 2003, y est à l'aise. Rien de moderne. Ça n'a rien à voir
-   avec Linux — c'est vrai sous Windows aussi.
+   avec Linux — c'est vrai sous Windows aussi. **Nuance du 2026-11-03 :** un jeu Unreal Engine 5 entièrement
+   DirectX 12 (Aion 2, via PURPLE) plante au démarrage ici, sans repli DX11. Le pilote Linux `anv` n'expose pas
+   des fonctionnalités Vulkan que `llvmpipe` expose (mesuré) ; que ce soit la cause du plantage, et que
+   l'écart soit propre à Linux, reste une hypothèse — voir l'entrée du 2026-11-03, soir.
 
 ---
 

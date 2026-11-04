@@ -136,6 +136,34 @@ dire, pose le vrai : s-windows --fondations dotnet48" dialog-warning
 fi
 
 # ---------------------------------------------------------------------------
+# LES PROGRAMMES TAURI / WEBVIEW2 : UN APPEL QUE WINE NE SAIT PAS REFUSER
+# ---------------------------------------------------------------------------
+# Mesure du 2026-11-03 sur RecompLauncher : « code 5 » en 4 a 10 s, treize fois
+# sur treize, sans fenetre — la boucle de relance plus bas n'y peut rien, ce
+# n'est pas une course. Le programme appelle RevokeDragDrop sur des fenetres
+# qui appartiennent au processus de WebView2 ; Windows refuse, Wine laisse
+# faire et appelle Release() sur un pointeur qui n'existe que chez l'autre
+# processus. Detail et mesures dans /usr/lib/s/corriger_webview2.py.
+#
+# On rend cet appel sans effet DANS LE PROGRAMME, a chaque lancement : un
+# programme qui se met a jour lui-meme remplace son executable, et la
+# correction doit suivre. Idempotent, sauvegarde « .avant-s », jamais bloquant.
+case "${CIBLE,,}" in
+    *.exe)
+        for _w_py in "${S_LIB:-}" /usr/lib/s; do
+            if [ -n "$_w_py" ] && [ -f "$_w_py/corriger_webview2.py" ]; then
+                _w_dit="$(python3 -I "$_w_py/corriger_webview2.py" "$CIBLE" 2>/dev/null)"
+                case "$_w_dit" in
+                    corrige*) echo "$(date -Is) $NOM : $_w_dit" >> "$S_ETAT/windows-repli.log" ;;
+                esac
+                break
+            fi
+        done
+        unset _w_py _w_dit
+        ;;
+esac
+
+# ---------------------------------------------------------------------------
 # Le serveur resident
 # ---------------------------------------------------------------------------
 # S'il ne demarre pas, on continue quand meme : wine en lancera un a lui, et le
@@ -175,9 +203,12 @@ cd "$DOSSIER" 2>/dev/null || true
 #
 # Mesure du 2026-10-13 sur Launcher-SOW (Tauri + WebView2) : le programme se
 # ferme en 4 a 8 s avec « code 5 », qui est en fait 0xC0000005 tronque a un octet
-# — un acces memoire invalide dans RevokeDragDrop (ole32), appele pendant que le
-# lanceur detruit sa propre fenetre apres un echec de son moteur web. C'est une
-# course : environ un lancement sur trois tient. Et chaque echec laisse des
+# — un acces memoire invalide dans RevokeDragDrop (ole32). CORRECTION DU
+# 2026-11-03 : ce n'est pas la destruction de sa propre fenetre, comme ecrit
+# ici d'abord, mais l'appel de wry sur les fenetres FILLES de WebView2 (autre
+# processus) au demarrage — voir le bloc « TAURI / WEBVIEW2 » plus haut, qui
+# neutralise l'appel. Cette boucle ne sert plus que de filet : course quand
+# Chromium n'a pas encore enregistre sa cible (environ un lancement sur trois). Et chaque echec laisse des
 # « msedgewebview2.exe » orphelins qui retiennent le profil du programme, ce qui
 # fait echouer les essais suivants a coup sur (mesure : huit echecs de suite
 # avec les orphelins, un succes sur trois sans eux).

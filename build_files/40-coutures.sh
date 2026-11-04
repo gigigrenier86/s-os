@@ -296,6 +296,20 @@ grep -qE '^\s*"\$S_GESTES/s-lien-windows" --recenser' /usr/bin/s-ouvrir-exe \
     || { echo "ECHEC : s-ouvrir-exe ne recense pas les protocoles." >&2; exit 1; }
 echo "  s-ouvrir-exe    : recense les protocoles apres chaque execution"
 
+# LES PROGRAMMES TAURI / WEBVIEW2 S'OUVRENT, OU NON, SELON UN SEUL APPEL.
+# Mesure du 2026-11-03 : RecompLauncher sortait en « code 5 » treize fois sur
+# treize — wry appelle RevokeDragDrop sur des fenetres du processus de WebView2,
+# Wine ne refuse pas comme Windows et plante sur un pointeur etranger.
+# corriger_webview2.py neutralise cet appel dans le programme, a chaque
+# lancement. Sans ce controle, le geste pourrait disparaitre de s-ouvrir-exe sans
+# qu'aucune construction ne le dise — et la panne reviendrait muette.
+python3 -m py_compile /usr/lib/s/corriger_webview2.py
+rm -rf /usr/lib/s/__pycache__ 2>/dev/null || true
+grep -qE '^\s*_w_dit="\$\(python3 -I "\$_w_py/corriger_webview2.py"' /usr/bin/s-ouvrir-exe \
+    || { echo "ECHEC : s-ouvrir-exe n'appelle plus corriger_webview2.py." >&2; exit 1; }
+python3 -I /ctx/build_files/verifier-webview2.py /usr/lib/s/corriger_webview2.py >/dev/null
+echo "  s-ouvrir-exe    : corrige RevokeDragDrop des programmes WebView2 (verifie sur un PE fabrique)"
+
 # ---------------------------------------------------------------------------
 # LE WINDOWS DE S EST UNE SESSION, PAS UN LANCEUR — 2026-08-26
 # ---------------------------------------------------------------------------
