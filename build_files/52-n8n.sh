@@ -26,7 +26,25 @@ dnf5 install -y gcc-c++ make python3-devel
 # cette redirection, il meurt sur « ENOTDIR: mkdir '/root' » (mesure sur le
 # build 39895389676). /tmp est un tmpfs monte par le Containerfile : rien n'y
 # fuit dans l'image.
-HOME=/tmp NPM_CONFIG_PREFIX=/usr npm install -g n8n
+# LA VERSION EST EPINGLEE, ET C'EST UNE REPONSE A UNE PANNE MESUREE.
+# « npm install -g n8n » prenait « latest ». Le 2026-11-02 elle valait 2.45.7 et
+# la construction passait ; le 2026-11-03 elle valait 2.46.4 et TOUTES les
+# constructions tombent ici, y compris le passage nocturne :
+#
+#   npm error code EBADPLATFORM
+#   npm error notsup Unsupported platform for @napi-rs/canvas-linux-arm64-musl@1.0.11:
+#       wanted {"os":"linux","cpu":"arm64","libc":"musl"} (current: x64, glibc)
+#
+# Ce paquet n'est qu'une dependance OPTIONNELLE de @napi-rs/canvas, que npm
+# devrait ignorer sur une autre plateforme ; 2.46.4 le rend exigible. Cause
+# amont, non cherchee plus loin. Sans epingle, une regression d'amont casse
+# l'image entiere un matin au hasard, et plus aucune mise a jour n'arrive.
+#
+# POUR DESEPINGLER : essayer « npm install -g n8n@latest » dans un conteneur
+# fedora jetable (podman run --rm registry.fedoraproject.org/fedora:44) ; si
+# EBADPLATFORM a disparu, monter la version ici.
+N8N_VERSION=2.45.7
+HOME=/tmp NPM_CONFIG_PREFIX=/usr npm install -g "n8n@${N8N_VERSION}"
 
 # Retirer la chaine de construction : elle ne doit pas rester dans l'image.
 dnf5 remove -y gcc-c++ make python3-devel
