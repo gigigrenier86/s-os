@@ -27,6 +27,23 @@ echo "  /usr/share/doc retire (207 Mo)"
 # --- ibus : la pile de saisie CJK, fcitx5 est garde -----------------------
 # Deux moteurs de saisie complets cohabitaient. S est KDE : fcitx5 est le
 # natif (kcm_fcitx5). ibus et ses moteurs (japonais/coreen/chinois) partent.
+#
+# CE SCRIPT SUPPOSAIT QUE fcitx5 ETAIT DANS LA BASE, ET C'ETAIT VRAI SOUS
+# FEDORA 44. Le 2026-11-04, Bazzite :stable est passe a Fedora 45 : fcitx5 n'y
+# est plus (la construction est tombee ici, « fcitx5 a disparu » — le garde-fou
+# ci-dessous a fait son travail : retirer ibus sans fcitx5 laissait la machine
+# sans aucun moteur de saisie). On installe donc l'ensemble que la machine a
+# aujourd'hui sous Fedora 44 (releve par « rpm -qa | grep fcitx »), au lieu de
+# le supposer. Sur une base qui l'a deja, « dnf5 install » ne fait rien.
+dnf5 install -y \
+    fcitx5 fcitx5-chewing fcitx5-chinese-addons fcitx5-hangul fcitx5-lua \
+    fcitx5-m17n fcitx5-mozc fcitx5-qt6 fcitx5-table-extra
+# Le module de reglages KDE est FACULTATIF : sous Fedora 45 nu, kcm-fcitx5 exige
+# libPlasma.so.7 que nul depot ne fournit (probablement ce qui a fait perdre
+# fcitx5 a la base). Sans lui la saisie marche, seule la fenetre de reglages
+# manque ; un paquet casse d'amont ne doit pas empecher de construire l'image.
+dnf5 install -y kcm-fcitx5 \
+    || echo "  kcm-fcitx5 non installable ici — saisie operationnelle, reglages KDE absents"
 dnf5 remove -y \
     ibus ibus-panel ibus-setup \
     ibus-anthy ibus-anthy-python ibus-hangul ibus-libpinyin \

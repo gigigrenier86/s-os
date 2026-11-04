@@ -55,11 +55,20 @@ chiffre les identifiants d'éventuels workflows) reste ; après `bootc upgrade`,
   `gh run view <id> --log-failed` marche avec le `gh` de `~/.local/bin`, et
   `gh api repos/…/actions/runs/<id>/jobs` donne les durées par étape.
 
+4. **`53-allegement.sh` : « fcitx5 a disparu ».** Quatrième panne, trouvée une fois n8n retiré : le script
+   retire ibus en supposant fcitx5 dans la base ; **la base Fedora 45 n'a plus fcitx5**, et son garde-fou a
+   (à raison) refusé de livrer une machine sans moteur de saisie. Corrigé en installant l'ensemble fcitx5 que la
+   machine a sous Fedora 44 ; `kcm-fcitx5` est facultatif (il exige `libPlasma.so.7`, introuvable dans un
+   Fedora 45 nu). **Non éprouvé en CI à l'écriture de ces lignes.**
+
 ### Ce que cette passe ne prouve pas
 
-- **Aucune construction sur Fedora 45 n'a encore abouti.** Les 30 premières étapes passent (mesuré le
-  2026-11-04), `40-coutures.sh` et mes contrôles RecompLauncher compris ; la fin et le démarrage de l'image
-  restent à voir.
+- **Aucune construction sur Fedora 45 n'a encore abouti.** Les étapes jusqu'à `51-telechargements.sh` passent
+  (mesuré le 2026-11-04). **Correction d'une erreur de ma part :** j'ai écrit, plus tôt dans la journée, que
+  `40-coutures.sh` et mes contrôles RecompLauncher étaient déjà passés en CI. **C'est faux** : `40-coutures.sh`
+  est le DERNIER pas du `Containerfile`, après `53-allegement.sh`, et il n'a tourné dans aucune des
+  constructions échouées. Ces contrôles n'ont été exercés qu'à la main (`py_compile`, motif contre
+  `s-ouvrir-exe`, `verifier-webview2.py`).
 - **Rien n'indique que `52-n8n.sh` aurait fini de passer** avec `--before` : le test a été arrêté.
 
 ---
