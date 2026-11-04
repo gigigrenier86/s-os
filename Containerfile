@@ -225,7 +225,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # Le telephone — Tailscale active, mosh pose
 #
 # Place juste avant les coutures, et pas ailleurs : « 40-coutures.sh » se
-# termine par « ostree container commit », donc rien ne peut venir apres lui.
+# termine par « bootc container lint », donc rien ne peut venir apres lui.
 # Ce script-ci ne bougera presque jamais ; le jour ou il bougera, il ne fera
 # reconstruire que la couche des coutures — 9,6 Mo, mesures le 2026-08-20.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
@@ -269,8 +269,16 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     bash /ctx/build_files/53-allegement.sh
 
 # Les coutures — la partie qui bouge le plus
+#
+# LE DERNIER GESTE ETAIT « ostree container commit », ET IL N'EXISTE PLUS SOUS
+# FEDORA 45 (2026-11-04) : « This command is deprecated, use `bootc container
+# lint` instead. error: Not in an ostree-based container environment ». C'est
+# le seul echec de la construction a ce stade : les coutures venaient de finir
+# (« === 40-coutures : fait === »). « bootc container lint » est le remplacant
+# que l'outil nomme lui-meme et il verifie la meme chose — du contenu dans /var,
+# qui n'entre pas dans une image bootc.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/40-coutures.sh && \
-    ostree container commit
+    bootc container lint
