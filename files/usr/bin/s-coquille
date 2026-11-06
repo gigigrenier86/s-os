@@ -57,6 +57,7 @@ dire() { printf 's-coquille : %s\n' "$*" >&2; }
 # fois le compositeur demarre, donc seulement dans ce processus-ci.
 systemctl --user import-environment \
     WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP \
+    KDE_SESSION_VERSION \
     2>/dev/null || dire "les variables de session n'ont pas pu etre transmises a systemd"
 
 # « graphical-session.target » refuse le demarrage manuel : elle ne se leve que
@@ -101,6 +102,19 @@ fi
 (
     mkdir -p "$HOME/Partage" "${XDG_STATE_HOME:-$HOME/.local/state}/s"
     chmod 775 "$HOME/Partage" 2>/dev/null || true
+
+    # « DISQUE C » : LE C: DE WINDOWS, A LA VUE (demande du 2026-11-05).
+    # Un programme Windows dit « mets ta ROM dans C:/users/steamuser/AppData/... »
+    # (SuperMarioWorldRemastered) ; ce dossier vit sous ~/.local/share/S/windows/,
+    # donc dans un dossier CACHE par la convention Linux (.local), sur lequel
+    # personne ne tombe. Aucun dossier dont l'utilisateur a besoin ne doit se
+    # cacher : un lien visible suffit, sans rien deplacer — le prefixe reste ou
+    # Proton l'attend. Pose seulement si le prefixe existe (il ne se cree qu'au
+    # premier .exe) ; ne remplace jamais un VRAI dossier du meme nom.
+    c_windows="${XDG_DATA_HOME:-$HOME/.local/share}/S/windows/drive_c"
+    if [ -d "$c_windows" ] && { [ -L "$HOME/Disque C" ] || [ ! -e "$HOME/Disque C" ]; }; then
+        ln -sfn "$c_windows" "$HOME/Disque C"
+    fi
 ) >/dev/null 2>&1 &
 
 # --------------------------------------------------------------------------

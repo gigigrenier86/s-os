@@ -8,6 +8,88 @@ Interface en français.
 
 ---
 
+## 2026-11-05 — premier jour sur Fedora 45 : Steam, un lien muet, des dossiers cachés, et RecompLauncher natif
+
+Machine **bootée sur Fedora 45** (noyau `7.2.15-ogc1.1.fc45`). Quatre demandes de l'utilisateur, toutes parties de l'usage.
+**Rien de ce qui suit n'est commité ni dans l'image** à l'heure où j'écris : tout tourne depuis le dépôt ou
+directement sur la session.
+
+### 1. « Steam s'ouvre seul » : la mémoire était saturée, pas la manette
+
+Mesuré le soir même : 15 Go utilisés sur 15, 289 Mo disponibles, swap zram plein (7,7 Go), et le noyau avait tué
+un `steamwebhelper` (OOM, 20:38). Steam relançait son interface en boucle (`startcount` de 3 à 6 en deux minutes),
+et la fenêtre réapparaissait à chaque relance. Premier blocage de sa boucle principale à 20:36, **deux minutes
+après le lancement de RecompLauncher** (20:34) — dont la version Windows (WebView2 + Wine) pesait **3,5 Go**.
+Le reste : VS Code 1,9 Go, Lineage II + `SMB1R.exe` + Purple 1,6 Go.
+
+**Non établi :** que la manette soit pour quoi que ce soit dans l'ouverture. Elle s'est connectée à 20:33 et
+Steam signale « Permission denied » sur `/dev/hidraw16` (la règle udev de `steam-devices` ne couvre que
+l'Elite 2, `045E:0B22` ; la Series X en Bluetooth est `045E:0B13`), mais il se rabat alors sur SDL — pas démontré
+comme cause. La mémoire s'est libérée ensuite (6,4 Go utilisés) et Steam s'est calmé.
+Matériel relevé : ThinkCentre M720q, i5-8400T, **16 Go** (2×8 Go @ 2133, relevé du 2026-08-19, non revérifié
+sans root), UHD 630. Conseil donné : 32 Go de SO-DIMM DDR4-2666 est l'achat qui règle ce qu'on a mesuré.
+
+### 2. Les liens ouverts depuis PURPLE ne faisaient « rien » : `KDE_SESSION_VERSION` vide
+
+`xdg-open` (branche KDE) n'appelle `kde-open` que si `KDE_SESSION_VERSION` vaut 4/5/6 ; vide — Plasma, qui la
+posait, ne tourne plus — il retombe sur `kfmclient exec`, **absent de Fedora 45**, et rend quand même 0.
+Succès silencieux. Mesuré dans les deux sens (sans la variable : rien ne s'ouvre ; avec `=6` : la page s'ouvre
+dans Vivaldi), puis par le vrai chemin Wine (`wine cmd /c start https://…` → page Debian dans Vivaldi).
+Correctif : `s-session` pose `KDE_SESSION_VERSION=6`, `s-coquille` la transmet à systemd (donc au wineserver),
+`40-coutures.sh` fait échouer la construction si l'un manque ou si `kde-open` disparaît.
+**Relais temporaire hors dépôt : `~/.local/bin/kfmclient` → `kde-open`** (à supprimer quand l'image corrigée
+sera bootée). Le même défaut faisait écrire `xdg-mime : nombre entier attendu`. **Jamais cliqué depuis PURPLE
+lui-même.**
+
+### 3. « Aucun dossier caché » — demande de l'utilisateur, après SuperMarioWorldRemastered
+
+Le jeu demande une ROM dans `C:/users/steamuser/AppData/Roaming/…`, qui vit sous `~/.local/share/S/windows/`
+(point-caché par la convention Linux). Trois gestes : la ROM de l'utilisateur (déjà dans Téléchargements, SHA-1
+`6b47bb75…` = SMW USA d'origine) copiée en `baserom.sfc` ; un lien visible **`~/Disque C`** →
+`~/.local/share/S/windows/drive_c`, recréé à chaque session par `s-coquille` (ne remplace jamais un vrai
+dossier) ; et **tous les dossiers cachés montrés** : `GlobalViewProps=true` + `HiddenFilesShown=true` pour
+Dolphin, `Show hidden files=true` pour les boîtes Ouvrir/Enregistrer. Posé dans la session ; par défaut de
+l'image dans `38-partage-windows.sh` (un compte *déjà créé* sur une autre machine ne recevrait que le réglage
+des boîtes de dialogue — la vue Dolphin vit dans le dossier personnel). **Conséquence acceptée :** les dossiers
+qu'il ne faut pas toucher (`.local/share/S/windows`…) sont maintenant visibles, pas protégés.
+
+### 4. RecompLauncher natif : `54-recomplauncher.sh`
+
+**L'amont publie une vraie version Linux** (`elripalda/RecompLauncher`, GPL-3.0, Rust ; AppImage 88 Mo et `.deb`
+9,8 Mo). Le `.deb` ne porte que `/usr/bin/recomplauncher` (18 Mo), un `.desktop` et des icônes — tout dans
+`/usr` ; ses bibliothèques (webkit2gtk4.1, gtk3, appindicator) sont **déjà dans la base**. Le script épingle
+`0.90.0-beta.17`, vérifie son SHA-256 (`a878345d…`, identique à celui que GitHub publie), refuse tout fichier
+hors `/usr`, vérifie les bibliothèques par `readelf` (jamais `ldd` sur un binaire tiers), et pose **son propre**
+lanceur (le `.deb` n'est pas exclu par hasard : sans l'exclusion, deux entrées « RecompLauncher »).
+**Trois défauts trouvés en testant, aucun en relisant.** Dans un dossier jetable : les noms de l'archive n'ont
+**pas de préfixe `./`** — la garde « hors /usr » se serait déclenchée à tort sur l'entrée `usr`, et l'exclusion du
+lanceur du `.deb` n'aurait rien exclu (deux entrées au menu). Puis, en rejouant le script dans un conteneur
+`fedora:45` (`podman run --security-opt label=disable`, webkit2gtk4.1/gtk3/appindicator posés) : **`ldconfig -p |
+grep -q` sous `pipefail` fait mourir `ldconfig` en SIGPIPE** (code 141) et concluait « libstdc++.so.6 manquante » —
+le défaut du 2026-09-21, retrouvé ici ; la sortie est lue dans une variable. Rejoué : le script passe de bout en
+bout, huit vérifications de bibliothèques d'affilée toutes résolues. Garde-fou final dans `40-coutures.sh`.
+**Version épinglée : une bêta par jour (beta.15, .16, .17 en deux jours)** ; pour monter, changer `VERSION` et
+`SHA256` ensemble (empreinte dans l'API des releases, champ `digest`).
+
+**Ce qui n'est PAS prouvé, et c'est l'essentiel :**
+- **Le binaire n'a jamais été lancé.** Mon essai (HOME jetable) a été refusé par le système de permissions
+  (code tiers téléchargé) ; je ne l'ai pas contourné. Aucune fenêtre n'a été vue, la mémoire du lanceur natif
+  n'est pas mesurée : « moins de 3,5 Go » est une attente, pas un chiffre.
+- **La construction complète n'a pas tourné en local** : le script `54` seul, oui (conteneur `fedora:45`, voir
+  plus haut), plus syntaxe et balayage par motif (38 verts). Le verdict de la CI est consigné dans le commit
+  suivant ou à la fin de cette section.
+- **Les recomps eux-mêmes** (jeux téléchargés par le lanceur, Proton pour les portages Windows) ne sont pas
+  essayés en natif.
+- **La fusion des deux RecompLauncher est faite côté menu seulement.** Demande : « fusionne au plus efficace et
+  fonctionnel ». `s-menu-windows` (`poser_lanceur`) nomme désormais la version Windows **« RecompLauncher
+  (Windows) »** quand `/usr/bin/recomplauncher` existe — une seule entrée « RecompLauncher », la native. Testé
+  par extraction de la fonction avec doublures, dans les deux sens (natif présent : renommé ; absent : nom
+  inchangé) ; garde-fou dans `40-coutures.sh`. L'entrée existante de cette machine
+  (`s-windows-2e8b387b2270.desktop`) est renommée au prochain passage du moissonneur, c'est-à-dire au prochain
+  `.exe` lancé par `s-ouvrir-exe`. **Rien n'est supprimé** : la version Windows, sa bibliothèque (`C:\Recomp
+  Library` : six `.exe`) et ses sauvegardes sont intactes, parce que **rien ne prouve que le natif les lance**
+  (jamais vu tourner). La migration des jeux reste à décider une fois le natif éprouvé.
+
 ## 2026-11-04 — n8n retiré, et la base Bazzite est passée à Fedora 45 pendant la nuit
 
 Demande de l'utilisateur : « retire n8n ». Il l'a demandée après trois constructions échouées de suite, toutes

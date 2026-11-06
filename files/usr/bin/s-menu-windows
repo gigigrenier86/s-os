@@ -94,6 +94,17 @@ poser_lanceur() {
     cible="$S_LANCEURS/$ident.desktop"
     [ -f "$cible" ] && deja=1
 
+    # RECOMPLAUNCHER EXISTE EN NATIF (build_files/54-recomplauncher.sh) : une seule
+    # entree « RecompLauncher » dans le menu, et c'est la native — pas de Wine, pas
+    # de WebView2, des Go de memoire en moins (3,5 Go mesures pour la version
+    # Windows le 2026-11-05). La version Windows n'est PAS supprimee : ses six jeux
+    # (C:\Recomp Library) sont des .exe que le lanceur natif n'a pas ete vu lancer.
+    # Elle reste donc au menu sous un nom qui dit ce qu'elle est, jusqu'a ce que le
+    # natif ait fait ses preuves sur ces jeux.
+    if [ -x /usr/bin/recomplauncher ] && [[ "${exe,,}" == */recomplauncher.exe ]]; then
+        nom="RecompLauncher (Windows)"
+    fi
+
     # L'ICONE DU PROGRAMME, SORTIE DU PROGRAMME LUI-MEME.
     #
     # Demande de l'utilisateur le 2026-08-26 : « j'aimerais ca si les programmes

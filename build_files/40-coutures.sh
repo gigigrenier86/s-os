@@ -276,7 +276,26 @@ grep -q 'BindsTo=graphical-session.target' /usr/lib/systemd/user/s-session.targe
     || { echo "ECHEC : s-session.target ne tire pas graphical-session.target." >&2; exit 1; }
 grep -q 's-session.target' /usr/bin/s-coquille \
     || { echo "ECHEC : la coquille ne leve pas la session graphique." >&2; exit 1; }
+grep -qF 'KDE_SESSION_VERSION' /usr/bin/s-session \
+    || { echo "ECHEC : s-session ne pose pas KDE_SESSION_VERSION — xdg-open ouvrirait les liens des programmes Windows dans le vide (kfmclient absent)." >&2; exit 1; }
+grep -qF 'KDE_SESSION_VERSION' /usr/bin/s-coquille \
+    || { echo "ECHEC : s-coquille ne transmet pas KDE_SESSION_VERSION a systemd." >&2; exit 1; }
+test -x /usr/bin/kde-open \
+    || { echo "ECHEC : kde-open absent — c'est lui qu'xdg-open appelle avec KDE_SESSION_VERSION=6." >&2; exit 1; }
 echo "  session systemd : s-session.target -> graphical-session.target -> portail XDG"
+
+# RecompLauncher natif (54-recomplauncher.sh) : posé AVANT les scripts qui effacent
+# ou masquent des lanceurs (37, 53) — on verifie ici, en fin de construction, qu'aucun
+# ne l'a emporte, et que son lanceur n'est pas dedouble par celui du .deb.
+test -x /usr/bin/recomplauncher \
+    || { echo "ECHEC : /usr/bin/recomplauncher absent en fin de construction." >&2; exit 1; }
+test -s /usr/share/applications/recomplauncher.desktop \
+    || { echo "ECHEC : lanceur de RecompLauncher absent en fin de construction." >&2; exit 1; }
+test ! -e /usr/share/applications/RecompLauncher.desktop \
+    || { echo "ECHEC : deux lanceurs RecompLauncher (celui du .deb n'aurait pas du etre pose)." >&2; exit 1; }
+grep -qF 'RecompLauncher (Windows)' /usr/bin/s-menu-windows \
+    || { echo "ECHEC : s-menu-windows ne distingue plus RecompLauncher (Windows) du natif — deux entrees identiques au menu." >&2; exit 1; }
+echo "  RecompLauncher  : natif, un seul lanceur"
 
 # LE MOTIF A DU SUIVRE L'APPEL, ET NE PAS L'AVOIR FAIT A COUTE UNE CONSTRUCTION.
 #

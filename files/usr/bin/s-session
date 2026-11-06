@@ -24,6 +24,15 @@ set -uo pipefail
 # Mettre « S » ici ne changerait rien de visible et casserait les deux. Le nom
 # que l'utilisateur voit vient d'os-release et du fichier de session, pas d'ici.
 export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-KDE}"
+
+# KDE_SESSION_VERSION, ET C'EST CE QUI FAISAIT « RIEN » QUAND PURPLE OUVRAIT UN LIEN
+# (mesure du 2026-11-04). Plasma posait cette variable ; sans Plasma, elle est
+# vide, et xdg-open (branche KDE) retombe sur `kfmclient exec` — absent de Fedora
+# 45 — puis rend quand meme le code 0. Un lien clique dans un programme Windows
+# (winebrowser -> xdg-open) ne s'ouvrait donc nulle part, sans une erreur.
+# Avec 6, xdg-open appelle `kde-open`, qui existe. Verifie : sans la variable,
+# aucun onglet ; avec, la page s'ouvre dans S Web.
+export KDE_SESSION_VERSION="${KDE_SESSION_VERSION:-6}"
 export XDG_SESSION_DESKTOP=S
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland;xcb}"
 export MOZ_ENABLE_WAYLAND=1

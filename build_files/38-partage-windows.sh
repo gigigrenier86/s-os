@@ -54,4 +54,30 @@ echo "  service       : s-grand-disque.service active"
 ln -sfn /var/mnt/disque /etc/skel/Disque
 echo "  /etc/skel     : le lien Disque sera pose pour chaque compte cree desormais"
 
+# --- Aucun dossier cache (demande du 2026-11-05) -----------------------------
+# « S ne cache AUCUN dossier ». Un programme Windows envoie l'utilisateur dans
+# C:/users/steamuser/AppData/..., qui vit sous ~/.local/share/ — cache par la
+# convention Linux. Le lien « Disque C » (s-coquille) montre ce dossier-la ; ceci
+# montre TOUT le reste : le gestionnaire de fichiers et les boites Ouvrir /
+# Enregistrer de toutes les applications KDE affichent les dossiers caches.
+#
+# Trois endroits, parce qu'aucun ne couvre les deux autres :
+#   - /etc/xdg/kdeglobals : boites Ouvrir/Enregistrer ; un compte qui a deja son
+#     propre kdeglobals garde son choix (le fichier du compte l'emporte) ;
+#   - /etc/xdg/dolphinrc : UNE vue commune a tous les dossiers — sans elle chaque
+#     dossier garde son reglage a lui et « montrer les caches » ne tient nulle
+#     part ;
+#   - /etc/skel : le reglage de cette vue commune vit dans le dossier PERSONNEL
+#     (~/.local/share/dolphin/...), donc seul un compte cree apres ceci le recoit.
+kwriteconfig6 --file /etc/xdg/kdeglobals --group "KFileDialog Settings" --key "Show hidden files" true
+kwriteconfig6 --file /etc/xdg/dolphinrc --group General --key GlobalViewProps true
+install -d /etc/skel/.local/share/dolphin/view_properties/global
+kwriteconfig6 --file /etc/skel/.local/share/dolphin/view_properties/global/.directory \
+    --group Settings --key HiddenFilesShown true
+grep -qx 'Show hidden files=true' /etc/xdg/kdeglobals \
+    && grep -qx 'GlobalViewProps=true' /etc/xdg/dolphinrc \
+    && grep -qx 'HiddenFilesShown=true' /etc/skel/.local/share/dolphin/view_properties/global/.directory \
+    || { echo "ECHEC : les dossiers caches ne sont pas montres par defaut." >&2; exit 1; }
+echo "  dossiers caches : montres par defaut (dialogues, Dolphin, nouveaux comptes)"
+
 echo "=== 38-partage-windows : pose ==="

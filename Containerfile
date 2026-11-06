@@ -77,6 +77,13 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/29-iptv.sh
 
+# RecompLauncher natif — un binaire de 18 Mo (WebKitGTK, deja dans l image), version
+# epinglee et verifiee par SHA-256. Remplace la version Windows sous Wine (3,5 Go de RAM).
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/build_files/54-recomplauncher.sh
+
 # L archive de Proton (468 Mo) — gros et stable
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5,sharing=locked \
