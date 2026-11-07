@@ -149,6 +149,33 @@ if [ "${1:-}" = "--amorcer" ]; then
     "$WINELOADER" cmd /c exit >/dev/null 2>&1
     _code=$?
     echo "session Windows amorcee en $(( ($(date +%s%N) - _debut) / 1000000 )) ms (code $_code)"
+
+    # LE PILOTE DES MANETTES (winebus) NE DEMARRE PAS TOUJOURS TOUT SEUL.
+    # Releve le 2026-11-06 : serveur resident ne a l'ouverture de session, manette
+    # Xbox Bluetooth connectee et saine pour le noyau (evtest recoit les boutons),
+    # mais `sc query winebus` disait STOPPED et AUCUN processus Wine n'avait la
+    # manette ouverte — RecompLauncher ne la voyait pas. Un serveur neuf dans un
+    # prefixe jetable, lui, demarrait winebus et ouvrait event27 ; `sc start
+    # winebus` sur le serveur resident a suffi. Cause du non-demarrage : NON
+    # ETABLIE (aucun message au journal, aucun plantage). On laisse d'abord a
+    # plugplay le temps de le lancer lui-meme, puis on le demarre s'il manque.
+    # La sortie de sc est lue dans une VARIABLE (« sc | grep -q » sous pipefail
+    # peut mourir en SIGPIPE) ; un echec ici ne doit jamais faire echouer l'unite.
+    _etat=""
+    for _i in $(seq 20); do
+        _etat="$("$WINELOADER" sc query winebus 2>/dev/null || true)"
+        [[ "$_etat" == *RUNNING* ]] && break
+        sleep 0.5
+    done
+    if [[ "$_etat" != *RUNNING* ]]; then
+        "$WINELOADER" sc start winebus >/dev/null 2>&1 || true
+        _etat="$("$WINELOADER" sc query winebus 2>/dev/null || true)"
+        if [[ "$_etat" == *RUNNING* ]]; then
+            echo "winebus (manettes) etait arrete : demarre par l'amorce"
+        else
+            echo "winebus (manettes) arrete et impossible a demarrer — les manettes ne seront pas vues par Windows" >&2
+        fi
+    fi
     exit 0
 fi
 

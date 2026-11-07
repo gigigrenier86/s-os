@@ -361,6 +361,11 @@ systemctl --global enable s-windows.service
 test -L /etc/systemd/user/s-session.target.wants/s-windows.service \
     || { echo "ECHEC : s-windows.service n'est pas tire par s-session.target." >&2; exit 1; }
 echo "  s-windows.service : resident, tire par s-session.target"
+# winebus (le pilote des manettes) ne demarre pas toujours tout seul dans le
+# serveur resident (releve du 2026-11-06) : l'amorce doit le demarrer s'il manque.
+grep -qF 'sc start winebus' /usr/bin/s-windows \
+    || { echo "ECHEC : s-windows --amorcer ne demarre plus winebus — les manettes ne seraient plus vues par Windows." >&2; exit 1; }
+echo "  s-windows --amorcer : demarre winebus (manettes) s'il est arrete"
 
 # LES TROIS INVARIANTS DU 2026-09-18 — chacun est une panne muette qui a ete
 # vue sur la machine, et qu'aucune construction n'aurait attrapee.

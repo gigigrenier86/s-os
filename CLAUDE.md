@@ -8,6 +8,29 @@ Interface en français.
 
 ---
 
+## 2026-11-06 — la manette Xbox muette dans RecompLauncher : `winebus` arrêté dans le Windows résident
+
+*Heures locales (EST). Demande : « ma manette xbox en bluetooth ne fonctionne plus, elle est connectée mais elle ne fait plus rien dans recomplauncher ».*
+
+**État au moment du relevé (20:06) :** la machine a bien redémarré sur `44.20261106.a62d799` (digest `66f164cf…`, démarrage 11-05 22:22:49, session ouverte 11-06 01:23:37). C'est la **version Windows** de RecompLauncher qui tournait (lancée 20:02) ; le natif n'a toujours pas été lancé. Le reste de la checklist du §7 étape 3 de la section du 11-05 **n'a pas été exécuté**.
+
+**Mesuré :**
+- Bluetooth : manette appairée, connectée (`Xbox Wireless Controller`, 045E:0B13, batterie 39 %). Le noyau reçoit les boutons (`evtest /dev/input/event27` : `ABS_Z`, `ABS_RZ`, croix) → **la manette et le noyau sont sains**.
+- Dans le Windows de S (serveur `wineserver` né à 01:23:38) : `wine sc query winebus` = **STOPPED**, un seul `winedevice.exe`, **aucun processus Wine n'avait `event27` ni un `hidraw` ouvert**. Sans `winebus`, aucun programme Windows ne voit de manette.
+- Témoin : un serveur Wine neuf dans un préfixe jetable (même Proton, GE-Proton11-12) démarre `winebus` et ouvre `event27`.
+- Réparation à chaud : `wine sc start winebus` → `RUNNING`, `winedevice.exe` tient `event27`. RecompLauncher n'a pas été fermé.
+- `/dev/hidraw7` de la manette est `root` seul (la règle udev `60-steam-input.rules` ne couvre que 045E:0B22) : sans effet pour Wine, qui passe par `event27`, mais c'est ce qui empêche Steam d'ouvrir la manette (voir §1b du 11-05).
+
+**Dans le dépôt (non encore construit ni déployé) :** `s-windows --amorcer` attend jusqu'à 10 s que Wine démarre `winebus` seul, sinon fait `sc start winebus` et l'écrit au journal ; garde-fou dans `40-coutures.sh` (`grep -qF 'sc start winebus'`). Éprouvé : `winebus` déjà démarré → ne fait rien ; hôte `winedevice` tué par PID (SIGKILL, SIGTERM est ignoré ; `sc stop winebus` est refusé) → `STOPPED`, puis l'amorce le relance (`RUNNING`).
+
+**Ce qui n'est PAS établi :**
+- **Pourquoi `winebus` ne démarre pas toujours seul** : aucun message au journal, aucun plantage enregistré (`coredumpctl` vide). Le correctif traite le symptôme, pas la cause. Ça peut aussi ne s'être produit qu'une fois.
+- **Que la manette réponde dans RecompLauncher** : la manette s'est éteinte pendant mes tests (`event27` disparu) ; la réaction dans la fenêtre n'a pas été vue. Une page web ne voit une manette qu'au premier appui.
+- **Pourquoi elle marchait avant** : aucune preuve qu'elle marchait avec cette image ; cause d'un éventuel changement non cherchée.
+- Tant que l'image n'est pas reconstruite, après chaque connexion : `wine sc start winebus` (avec l'environnement de `s_windows_charger`).
+
+---
+
 ## 2026-11-05 — premier jour complet sur Fedora 45 : ce qui s'est passé, ce qui est dans le dépôt, ce qui n'y est PAS
 
 *Écrit pour être lu sans avoir vu la conversation (Cline compris — qui ne voit pas les images : celles qui ont été
@@ -21,8 +44,9 @@ ne l'est pas est dit tel quel.*
    Elle a **redémarré une seconde fois le 2026-11-05 vers 20:47**, probablement de façon brutale (§1).
 2. **Le commit `a62d799`** (poussé à 21:57) contient tout le travail du jour. **La CI `42153554822` est VERTE** (13 étapes,
    11 min 20 s, finie à 22:08:51) : l'image est **publiée, signée et vérifiée**, et le binaire RecompLauncher est bien dans l'image
-   publiée (détail : « VERDICT CI », fin de §4). **Rien n'est déployé** : aucun déploiement en file (`rpm-ostree status`, 22:00) ;
-   la machine tourne sans ces changements ; la mise à jour tirera ≈ 4,2 Go.
+   publiée (détail : « VERDICT CI », fin de §4). **Déployé en file à 22:18** (§7 étape 2) et **redémarrage lancé vers 22:21** à la demande de
+   l'utilisateur : tout ce qui précède dans cette section décrit **l'ancien démarrage** (`e9337c0`) ; la première chose à faire au démarrage suivant
+   est la checklist du §7 étape 3.
 3. **La session vivante a été modifiée à la main, hors dépôt** (§6) : un relais `~/.local/bin/kfmclient` à retirer plus
    tard, un lien `~/Disque C`, trois réglages d'affichage, une ROM copiée.
 4. **Le binaire RecompLauncher natif n'a jamais été lancé**, par personne. Ce qui est prouvé s'arrête à : il est dans l'image
@@ -67,6 +91,8 @@ ne l'est pas est dit tel quel.*
 | 11-05 ~21:12 | RecompLauncher (Windows) relancé ; 21:32 SuperMarioWorldRemastered s'y ouvre (§3) |
 | 11-05 21:57 | commit `a62d799` poussé, CI lancée |
 | 11-05 22:08:51 | CI verte ; image publiée et signée (§4) |
+| 11-05 22:13–22:18 | `pkexec bootc upgrade` : mise à jour mise en file (§7 étape 2) |
+| 11-05 ~22:21 | redémarrage demandé (« quand c'est prêt, on redémarre ») et programmé, délai 45 s |
 
 ### 1. Steam, la mémoire et le matériel
 
@@ -257,7 +283,7 @@ Bruit relevé au boot −1 (**non comparé** à un démarrage Fedora 44) : `fail
 | réglages d'affichage | `~/.config/dolphinrc` (`[General] GlobalViewProps=true`), `~/.local/share/dolphin/view_properties/global/.directory` (`HiddenFilesShown=true`), `~/.config/kdeglobals` (`[KFileDialog Settings] Show hidden files=true`) | dossiers cachés visibles |
 | ROM copiée | `…/AppData/Roaming/SuperMarioWorldRemastered/baserom.sfc` | l'original reste dans `~/Téléchargements` |
 
-Rien n'a été fermé, tué ni supprimé par l'assistant. Fichiers jetables (archive `.deb`, extractions) : dans le scratchpad de la session, hors dépôt.
+Rien n'a été fermé, tué ni supprimé par l'assistant (hors l'élagage automatique de `bootc upgrade`, §7 étape 2). Fichiers jetables (archive `.deb`, extractions) : dans le scratchpad de la session, hors dépôt.
 L'image de conteneur `fedora:45` (198 Mo) était déjà dans le stockage podman de l'utilisateur.
 
 ### 7. Ce qu'il reste à faire, dans l'ordre
@@ -265,14 +291,31 @@ L'image de conteneur `fedora:45` (198 Mo) était déjà dans le stockage podman 
 1. ~~Attendre la CI~~ **Fait : verte, publiée, signée, contenu vérifié** (voir « VERDICT CI », fin de §4). *Pour une prochaine CI rouge :* `gh run view <id> --log-failed`
    (avec le `gh` de `~/.local/bin`), puis rejouer le script fautif dans un conteneur `fedora:45` (3 minutes contre 15 par construction CI, méthode du 11-04).
    **Ne pas `podman pull` l'image S entière** (7,8 Go pour 16 Go libres) : lire ce qu'une image publiée contient par ses petites couches (méthode du verdict).
-2. **Déployer : `pkexec bootc upgrade` avec l'utilisateur devant l'écran** (polkit attend un humain, voir 2026-09-20), puis `rpm-ostree status` (le
-   digest doit être `sha256:66f164cf…`), puis redémarrer **avec son accord** (un jeu peut être ouvert). Vérifier l'espace avant (`df -h /var` : 16 Go libres pour
-   ≈ 4,2 Go à tirer). **Conséquence à lui dire :** ostree ne garde que deux déploiements — après ce redémarrage le repli Fedora 44 (`27ddf78`) sera retiré et le
-   repli deviendra `e9337c0` (Fedora 45) ; *comportement ostree habituel, non vérifié ici*.
-3. **Après le démarrage** : `KDE_SESSION_VERSION=6` dans `/proc/<s-constellation>/environ` et `systemctl --user show-environment` ; supprimer
-   `~/.local/bin/kfmclient` ; faire cliquer un lien dans PURPLE ; vérifier `~/Disque C`, l'affichage des cachés dans Dolphin, les deux entrées de menu
-   (« RecompLauncher » et « RecompLauncher (Windows) ») ; **lancer le RecompLauncher natif et mesurer** : `ps -eo rss,args | awk '/recomplauncher|WebKit/ &&
-   !/awk/ {s+=$1} END {print s/1024 " Mo"}'` contre `… '/msedgewebview2|recomplauncher\.exe/…'` pour la version Windows (2,9–3,5 Go) ; voir s'il lance les six jeux.
+2. ~~Déployer~~ **Fait le 11-05 de 22:13 à 22:18** (`timeout --foreground 1500 pkexec /usr/bin/bootc upgrade`, mot de passe saisi par l'utilisateur) :
+   `layers already present: 215; layers needed: 72 (4.2 GB)`, `Deploying...done (25 seconds)`, `Pruned images: 0 (layers: 30, objsize: 2.2 GB)` (**bootc a élagué
+   2,2 Go d'objets devenus inutiles** : comportement normal), `Queued for next boot`, digest `sha256:66f164cf…`, version `44.20261106.a62d799` ; espace ensuite :
+   15 Go libres (94 %). **Diff de paquets** (`rpm-ostree db diff`) : 39 mis à jour, 4 « rétrogradés » (simples changements de nommage de `davs2-libs` / `xavs2-libs`) ;
+   **noyau inchangé** (`7.2.15-ogc1.1.fc45`) ; **Proton inchangé** (`GE-Proton11-12`) donc pas de dépliage de 1,6 Go au premier `.exe` ; notables : KWin 6.8.2-2 → -3,
+   Vivaldi 8.2.4133 → 8.3.4191, VS Code 1.144.1 → 1.145.1, bazzite-updater 1.1.1 → 1.2.0, gdb 17 → 18, yt-dlp. **Déploiement en file comparé au dépôt**
+   (`/ostree/deploy/default/deploy/a9748308….0`) : `s-session`, `s-coquille`, `s-menu-windows` **identiques** ; `/usr/bin/recomplauncher` 18 438 752 octets ;
+   `KDE_SESSION_VERSION` posé dans `s-session` et `s-coquille` ; `/usr/bin/kde-open` présent ; « dossiers cachés » dans `/usr/etc/xdg/kdeglobals` et `dolphinrc` ;
+   `Disque C` dans `s-coquille` ; pas de lanceur `RecompLauncher.desktop` du `.deb`. *Observation mineure :* `/etc/skel/.local/share/dolphin/view_properties/global/.directory`
+   est en `-rw-------` root (`kwriteconfig6`) alors que le reste du skel est en 0644 — **sans effet** pour un nouveau compte (il en devient propriétaire) ; à passer en 0644 au
+   prochain commit de code. **Repli :** ostree ne garde que deux déploiements — après ce redémarrage le repli Fedora 44 (`27ddf78`) sera retiré et le repli deviendra
+   `e9337c0` (Fedora 45) ; *comportement ostree habituel, non vérifié ici*. Si la nouvelle image ne démarre pas : choisir l'entrée précédente dans le menu de démarrage, ou
+   `bootc rollback` depuis un démarrage qui marche (greenboot peut aussi revenir seul en arrière).
+3. **PREMIÈRE CHOSE À FAIRE AU PROCHAIN DÉMARRAGE** (par la première session qui s'ouvre, Claude Code ou Cline ; consigner les résultats dans une nouvelle section) :
+   1. **L'image bootée est la bonne** : `rpm-ostree status` → `●` sur `44.20261106.a62d799`, digest `66f164cf…` ; `uname -r` = `7.2.15-ogc1.1.fc45` ; `uptime -s` (pour dater ce démarrage).
+   2. **Les quatre témoins du 11-04** (§5) : `grep -c qmlc /proc/$(pgrep -x s-constellation)/maps` = 0 ; `systemctl list-units --state=activating,auto-restart,failed` vide, **système
+      et `--user`** ; `ps -o cputimes,etimes -p $(pgrep -x s-constellation)` ; `journalctl -b -p 3 | head`. Puis Android (`systemctl is-active s-android.service`), `s-windows.service`, fcitx5.
+   3. **Les liens de PURPLE** : `tr '\0' '\n' < /proc/$(pgrep -x s-constellation)/environ | grep KDE_SESSION_VERSION` doit donner `=6`, idem `systemctl --user show-environment`.
+      **Alors seulement** supprimer le relais `~/.local/bin/kfmclient`, puis `xdg-open https://www.debian.org/` doit encore ouvrir Vivaldi ; puis faire cliquer un lien dans PURPLE.
+   4. **`~/Disque C`** existe (recréé par `s-coquille`) ; Dolphin montre les dossiers cachés ; menu : l'entrée native « RecompLauncher » et l'ancienne (renommée « RecompLauncher
+      (Windows) » seulement après le prochain `.exe` lancé par `s-ouvrir-exe`).
+   5. **Première exécution du RecompLauncher natif — avec l'accord de l'utilisateur** : le lancer depuis le menu, puis mesurer :
+      `ps -eo rss,args | awk '/recomplauncher|WebKit/ && !/awk/ {s+=$1} END {print s/1024 " Mo"}'`, à comparer à 2,9–3,5 Go (version Windows, même formule avec `/msedgewebview2|recomplauncher\.exe/`).
+      Noter : la fenêtre s'ouvre-t-elle ? où range-t-il ses données (`ls ~/.local/share/ | grep -i recomp`) ? lance-t-il les six jeux ? Rien d'autre à ce stade : **ne pas migrer ni supprimer la version Windows**.
+   6. Steam : observer s'il se relance encore (`journalctl --user -b | grep -c 'exec ./steamwebhelper'`, `free -h`, `zramctl`) avant de conclure quoi que ce soit.
 4. **Décisions de l'utilisateur en attente** : migrer (ou non) les six jeux vers le natif ; « tout visible » contre « cacher seulement l'intouchable » ;
    fcitx5 (le démarrer ? en a-t-il besoin ?) ; ménage du disque (les trois anciens Proton ~4,8 Go) ; RAM 16 → 32 Go ; Seagate branchée ou non.
 5. **Si Steam recommence à se relancer** : relever d'abord `uptime -s`, `free -h`, `zramctl`, `journalctl -k | grep -i oom`, **puis** la liste des gros
