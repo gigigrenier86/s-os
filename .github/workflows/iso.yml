@@ -204,8 +204,14 @@ jobs:
             -c 'tar -cf - -C /etc/pki rpm-gpg' | sudo tar -xf - -C /mnt/gpg
           echo "cles extraites : $(sudo ls -1 /mnt/gpg/rpm-gpg | wc -l)"
           sudo ls -1 /mnt/gpg/rpm-gpg | grep -c terra | xargs -I{} echo "  dont terra : {}"
-          test "$(sudo ls -1 /mnt/gpg/rpm-gpg | wc -l)" -gt 100 \
+          # Seuil releve le 2026-11-13 : la base Fedora 45 porte 52 cles, la
+          # Fedora 44 en portait plus de 100 (l'ancien seuil, devenu faux sans
+          # que l'image soit en cause). Ce qui compte est que des cles soient la
+          # ET qu'une cle terra en fasse partie — c'est elle que bib cherchait.
+          test "$(sudo ls -1 /mnt/gpg/rpm-gpg | wc -l)" -gt 20 \
             || { echo "ECHEC : trop peu de cles extraites." >&2; exit 1; }
+          sudo ls -1 /mnt/gpg/rpm-gpg | grep -q terra \
+            || { echo "ECHEC : aucune cle terra extraite." >&2; exit 1; }
 
       - name: Construire l'ISO
         # --rootfs ext4 : c'est le systeme de fichiers avec lequel S a REELLEMENT
