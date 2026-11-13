@@ -17,14 +17,20 @@
 # LE REMEDE, releve chez d'autres projets confrontes au meme probleme : relier
 # chaque fichier du dossier de l'amont sous le MEME NOM. dnf5 donne la priorite
 # a /etc sur /usr pour un meme nom de fichier — il n'y a donc pas de depot
-# declare deux fois. On ne recopie pas : un lien suit l'amont quand il change.
-# On n'ecrase jamais un fichier deja present.
+# declare deux fois. On n'ecrase jamais un fichier deja present.
+#
+# COPIE ET NON LIEN, DEPUIS LE 2026-11-13 (deuxieme essai de l'ISO). Un lien
+# absolu vers /usr/share/dnf5/repos.d est resolu par bootc-image-builder dans
+# SON systeme de fichiers, ou ce dossier n'existe pas : le lien y est casse et
+# l'erreur etait identique (« missing packages: coreutils... »). Un fichier
+# reel se lit partout. Contrepartie : il ne suit plus l'amont s'il change —
+# acceptable, c'est reconstruit chaque nuit.
 set -euo pipefail
 
 SRC=/usr/share/dnf5/repos.d
 DST=/etc/yum.repos.d
 
-echo "=== 44-depots-fedora : depots de $SRC absents de $DST ==="
+echo "=== 44-depots-fedora : depots de $SRC absents de $DST (copies) ==="
 
 if [ ! -d "$SRC" ]; then
     echo "  $SRC absent : rien a relier (base anterieure a Fedora 45)."
@@ -41,16 +47,16 @@ for f in "$SRC"/*.repo; do
         echo "  deja la : $nom"
         continue
     fi
-    ln -s "$f" "$DST/$nom"
-    echo "  relie   : $nom"
+    cp "$f" "$DST/$nom"
+    echo "  copie   : $nom"
     relies=$((relies + 1))
 done
-echo "  fichiers relies : $relies"
+echo "  fichiers copies : $relies"
 
 # L'assertion : le depot Fedora lui-meme doit etre visible, sinon cette etape
 # n'a servi a rien et l'ISO echouera de nouveau — vingt minutes plus tard.
 if [ -e "$SRC/fedora.repo" ]; then
-    [ -e "$DST/fedora.repo" ] \
-        || { echo "ECHEC : fedora.repo n'est pas visible dans $DST." >&2; exit 1; }
+    [ -f "$DST/fedora.repo" ] && [ ! -L "$DST/fedora.repo" ] \
+        || { echo "ECHEC : fedora.repo n'est pas un fichier reel dans $DST." >&2; exit 1; }
 fi
 echo "=== 44-depots-fedora : fait ==="
