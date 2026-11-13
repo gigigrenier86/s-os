@@ -202,6 +202,13 @@ jobs:
           sudo mkdir -p /mnt/gpg
           sudo podman run --rm --entrypoint /bin/bash "${IMAGE}:${{ inputs.tag }}" \
             -c 'tar -cf - -C /etc/pki rpm-gpg' | sudo tar -xf - -C /mnt/gpg
+          # Fedora 45 : les depots Fedora declarent leurs cles sous
+          # /usr/share/pki/rpm-gpg (44-depots-fedora.sh les relie dans l'image) ;
+          # meme piege que terra, meme remede.
+          sudo mkdir -p /mnt/gpg2
+          sudo podman run --rm --entrypoint /bin/bash "${IMAGE}:${{ inputs.tag }}" \
+            -c 'tar -cf - -C /usr/share/pki rpm-gpg' | sudo tar -xf - -C /mnt/gpg2
+          echo "cles Fedora extraites : $(sudo ls -1 /mnt/gpg2/rpm-gpg | wc -l)"
           echo "cles extraites : $(sudo ls -1 /mnt/gpg/rpm-gpg | wc -l)"
           sudo ls -1 /mnt/gpg/rpm-gpg | grep -c terra | xargs -I{} echo "  dont terra : {}"
           # Seuil releve le 2026-11-13 : la base Fedora 45 porte 52 cles, la
@@ -233,6 +240,7 @@ jobs:
             -v /mnt/sortie:/output \
             -v /var/lib/containers/storage:/var/lib/containers/storage \
             -v /mnt/gpg/rpm-gpg:/etc/pki/rpm-gpg:ro \
+            -v /mnt/gpg2/rpm-gpg:/usr/share/pki/rpm-gpg:ro \
             quay.io/centos-bootc/bootc-image-builder:latest \
               --type anaconda-iso \
               --rootfs ext4 \

@@ -185,6 +185,14 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/build_files/42-greeter.sh
 
+# Les depots Fedora que Fedora 45 a ranges dans /usr/share/dnf5/repos.d : on les
+# relie dans /etc/yum.repos.d, ou bootc-image-builder les cherche pour resoudre
+# les paquets de l'installateur (ISO du 2026-11-13 : « missing packages:
+# coreutils, glibc, systemd... »). Aucun effet sur dnf5, qui lit les deux.
+# Avant 44-depots.sh, pour que ses controles voient aussi ces depots.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    bash /ctx/build_files/44-depots-fedora.sh
+
 # Les depots actifs dont la cle GPG a disparu. Herite de la base : « terra-mesa »
 # est actif et reclame RPM-GPG-KEY-terra44-mesa, quand l'image ne porte que des
 # cles terra42 et terra43. Nos dnf5 ne s'en apercevaient pas — dnf ne lit la cle
