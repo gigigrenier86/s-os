@@ -15806,3 +15806,57 @@ arrivent — mais l'ancre reelle des surfaces de couche et le placement des
 fenetres Android restent a voir sur la machine, avec un vrai kwin et un vrai
 ecran. La session ne risque rien de plus qu'avant : s-coquille garde son
 filet, et le chrome a le sien.
+
+---
+
+## 2026-11-15, après-midi — la session sans chrome : deux pannes, une seule image
+
+**Le symptôme, relevé sur la machine.** L'image neuve démarre, le bureau est
+là — et plus rien autour : ni barre en bas (épingles, onglets), ni barre
+latérale, ni bulle. La session tourne pourtant : `kwin → s-coquille →
+s-constellation`, aucun processus `s-chrome`, aucun `chrome.log`.
+
+**Première panne — le bit d'exécution, tombé au portage.** `files/usr/bin/
+s-chrome` était enregistré **100644** dans le dépôt : cette machine a
+`core.fileMode=false` (le dépôt a été édité sous Windows), donc le `chmod +x`
+posé localement n'a jamais été enregistré par `git add`. Le checkout du CI
+sort le fichier en 0644, `COPY files/ /` le porte tel quel dans l'image, et
+le `chmod 0755` de 36-constellation.sh — posé précisément pour ne pas
+dépendre de git — ne le listait pas. La coquille, elle, ne lance le chrome
+que s'il est exécutable (`[[ -x ]]`) : « session sans chrome », en silence,
+et le contrôle `test -s` de la construction était vert.
+
+**Deuxième panne — Python 3.15 ne charge plus un module sans extension.**
+Même exécutable, s-chrome mourait à son premier pas :
+`spec_from_file_location("s_constellation", "/usr/bin/s-constellation")`
+rend **None** sous Python 3.15 pour un fichier sans suffixe — mesuré sur la
+machine, fichier présent et lisible. s-chrome charge ce fichier comme un
+module (la classe `Pont`, réutilisée telle quelle) ; `module_from_spec(None)`
+explosait. La scène, elle, tenait debout : `verifier-chrome.py` charge le QML
+avec des ponts **leurres** et ne voit rien de ce qui se passe avant la scène.
+Les deux pannes étaient donc invisibles à la construction.
+
+**Les parades, dans le même geste :**
+- `s-chrome` enregistré 100755 dans le dépôt (`git update-index --chmod=+x`,
+  le seul moyen sous `core.fileMode=false`).
+- `36-constellation.sh` : s-chrome ajouté au `chmod 0755` ; le contrôle passe
+  de `test -s` à `test -x` (une régression casse désormais la construction) ;
+  `py_compile` le couvre aussi.
+- `_charger` de s-chrome pose le chargeur explicitement
+  (`SourceFileLoader(nom, chemin)`) au lieu de laisser l'extension décider.
+- s-chrome coupe le cache disque de QML (`QML_DISK_CACHE=none`), la même
+  mesure que s-constellation — les QML du chrome étaient chargés par le
+  bureau avant la bascule, un vieux cache à date réelle servirait pour
+  toujours. Un grep dans la construction le tient comme l'autre.
+- **La preuve complète, dans la construction** : s-chrome est lancé
+  lui-même, offscreen, dix secondes, avec ses vrais ponts. Timeout qui le
+  tue = preuve qu'il tient (code 124) ; sortie avant = construction rouge.
+  C'est le contrôle qui aurait attrapé les deux pannes d'aujourd'hui.
+
+**Vérifié sur la machine, dans la session courante** (l'image en place n'a
+pas pu être réparée : /usr est en ostree, immuable) : la copie du dépôt
+lancée à la main tient, `liblayer-shell.so` est chargée (l'intégration
+layer-shell est active, kwin ancre les surfaces), le pont /fenetres répond
+et la barre est nourrie. La session redeviendra autonome au prochain
+`bootc upgrade` + redémarrage, quand la coquille lancera s-chrome
+elle-même avec son filet.

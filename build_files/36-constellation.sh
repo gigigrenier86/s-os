@@ -73,7 +73,8 @@ echo "  polices       : $(fc-list 2>/dev/null | grep -ci 'Roboto' || true) fichi
 # Le bit d'execution ne survit pas a un depot edite sous Windows ; on le repose
 # plutot que de dependre de ce que git a bien voulu enregistrer.
 chmod 0755 /usr/bin/s-session /usr/bin/s-coquille /usr/bin/s-constellation \
-    /usr/bin/s-salon-session /usr/bin/s-salon-rapide /usr/bin/s-retro-rapide
+    /usr/bin/s-chrome /usr/bin/s-salon-session /usr/bin/s-salon-rapide \
+    /usr/bin/s-retro-rapide
 
 # Une faute de syntaxe ne se verrait qu'au premier ouverture de session,
 # c'est-a-dire sur un ecran noir. Elle se voit ici en une seconde.
@@ -82,13 +83,15 @@ bash -n /usr/bin/s-coquille
 bash -n /usr/bin/s-salon-session
 bash -n /usr/bin/s-salon-rapide
 bash -n /usr/bin/s-retro-rapide
-python3 -m py_compile /usr/bin/s-constellation /usr/lib/s/noyau.py
+python3 -m py_compile /usr/bin/s-constellation /usr/bin/s-chrome /usr/lib/s/noyau.py
 # LE CACHE DISQUE DE QML DOIT RESTER COUPE. Qt ne l'ecrit jamais pour des sources
 # a date epoch 0 (tout /usr sur ostree) mais relit sans verifier celui qu'un essai
 # a date reelle a laisse dans ~/.cache : la coquille executait la barre et le
 # bureau du 7 septembre, neuf commits QML plus tard. Voir s-constellation.
 grep -qF 'os.environ["QML_DISK_CACHE"] = "none"' /usr/bin/s-constellation \
     || { echo "ECHEC : s-constellation ne coupe plus le cache disque de QML — un ancien cache perime pourrait servir a la place du QML deploye." >&2; exit 1; }
+grep -qF 'os.environ["QML_DISK_CACHE"] = "none"' /usr/bin/s-chrome \
+    || { echo "ECHEC : s-chrome ne coupe plus le cache disque de QML — meme peril que s-constellation." >&2; exit 1; }
 rm -rf /usr/bin/__pycache__ /usr/lib/s/__pycache__ /root/.cache 2>/dev/null || true
 echo "  syntaxe       : session, coquille, coquille native et noyau analyses"
 
@@ -189,8 +192,13 @@ python3 /ctx/build_files/verifier-fenetres.py /usr/lib/s/fenetres.js \
 # la barre, chez l'utilisateur.
 python3 /ctx/build_files/verifier-chrome.py "$QML" \
     || { echo "ECHEC : la scene du chrome ne tient pas debout." >&2; exit 1; }
-test -s /usr/bin/s-chrome \
-    || { echo "ECHEC : /usr/bin/s-chrome absent — chrome sans surfaces de couche." >&2; exit 1; }
+# « -x », PAS « -s » : le bit d'execution est la difference entre une barre
+# des taches et un fichier pose au bon endroit — la coquille ne lance le chrome
+# que s'il est executable, et une construction qui livre s-chrome en 0644
+# produirait une session sans barre, sans barre laterale, sans bulle, sans que
+# rien n'echoue ici. C'est arrive le 2026-11-15, mesure sur la machine.
+test -x /usr/bin/s-chrome \
+    || { echo "ECHEC : /usr/bin/s-chrome absent ou non executable — chrome sans surfaces de couche." >&2; exit 1; }
 python3 -c "
 import sys; sys.path.insert(0, '/usr/lib/s')
 import pont_lointain
@@ -198,7 +206,20 @@ assert pont_lointain.FenetresLointain
 assert pont_lointain.BureauLointain
 assert pont_lointain.NotificationLointaine
 " || { echo "ECHEC : /usr/lib/s/pont_lointain.py ne s'importe pas." >&2; exit 1; }
-echo "  chrome         : scene et ponts en place"
+# LA PREUVE COMPLETE, PAS SEULEMENT LA SCENE. verifier-chrome.py charge QML
+# avec des ponts LEURRES : il ne voit rien de ce qui se passe AVANT la scene.
+# Or c'est exactement la qu'est tombee la session du 2026-11-15, deux fois :
+# s-chrome livre 0644 (jamais lance), puis son chargeur de module qui ne
+# reconnaissait plus /usr/bin/s-constellation — sans extension — sous
+# Python 3.15 (processus mort au premier pas). La scene, elle, tenait debout,
+# et la construction etait verte. On lance donc ici s-chrome LUI-MEME,
+# offscreen, avec ses vrais ponts : s'il tient dix secondes, timeout le tue
+# (code 124) et c'est la preuve ; s'il sort avant, la construction tombe.
+QT_QPA_PLATFORM=offscreen timeout 10 python3 /usr/bin/s-chrome >/dev/null 2>&1
+code=$?
+[[ $code -eq 124 ]] \
+    || { echo "ECHEC : s-chrome s'est arrete tout seul (code $code) — voir son journal." >&2; exit 1; }
+echo "  chrome         : scene, ponts et processus reels en place"
 
 # --- Le greeter ne propose plus que S -------------------------------------
 echo "  sessions trouvees :"

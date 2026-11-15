@@ -21,16 +21,29 @@ pire des duplications. s-chrome lit donc /usr/bin/s-constellation comme un
 module — son « main » ne part pas, sa garde le protege.
 """
 
+import importlib.machinery
 import importlib.util
 import os
 import sys
+
+# LE CACHE DISQUE DE QML, COUPE ICI AUSSI — la meme mesure que s-constellation
+# (voir son en-tete pour la mesure du 2026-09-19) : les QML du chrome etaient
+# charges par le bureau avant la bascule, et un vieux cache a date reelle
+# servirait POUR TOUJOURS, quel que soit le QML deploye ensuite.
+os.environ["QML_DISK_CACHE"] = "none"
 
 _LIB = "/usr/lib/s"
 _QML = "/usr/share/s/constellation/qml"
 
 
 def _charger(nom, chemin):
-    spec = importlib.util.spec_from_file_location(nom, chemin)
+    # LE CHARGEUR EST POSE EXPLICITEMENT, PAS LAISSE AU CHOIX DE L'EXTENSION.
+    # Python 3.15 : spec_from_file_location ne reconnait plus un fichier SANS
+    # extension — mesure sur la machine, il rend None pour /usr/bin/s-constellation
+    # alors que le fichier est la — et s-chrome charge ce fichier comme un
+    # module. SourceFileLoader nomme le chargeur sans demander son avis.
+    loader = importlib.machinery.SourceFileLoader(nom, chemin)
+    spec = importlib.util.spec_from_file_location(nom, chemin, loader=loader)
     module = importlib.util.module_from_spec(spec)
     sys.modules[nom] = module
     spec.loader.exec_module(module)
