@@ -1,0 +1,89 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""Le chrome de S — barre, barre laterale, bulle — en surfaces de couche.
+
+POURQUOI CE PROCESSUS EXISTE. Sous Wayland, l'integration layer-shell
+(zwlr_layer_shell_v1) s'applique a TOUTES les fenetres d'un processus : le
+bureau, qui doit rester une fenetre ordinaire, ne peut donc pas l'activer. Le
+chrome vit ici, avec l'integration active, et devient ce qu'un « bureau de
+base » attend : des surfaces ancrees aux bords par le compositeur lui-meme —
+plus de regle kwin pour les poser, plus de rattrapage d'ecran.
+
+LA VARIABLE SE POSE AVANT QGuiApplication, sinon le display est deja choisi et
+la selection ne prend plus. Hors Wayland (verificateur, banc), on ne la pose
+pas : les trois QML restent des fenetres ordinaires — c'est ce qui permet de
+les verifier a la construction.
+
+LE PONT EST CELUI DU BUREAU, TEL QUEL. La classe Pont de s-constellation ne
+fait que lire et ecrire l'etat de S (noyau, reglages, catalogue) : rien
+n'interdit de la faire tourner ici aussi, et reecrire ses gestes serait la
+pire des duplications. s-chrome lit donc /usr/bin/s-constellation comme un
+module — son « main » ne part pas, sa garde le protege.
+"""
+
+import importlib.util
+import os
+import sys
+
+_LIB = "/usr/lib/s"
+_QML = "/usr/share/s/constellation/qml"
+
+
+def _charger(nom, chemin):
+    spec = importlib.util.spec_from_file_location(nom, chemin)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[nom] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def main():
+    # AVANT l'application : l'integration layer-shell pour TOUTES les
+    # fenetres de ce processus — elles sont toutes du chrome.
+    if os.environ.get("QT_QPA_PLATFORM", "").startswith("wayland"):
+        os.environ["QT_WAYLAND_SHELL_INTEGRATION"] = "layer-shell"
+
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtQml import QQmlApplicationEngine
+    from PySide6.QtCore import QUrl
+
+    import dbus.mainloop.glib
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+
+    # LA MEME CLASSE QUE LE BUREAU, A DESSEIN : le rapporteur kwin et les
+    # gardes de fenetres.js reconnaissent les fenetres de la coquille par
+    # « s-constellation » — changer ici casserait les trois.
+    QGuiApplication.setDesktopFileName("s-constellation")
+    app = QGuiApplication(sys.argv)
+    app.setApplicationName("Constellation")
+    app.setOrganizationName("S")
+
+    constel = _charger("s_constellation", "/usr/bin/s-constellation")
+    pont_lointain = _charger("pont_lointain", os.path.join(_LIB, "pont_lointain.py"))
+
+    pont = constel.Pont()
+    bureau = pont_lointain.BureauLointain(pont)
+    bureau.brancher()
+    notifications = pont_lointain.NotificationLointaine(bureau, pont)
+    fenetres = pont_lointain.FenetresLointain()
+
+    moteur = QQmlApplicationEngine()
+    moteur.rootContext().setContextProperty("pont", pont)
+    # « bureauPont » plutot que « bureau » : la scene du chrome (Chrome.qml)
+    # pose elle-meme l'alias « bureau » dans sa chaine de portee, la ou les
+    # delegues de la barre savent le trouver — une propriete de contexte ne
+    # les atteint pas (mesure du 2026-11-14).
+    moteur.rootContext().setContextProperty("bureauPont", bureau)
+    moteur.rootContext().setContextProperty("fenetres", fenetres)
+    moteur.rootContext().setContextProperty("notifications", notifications)
+    moteur.load(QUrl.fromLocalFile(os.path.join(_QML, "Chrome.qml")))
+    if not moteur.rootObjects():
+        print("s-chrome : la scene du chrome ne tient pas debout",
+              file=sys.stderr)
+        return 1
+
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

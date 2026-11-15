@@ -8,6 +8,27 @@ Interface en français.
 
 ---
 
+## 2026-11-13 — changement de tour : la Seagate devient installateur de S + copie du dossier personnel
+
+*Heures locales (EST). Demande : « je vais changer de tour d'ordinateur et transférer la ram de celle-ci dans la nouvelle, fais moi un gros formatage de la seagate, une copie conforme de S présentement et un bootable pour installer S comme neuf ». Réponses de l'utilisateur aux questions : le contenu de la Seagate (114 Go de jeux) s'efface ; la copie = système + dossier personnel ; l'installateur = la Seagate elle-même.*
+
+**Fait et mesuré :**
+- **L'ISO de S est fabriquée** (`iso.yml`, run `43522055101`, 4ᵉ tentative) : `s-os-latest-20261113.iso`, 9 480 069 120 octets, SHA-256 `552af366…a15f` vérifié contre le `.sha256` de l'artefact. C'est un installateur Anaconda hybride (étiquette `Container-Installer-x86_64`) qui porte l'image entière.
+- **Trois échecs avant, une seule cause de fond :** Fedora 45 a déplacé ses définitions de dépôts dans `/usr/share/dnf5/repos.d` ; `/etc/yum.repos.d` n'a plus de dépôt Fedora, et `bootc-image-builder` y résout ses paquets d'installateur (« missing packages: coreutils, glibc, systemd… »). Correctifs : seuil de clés GPG adapté (52 clés sous Fedora 45, plus de 100 sous 44 — `a3af984`) ; `build_files/44-depots-fedora.sh` **copie** les `.repo` dans `/etc/yum.repos.d` (`8d1808c` les liait : **un lien absolu est cassé dans le conteneur de l'outil**, d'où `8319cd8`) et `iso.yml` monte les clés Fedora dans le conteneur. Même piège que les clés terra et que `/usr` de pressure-vessel : un chemin de l'image se résout contre le système de fichiers de l'outil.
+- **La Seagate (`/dev/sda`, 4,5 To, `Game Drive PS`) a été effacée entièrement** (accord explicite) : l'ISO est écrite au début du disque, **relue et comparée octet pour octet** (même SHA-256), puis une partition `S-DONNEES` (ext4, 4,5 To, `sda4`) a été ajoutée après l'ISO, la GPT de secours déplacée en fin de disque. Le script (`seagate-installateur.sh`, scratchpad de la session) refusait d'écrire si l'identifiant USB, la taille ou le modèle ne collaient pas, et faisait d'abord une **preuve à blanc** (le flux reconstruit depuis les extents de l'ISO, mesuré avant tout effacement).
+- **Copie du dossier personnel** (`/var/home/RyuRex`, root, `rsync -aHAXS --numeric-ids`) vers `S-DONNEES/copie-S-2026-11-13/home-RyuRex` : 859 262 fichiers, 146 Go apparents, code de retour 0. Plus `var-lib-waydroid` (images et overlay Android, dont la traduction ARM) et `etat-systeme/etat.txt` (`rpm-ostree status`, `bootc status`, `ostree admin config-diff`). Exclu : `.local/share/waydroid/data/media/0/Partage` (même dossier que `~/Partage`, monté par liaison).
+
+**Ce qui n'est PAS établi :**
+- **L'ISO n'a jamais démarré.** Pas de QEMU ici ; le premier essai réel sera sur la nouvelle tour. Ce qui est prouvé s'arrête à : l'ISO est celle que la CI a produite, et elle est sur le disque sans une erreur.
+- **La copie est une passe À CHAUD** : le Windows de S (Wine), Steam, RecompLauncher et Android tournaient. Les fichiers de ces mondes peuvent être incohérents. Une **seconde passe avec tout fermé** (même commande, elle ne recopie que les écarts) est à faire avant de débrancher ; **elle n'a pas été faite**.
+- Non copié, à dessein : l'identité Tailscale (`/var/lib/tailscale`) — la nouvelle machine devra se reconnecter —, et tout ce qui vit dans `/etc` hors défauts de l'image (voir `etat.txt` pour la liste).
+- **La RAM à transférer : 16 Go (2×8 Go DDR4 SO-DIMM 2133).** Ce sont des barrettes de portable/mini-PC : une tour classique prend des DIMM pleine taille. À vérifier **avant** de démonter.
+- Rien de ceci n'est commité hors les trois correctifs de l'ISO déjà poussés ; cette section non plus.
+
+**Pour réinstaller sur la nouvelle tour :** démarrer sur la Seagate (menu de démarrage, entrée UEFI du disque USB), installer S sur le **disque interne de la nouvelle tour** (ne jamais choisir la Seagate comme cible), puis recopier `home-RyuRex` dans le nouveau dossier personnel (`rsync -aHAXS --numeric-ids`, en root pour garder les propriétaires).
+
+---
+
 ## 2026-11-06 — la manette Xbox muette dans RecompLauncher : `winebus` arrêté dans le Windows résident
 
 *Heures locales (EST). Demande : « ma manette xbox en bluetooth ne fonctionne plus, elle est connectée mais elle ne fait plus rien dans recomplauncher ».*
@@ -15590,3 +15611,198 @@ ne démarre pas.
   n'écrit rien.
 - **`s-monter-windows` n'a toujours jamais tourné sur la machine**, ni dans son
   ancienne forme ni dans la nouvelle.
+
+---
+
+## 2026-11-14 — un debranchement de HDMI ne casse plus la coquille
+
+**Signalement de l'utilisateur, mot pour mot :** « mon S bug raide, j'ai
+debranche le HDMI et la il s'est mis en fenetre, la barre de raccourci nowhere
+au milieu a gauche. Constellation c'est pas une page, c'est L'OS. »
+
+**La cause, etablie en lisant plutot qu'en devinant.** Rien, nulle part dans
+S, ne reagissait a un changement d'ecran : `screensChanged` n'etait branche
+dans aucun fichier. Les regles kwin (`regles-kwin.py`) ne s'appliquent qu'a la
+NAISSANCE d'une fenetre — elles posent la barre une fois, pour la taille
+d'ecran du moment. Au debranchement, kwin deplace les fenetres de l'ecran
+parti vers un ecran restant **en gardant leurs coordonnees absolues** : la
+barre se retrouve a 1500 px de la gauche sur un ecran qui n'en fait plus que
+1280 — « nowhere, au milieu a gauche ». Et le plein ecran du bureau ne survit
+pas au deplacement : kwin comme le client peuvent l'abandonner en route, d'ou
+le « en fenetre ».
+
+**L'API verifiee dans l'amont, pas presumee.** kwin 6.8 (`workspace_wrapper.h`)
+declare `Q_PROPERTY(screens READ screens NOTIFY screensChanged)`, et
+`workspace_wrapper.cpp` l'alimente depuis `Workspace::outputsChanged` ; le
+signal est donc scriptable : `workspace.screensChanged.connect(...)`, meme
+geste que les `windowActivated` deja branches. Et `window.h` declare
+`Q_PROPERTY(bool fullScreen READ isFullScreen WRITE setFullScreen ...)` : un
+script kwin peut RENDRE le plein ecran, pas seulement le lire. Les deux points
+etaient la condition du correctif.
+
+**Le correctif, en trois pieces :**
+
+1. `fenetres.js` — le seul endroit qui peut agir, puisqu'il tourne DANS le
+   compositeur. Au signal `screensChanged`, `reposerChrome()` : le bureau
+   (`caption === "Constellation"`) reprend `fullScreen` (filet : remplir la
+   zone de l'ecran si l'ecriture ne prend pas) ; la barre retombe en bas de
+   l'ecran qui porte le bureau, pleine largeur, haute de 52 + 420 ; la barre
+   laterale au bord droit ; la bulle visible replacee selon sa formule de
+   theme (regles-kwin.py recopiees a la main, les deux fichiers ne partagent
+   rien). L'ancrage est le bureau : tout le chrome suit son ecran. Le
+   branchement est sous `try` — un kwin trop vieux ne doit pas emporter le
+   rapporteur.
+2. `fenetres.py` — nouvelle methode D-Bus `Ecran(largeur, hauteur)` : le
+   rapporteur l'appelle apres chaque changement d'ecran, et le pont repose
+   `regles-kwin.py` pour la nouvelle taille. Sans cela, la bulle cachee puis
+   remontree — une fenetre NEUVE pour kwin — retomberait sur les coordonnees
+   de l'ecran parti.
+3. `Constellation.qml` — `onScreenChanged: visibility = Window.FullScreen` :
+   le filet cote client, pour le jour ou le rapporteur n'a pas charge.
+
+**Le controle qui empeche la rechute.** `banc-fenetres.js` charge le script
+dans un « kwin de carton » (Node, deja dans l'image via 26-outils.sh) et joue
+le debranchement : bureau en fenetre a 1920x1080 pose sur un ecran restant de
+1280x800, barre a 1500 px de la gauche. Il verifie le rattrapage dans les deux
+kwin — celui qui obeit a `fullScreen`, celui qui ne l'offre pas — et que les
+vraies fenetres restent intouchees. Branche dans la construction par
+`verifier-fenetres.py` (36-constellation.sh), comme les verifiers QML.
+
+**La limite mesuree, dite plutot que tue.** Le banc joue le contrat du script,
+pas kwin : le signal reel, la geometrie reelle d'un debranchement et la course
+entre kwin, Qt et le script n'ont pas ete mesures sur la machine au moment
+d'ecrire ceci — il n'y a pas d'ecran HDMI a debrancher ici. Le rattrapage est
+idempotent (reposer la meme geometrie ne change rien), donc un `screensChanged`
+de trop ou une course perdue se rattrape au signal suivant. A verifier en vrai
+au prochain debranchement.
+
+---
+
+## 2026-11-14, soir — le chrome devient des surfaces de couche (etape 1)
+
+**La demande.** « On est-tu oblige d'etre avec KWin ? Ca devrait etre un
+bureau de base, sans fenetres ni double startup. »
+
+**Ce qui est obligatoire, ce n'est pas kwin, c'est un compositeur Wayland** —
+et `s-session` teste deja `kwin_wayland` puis `labwc`. Ce qui etait un
+contournement, c'est le CHROME : barre, barre laterale et bulle sont des
+fenetres ordinaires posees par des regles kwin (kwinrulesrc) et rattrapees par
+des scripts — parce qu'au moment de la decision (2026-08-25) aucune liaison de
+l'image ne parlait `zwlr_layer_shell_v1`. Le protocole, lui, est la : c'est LE
+mecanisme des bureaux — une surface de couche ancre aux bords PAR LE
+COMPOSITEUR, plus de regle, plus de rattrapage d'ecran.
+
+**La contrainte mesuree dans l'amont.** L'integration `layer-shell-qt` (deja
+dans l'image, 6.8.2, verifie) s'applique a TOUTES les fenetres du processus :
+`QWaylandLayerShellIntegration::createShellSurface` cree une surface de couche
+pour chacune, et `mShellIntegration(display->shellIntegration())` (qwaylandwindow.cpp,
+Qt 6.8) confirme que le choix est par DISPLAY, pas par fenetre. Le bureau doit
+rester une fenetre ordinaire — donc le chrome quitte son processus, comme
+plasmashell chez Plasma.
+
+**L'etape 1, posee et verifiee — et DORMANTE :**
+- `s-chrome` (nouveau) : le processus du chrome, `QT_WAYLAND_SHELL_INTEGRATION=
+  layer-shell` pose AVANT QGuiApplication. Il reutilise la classe `Pont` de
+  s-constellation TELLE QUELLE (importee par importlib : le fichier a une garde
+  `__main__`), garde `setDesktopFileName("s-constellation")` pour que les
+  gardes de fenetres.js et les regles kwin continuent de reconnaitre le chrome.
+- `Chrome.qml` (nouveau) : la scene du chrome — le cablage que Constellation.qml
+  faisait pour la barre, la laterale et la bulle, sur les ponts lointains.
+- `pont_lointain.py` (nouveau) : FenetresLointain (la liste + l'activation sur
+  D-Bus), BureauLointain (l'etat du bureau depuis noyau, le meme disque), et
+  NotificationLointaine (la bulle nourrie par signaux D-Bus).
+- `fenetres.py` : l'API du chrome lointain sur le bus (Liste, Activer, Fermer,
+  Mode...) + signaux Vues/ModeChange + `/bureau` (Relire/BureauChange), pose
+  quand s-constellation passe son pont a `publier()`.
+- `notifications.py` : `SNotification` (chaque notification part aussi sur le
+  bus) + `SInvokeAction` (le clic d'action revient par D-Bus).
+- Les trois QML du chrome portent leurs declarations `LayerShell.Window`
+  (ancre, couche, marge par theme, aucune interaction clavier) — INERTES tant
+  que l'integration n'est pas active : mesure, hors Wayland elles rendent
+  « not a wayland window » sans casser la scene, ce qui permet de tout
+  verifier offscreen. `Qt.margins` n'existe pas (Qt 6.11) : les marges se
+  posent par propriete (`margins.left`, `margins.right`...).
+- `verifier-chrome.py` (nouveau, branche dans 36-constellation.sh) : charge
+  Chrome.qml avec des ponts leurres et joue les trois gestes — la nouvelle de
+  kwin remplit les tuiles, la notification atteint la bulle, les reglages
+  arrivent a la laterale.
+
+**Deux pieges mesures en route, et leur parade :**
+1. **Une propriete de contexte n'atteint pas les delegues.** « bureau » y
+   resolvait a null (Barre.qml:1149 et suivantes) alors que le meme nom, en
+   ID de la racine de Constellation.qml, les atteint par la chaine de portee.
+   Parade : Chrome.qml pose `readonly property var bureau: bureauPont` — le
+   nom revient dans la chaine, la ou les delegues le cherchent.
+2. **`visible` ne se verifie pas hors compositeur** : la carte courante de la
+   bulle (courante.id) est la preuve, pas la propriete visible.
+
+**Ce qui reste — l'etape 2, la bascule :** retirer Barre/BarreLaterale/Bulle
+et leur cablage de Constellation.qml (vivant et hauteur re-sources sur
+fenetres.changees et la constante 52), lancer s-chrome depuis s-coquille avec
+le filet (relance si mort), retirer les regles chrome de regles-kwin.py,
+simplifier reposerChrome dans fenetres.js (le chrome se replace tout seul) et
+mettre a jour le banc. Les menus du bureau (Demarrer, recents, Personnaliser)
+appeles depuis la barre demandent aussi leurs methodes D-Bus. Rien de cela
+n'est branche tant que la bascule n'est pas faite : aucune session ne lance
+s-chrome, aucune ligne de Constellation.qml n'a bouge.
+
+---
+
+## 2026-11-14, nuit — la bascule est faite (etape 2)
+
+**Tout ce qui etait annonce ci-dessus est pose, dans le meme geste :**
+
+- **Constellation.qml n'instancie plus le chrome.** Barre, BarreLaterale et
+  Bulle sont sorties de la scene ; `vivant` et la grille se nourrissent
+  d'`ouvertures` (nourri par la Connections fenetres.changees) et d'une
+  constante `hauteurBarre` (52). Cinq fonctions de gestes (`menuDemande`,
+  `rechercheDemandee`, `bureauDemande`, `retourDemande`, `accueilDemande`,
+  `recentsDemande`) remplacent les gestionnaires du Barre enfant : les menus
+  restent dessines dans la fenetre du bureau, et le service /bureau les
+  appelle de loin.
+- **s-constellation porte un PasseBureau** : un QObject dont les methodes
+  appellent les fonctions QML de la racine par QMetaObject.invokeMethod —
+  le seul pont entre D-Bus et la scene. Il est passe a `fenetres.publier(...
+  pont=pont, scene=passe_bureau)`, et sa racine est posee apres le chargement.
+- **fenetres.py** : le service /bureau gagne les gestes (Menu, Rechercher,
+  Bureau, Retour, Accueil, Recents, Personnaliser, ChoisirFond) — le chrome
+  les appelle par le pont lointain, le PasseBureau les rend a la scene.
+- **s-coquille lance s-chrome avec son propre filet** : une boucle qui relance
+  le chrome s'il tombe, arretee par le temoin « quitter », et tuee a la
+  sortie de session. Le chrome ne bloque jamais le bureau : journal a part
+  (chrome.log), aucune attente.
+- **regles-kwin.py ne porte plus que les regles Android** : la bulle, la barre
+  et la laterale n'ont plus ni position ni taille forcees — le compositeur
+  les ancre. Les titres des fenetres restent (fenetres.js les lit pour ses
+  gardes de focus), mais plus aucune regle ne les vise.
+- **fenetres.js** : `reposerChrome` ne rattrape plus que le bureau (plein
+  ecran + filet geometrie) et la note Ecran — le chrome en surfaces de couche
+  se re-ancre tout seul, et les regles Android se reposent pour la nouvelle
+  taille. Le banc est inverse : il verifie que le script ne touche PLUS aux
+  fenetres du chrome.
+- **Les verificateurs ont suivi les pieces** : le menu du clic droit de la
+  barre (11 articles + hauteur), les tuiles (10 titres + focus + fermeture +
+  ouverture = 1 creation) et les etoiles de reglage se verifient dans
+  verifier-chrome.py ; verifier-constellation ne garde que le bureau (menu
+  Demarrer, personnalisation, ciel, depot) ; verifier-tuiles ne garde que le
+  ciel vivant.
+
+**Deux pieges mesures en route, et leur parade :**
+1. **La charge du theme re-instantiait la barre, et le contenu de Loader
+   perd la chaine de portee.** Au demarrage, `Theme.charger` passait `nom` de
+   « » a « constellation » : le Loader de mise en page reconstruisait son
+   contenu, dont les delegues ne voyaient plus `bureau` — trois TypeError
+   par charge. Parade en deux gestes : `Theme.charger` ne repose plus un nom
+   identique (garde `if (t !== nom)`), et Barre.qml lit le bureau par
+   `Session.bureau` avec gardes — le singleton, que le contenu de Loader voit
+   toujours, et c'est exactement pour cela que Session.qml existe.
+2. **shiboken ne convertit pas QQuickItem\* sans l'import** : le comptage des
+   tuiles exige `from PySide6.QtQuick import QQuickItem`, meme piege que
+   verifier-tuiles.py documentait deja.
+
+**La limite honnete, comme toujours.** La bascule est verifiee hors
+compositeur : les deux scenes chargent, les ponts repondent, les gestes
+arrivent — mais l'ancre reelle des surfaces de couche et le placement des
+fenetres Android restent a voir sur la machine, avec un vrai kwin et un vrai
+ecran. La session ne risque rien de plus qu'avant : s-coquille garde son
+filet, et le chrome a le sien.

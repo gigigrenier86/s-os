@@ -31,10 +31,12 @@ DANS LES DEUX SENS, ET PAR DEUX CHEMINS DIFFERENTS :
               millisecondes, ce qui est sous le seuil du clic percu.
 """
 
+import importlib.util
 import json
 import os
 import signal
 import subprocess
+import sys
 import time
 
 from PySide6.QtCore import QObject, QTimer, Signal, Slot
@@ -935,6 +937,48 @@ class Fenetres(QObject):
         self._marquer_geles()
         self._envoyer()
 
+    def ecran_change(self, note_json):
+        """kwin a change d'ecrans : repose les regles pour la nouvelle taille.
+
+        Le rapporteur (fenetres.js) envoie ici la taille de l'ecran qui porte
+        le bureau apres chaque « screensChanged » — un HDMI debranche, un
+        branche, une resolution qui change. Les regles de kwinrulesrc ne
+        s'appliquent qu'aux fenetres NEUVES : sans cette repose, la fenetre
+        Android recreee au prochain lancement retomberait sur les coordonnees
+        de l'ecran parti. Le chrome n'en a plus besoin depuis le 2026-11-14
+        (surfaces de couche, le compositeur les ancre).
+        """
+        try:
+            note = json.loads(note_json or "")
+            largeur = int(note.get("largeur", 0))
+            hauteur = int(note.get("hauteur", 0))
+        except (ValueError, TypeError):
+            return
+        if largeur <= 0 or hauteur <= 0:
+            return
+        try:
+            # LA MEME CHOSE QUE LA COQUILLE, AU DEMARRAGE. s-constellation
+            # charge regles-kwin.py par son chemin et l'appelle avec la taille
+            # de l'ecran ; on refait exactement ce geste, avec le cache de
+            # sys.modules pour ne pas re-executer le module s'il est deja la.
+            regles_kwin = sys.modules.get("regles_kwin")
+            if regles_kwin is None:
+                spec = importlib.util.spec_from_file_location(
+                    "regles_kwin", "/usr/lib/s/regles-kwin.py")
+                if spec is None or spec.loader is None:
+                    return
+                regles_kwin = importlib.util.module_from_spec(spec)
+                sys.modules["regles_kwin"] = regles_kwin
+                spec.loader.exec_module(regles_kwin)
+            phrase = regles_kwin.appliquer(largeur, hauteur)
+            if phrase:
+                print("fenetres : " + phrase, file=sys.stderr)
+        except Exception:
+            # UN ENNUI DE REGLES NE DOIT JAMAIS EMPORTER LE RAPPORTEUR. La
+            # barre marche sans les regles ; les regles ne marchent pas sans
+            # lui. Un echec ici ne tue donc que cette repose.
+            pass
+
     def arreter(self):
         """A l'extinction : on relache tout, et on retient ce qu'on a vu.
 
@@ -955,8 +999,146 @@ class Service(dbus.service.Object):
     def Fenetres(self, liste_json):
         self._fenetres.recevoir(liste_json)
 
+    @dbus.service.method(NOM, in_signature="s", out_signature="")
+    def Ecran(self, note_json):
+        self._fenetres.ecran_change(note_json)
 
-def publier(parent=None, script=RESIDENT):
+    # ══ L'API DU CHROME LOINTAIN ═══════════════════════════════════════════
+    # s-chrome vit dans un autre processus (voir /usr/bin/s-chrome) : ce qui
+    # etait un appel de QObject en memoire passe par ces methodes. Elles ne
+    # font que deleguer — la logique, elle, est restee dans Fenetres.
+    @dbus.service.method(NOM, in_signature="", out_signature="s")
+    def Liste(self):
+        return json.dumps(self._fenetres._liste)
+
+    @dbus.service.method(NOM, in_signature="", out_signature="s")
+    def Mode(self):
+        return self._fenetres._mode
+
+    @dbus.service.method(NOM, in_signature="s", out_signature="s")
+    def ReglerMode(self, valeur):
+        return self._fenetres.reglerMode(valeur)
+
+    @dbus.service.method(NOM, in_signature="sb", out_signature="")
+    def Activer(self, ident, deja_active=False):
+        self._fenetres.activer(ident, deja_active)
+
+    @dbus.service.method(NOM, in_signature="s", out_signature="")
+    def Fermer(self, ident):
+        self._fenetres.fermer(ident)
+
+    @dbus.service.method(NOM, in_signature="s", out_signature="")
+    def ForcerFermeture(self, ident):
+        self._fenetres.forcerFermeture(ident)
+
+    @dbus.service.method(NOM, in_signature="s", out_signature="")
+    def Endormir(self, ident):
+        self._fenetres.endormir(ident)
+
+    @dbus.service.method(NOM, in_signature="i", out_signature="i")
+    def InactivesDepuis(self, jours):
+        return self._fenetres.inactivesDepuis(jours)
+
+    @dbus.service.method(NOM, in_signature="i", out_signature="s")
+    def FermerInactives(self, jours):
+        return self._fenetres.fermerInactives(jours)
+
+    @dbus.service.method(NOM, in_signature="", out_signature="")
+    def ActiverBureau(self):
+        self._fenetres.activerBureau()
+
+    @dbus.service.signal(NOM, signature="s")
+    def Vues(self, liste_json):
+        pass
+
+    @dbus.service.signal(NOM, signature="s")
+    def ModeChange(self, mode):
+        pass
+
+
+class ServiceBureau(dbus.service.Object):
+    """L'etat du bureau et ses gestes, pour le chrome lointain.
+
+    Le chrome et le bureau lisent les memes fichiers d'etat, chacun de son
+    cote ; ce service est le coup de coude entre les deux. « Relire » est
+    appele par le chrome quand SES gestes ont change un fichier — la reponse
+    ne revient que si l'empreinte a change, ce qui coupe la boucle. Les
+    autres methodes sont les gestes de la barre qui ouvrent les menus de la
+    fenetre du bureau (Demarrer, recherche, recents) : elles passent par le
+    « scene » (PasseBureau, dans s-constellation), seul pont entre D-Bus et
+    les fonctions QML de la racine.
+    """
+
+    def __init__(self, pont, scene, nom_bus):
+        super().__init__(nom_bus, "/bureau")
+        self._pont = pont
+        self._scene = scene
+        self._empreinte = ""
+
+    @dbus.service.method("org.s.Constellation.Bureau", in_signature="",
+                         out_signature="")
+    def Relire(self):
+        try:
+            etoiles = self._pont.etoiles() if self._pont is not None else {}
+        except Exception:
+            return
+        charge = json.dumps(etoiles)
+        if charge != self._empreinte:
+            self._empreinte = charge
+            self.BureauChange(charge)
+
+    # ---- Les gestes de la barre, vers la scene du bureau -------------------
+    def _geste(self, nom):
+        if self._scene is not None:
+            self._scene.__getattr__(nom)()
+
+    @dbus.service.method("org.s.Constellation.Bureau", in_signature="",
+                         out_signature="")
+    def Menu(self):
+        self._geste("menu_demande")
+
+    @dbus.service.method("org.s.Constellation.Bureau", in_signature="",
+                         out_signature="")
+    def Rechercher(self):
+        self._geste("recherche_demande")
+
+    @dbus.service.method("org.s.Constellation.Bureau", in_signature="",
+                         out_signature="")
+    def Bureau(self):
+        self._geste("bureau_demande")
+
+    @dbus.service.method("org.s.Constellation.Bureau", in_signature="",
+                         out_signature="")
+    def Retour(self):
+        self._geste("retour_demande")
+
+    @dbus.service.method("org.s.Constellation.Bureau", in_signature="",
+                         out_signature="")
+    def Accueil(self):
+        self._geste("accueil_demande")
+
+    @dbus.service.method("org.s.Constellation.Bureau", in_signature="",
+                         out_signature="")
+    def Recents(self):
+        self._geste("recents_demande")
+
+    @dbus.service.method("org.s.Constellation.Bureau", in_signature="",
+                         out_signature="")
+    def Personnaliser(self):
+        self._geste("personnaliser_demande")
+
+    @dbus.service.method("org.s.Constellation.Bureau", in_signature="s",
+                         out_signature="")
+    def ChoisirFond(self, chemin):
+        if self._scene is not None:
+            self._scene.choisir_fond(chemin)
+
+    @dbus.service.signal("org.s.Constellation.Bureau", signature="s")
+    def BureauChange(self, etoiles_json):
+        pass
+
+
+def publier(parent=None, script=RESIDENT, pont=None, scene=None):
     """Prend le nom, charge le rapporteur dans kwin, et rend l'objet.
 
     Rend (fenetres, None) ou (None, phrase). Comme pour les notifications, un
@@ -980,6 +1162,15 @@ def publier(parent=None, script=RESIDENT):
     fenetres._bus = bus
     fenetres._service = Service(fenetres, nom_bus)
     fenetres._nom_bus = nom_bus
+    # LE CHROME LOINTAIN ECOUTE SUR LE BUS : chaque nouvelle liste et chaque
+    # changement de mode repartent en signal D-Bus, pour s-chrome — qui vit
+    # dans un autre processus depuis le passage du chrome en surfaces de
+    # couche. Et le /bureau sert de coup de coude quand le chrome change
+    # l'etat partage (epingles, badges, placees).
+    fenetres.changees.connect(fenetres._service.Vues)
+    fenetres.modeChange.connect(fenetres._service.ModeChange)
+    if pont is not None or scene is not None:
+        fenetres._service_bureau = ServiceBureau(pont, scene, nom_bus)
 
     if not os.path.isfile(script):
         return fenetres, "le rapporteur %s est absent — barre sans fenetres" % script

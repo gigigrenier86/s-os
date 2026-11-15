@@ -129,6 +129,30 @@ lancer_coquille() {
     "$COQUILLE" >>"$JOURNAL/coquille.log" 2>&1
 }
 
+# --------------------------------------------------------------------------
+# LE CHROME — barre, barre laterale, bulle — VIT DANS SON PROCESSUS
+# --------------------------------------------------------------------------
+# Depuis le 2026-11-14, le chrome est en surfaces de couche (voir s-chrome) :
+# il ne peut pas partager le processus du bureau, et il doit survivre aux
+# chutes du bureau comme le bureau doit survivre aux siennes. Son propre
+# filet, leger : s'il tombe, on le relance — le journal dira pourquoi. Il
+# s'arrete quand la session demande a sortir (le temoin « quitter »).
+CHROME=/usr/bin/s-chrome
+chrome_pid=""
+if [[ -x "$CHROME" ]]; then
+    (
+        while true; do
+            "$CHROME" >>"$JOURNAL/chrome.log" 2>&1
+            [[ -f "$JOURNAL/quitter" ]] && break
+            dire "chrome tombe — reprise"
+            sleep 1
+        done
+    ) &
+    chrome_pid=$!
+else
+    dire "$CHROME absent — session sans chrome"
+fi
+
 # --- Le filet --------------------------------------------------------------
 # Trois chutes en moins d'une minute = ce n'est pas un accident, c'est une
 # panne. On arrete de rejouer et on repose un bureau utilisable.
@@ -184,3 +208,11 @@ while true; do
     dire "coquille tombee (code $code) — reprise $chutes/3"
     sleep 1
 done
+
+# LA SESSION SORT : le chrome doit suivre, sans attendre que le compositeur
+# le tue — son filet lit le temoin « quitter », mais s'il est en pleine
+# chute, on ne le laisse pas traîner.
+if [[ -n "$chrome_pid" ]]; then
+    pkill -P "$chrome_pid" 2>/dev/null || true
+    kill "$chrome_pid" 2>/dev/null || true
+fi

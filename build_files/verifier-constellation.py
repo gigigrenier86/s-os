@@ -446,64 +446,20 @@ def verifier_un_theme():
 
     # On ouvre le menu Demarrer : la moitie de la scene ne s'instancie qu'a ce
     # moment-la, et une faute qui n'y serait que la passerait sinon inapercue.
-    # LE MENU DU CLIC DROIT DE LA BARRE EST OUVERT ICI, ET IL A SA RAISON.
-    # Ses articles sont poses par un Repeater a l'interieur d'un Menu — un
-    # montage qui charge sans une plainte meme s'il n'instancie RIEN, parce
-    # qu'un Menu vide est un Menu valide. Sans ce controle, « fermer la
-    # fenetre » aurait pu n'exister que dans le fichier : la scene se serait
-    # verifiee verte, et le menu se serait ouvert vide chez l'utilisateur.
-    # DIX, ET LE COMPTE INCLUT LES SEPARATEURS : six articles ecrits a la
-    # main (ranger, ajouter/retirer de la Constellation, veille immediate,
-    # fermer, forcer l'arret, menage), DEUX poses par le Repeater — les modes
-    # de veille, la partie qu'on verifie vraiment — et deux traits. « count »
-    # compte tout ce que le Menu porte.
-    # « Forcer l'arret » ajoute le 2026-08-30 : neuf devient dix ; « ranger les
-    # autres » retire le 2026-09-20 : dix redevient neuf ; « Ajouter/Retirer
-    # de la Constellation » ajoute le 2026-10-20 : neuf redevient dix ;
-    # « Epingler a la barre », le meme jour avec les themes : dix devient onze.
-    ARTICLES_ATTENDUS = 11
-    manque_articles = {"valeur": 0, "trouve": False}
-    # La hauteur du menu une fois ouvert, et celle qu'il demande. Voir le
-    # controle plus bas : c'est la mesure qui manquait le 2026-08-26.
-    articles = {"haut": 0.0, "implicite": 0.0}
+    # LE MENU DU CLIC DROIT DE LA BARRE N'EST PLUS ICI : il se verifie dans
+    # verifier-chrome.py, qui charge la scene du chrome (Chrome.qml).
 
     def ouvrir():
-        # LA BARRE LATERALE N'ETAIT JAMAIS DEPLOYEE ICI — correctif du
-        # 2026-10-20. Sans « rafraichirReglages() », « laterale.reglages »
-        # reste a « [] » et le Repeater de ses etoiles (« repeaterReglages »,
-        # BarreLaterale.qml) n'instancie jamais un seul delegue : c'est
-        # exactement la classe de defaut (une erreur de liaison qui ne se
-        # voit que dans un delegue de Repeater) que ce controle existe pour
-        # attraper ailleurs, et elle restait invisible pour tout le panneau
-        # de reglages. On appelle directement le leurre, comme le vrai pont
-        # le ferait a l'ouverture du panneau (voir « onOuverte » dans
-        # Constellation.qml).
+        # LA BARRE LATERALE N'EST PLUS DANS CETTE SCENE (elle vit dans
+        # s-chrome depuis le 2026-11-14) : son panneau de reglages et le menu
+        # du clic droit de la barre se verifient desormais dans
+        # verifier-chrome.py, qui charge Chrome.qml. Ici ne s'ouvrent que les
+        # pieces du bureau : le menu Demarrer et la boite de personnalisation.
         pont.rafraichirReglages()
         for enfant in racine.findChildren(QObject):
             try:
                 if enfant.objectName() in ("menuDemarrer", "personnaliser"):
                     enfant.setProperty("visible", True)
-                elif enfant.objectName() == "barreLaterale":
-                    enfant.setProperty("deploye", True)
-                elif enfant.objectName() == "menuFenetre":
-                    # « cible » est desormais calcule depuis la liste des
-                    # ouvertures : on pose l'identifiant, comme le fait
-                    # ouvrirPour().
-                    enfant.setProperty(
-                        "cibleId", "{00000000-0000-0000-0000-000000000000}")
-                    enfant.setProperty("visible", True)
-                    manque_articles["trouve"] = True
-                    articles["haut"] = float(enfant.property("height") or 0)
-                    articles["implicite"] = float(
-                        enfant.property("implicitHeight") or 0)
-                    # « count », PAS « contentData ». Mesure du 2026-08-26 :
-                    # contentData rend une liste vide sur un Menu pourtant
-                    # peuple — c'est la propriete par defaut, pas l'inventaire
-                    # des articles. Le controle rendait donc zero article sur
-                    # un menu complet, ce qui aurait fait echouer la
-                    # construction pour un defaut inexistant.
-                    manque_articles["valeur"] = int(
-                        enfant.property("count") or 0)
             except (RuntimeError, AttributeError):
                 pass
         QTimer.singleShot(700, fini)
@@ -523,36 +479,6 @@ def verifier_un_theme():
         #           au ciel, alors qu'il n'y a jamais ete.
         # UN CONTROLE QUI NE TROUVE PAS SA CIBLE REND VERT SANS RIEN MESURER,
         # et c'est la faute que ce fichier reproche deja au compteur d'astres.
-        if not manque_articles["trouve"]:
-            print("ECHEC : le menu du clic droit de la barre est introuvable "
-                  "dans la scene (objectName « menuFenetre »).", file=sys.stderr)
-            code["valeur"] = 1
-        elif manque_articles["valeur"] != ARTICLES_ATTENDUS:
-            # « != » ET NON « < ». Le controle n'attrapait que le menu vide :
-            # une edition qui duplique le Repeater ou laisse un article errant
-            # passait a dix, douze ou vingt sans le moindre signal. Un compte
-            # attendu qui n'est pas atteint PAR LE HAUT est un defaut autant
-            # que par le bas.
-            print("ECHEC : le menu du clic droit de la barre porte %d article(s), "
-                  "%d attendus." % (manque_articles["valeur"], ARTICLES_ATTENDUS),
-                  file=sys.stderr)
-            code["valeur"] = 1
-        # LA HAUTEUR, PARCE QUE COMPTER LES ARTICLES NE DIT PAS QU'ON LES VOIT.
-        # Mesure du 2026-08-27 : le menu portait bien ses neuf articles et
-        # demandait 360 pixels, mais s'ouvrait a 52 — la hauteur de la fenetre
-        # de la barre, qui borne tout Popup mis en page en elle. Neuf articles
-        # dont un seul visible passaient ce controle en vert.
-        elif articles["haut"] + 0.5 < articles["implicite"]:
-            print("ECHEC : le menu du clic droit s'ouvre a %d px alors qu'il en "
-                  "demande %d — il est borne par la fenetre de la barre. Voir "
-                  "« popupType » dans Barre.qml."
-                  % (articles["haut"], articles["implicite"]), file=sys.stderr)
-            code["valeur"] = 1
-        else:
-            print("  menu barre    : %d articles instancies, %d attendus, "
-                  "%d px ouverts pour %d demandes"
-                  % (manque_articles["valeur"], ARTICLES_ATTENDUS,
-                     articles["haut"], articles["implicite"]))
         attendu = 5
         # ON DEMANDE AU REPEATER, PAS A L'ARBRE D'OBJETS. Compter les enfants
         # par leur objectName rendait ZERO alors que le modele en portait cinq :
@@ -575,38 +501,17 @@ def verifier_un_theme():
                   file=sys.stderr)
             plaintes.append("compte d'etoiles : %d au lieu de %d" % (vus, attendu))
 
-        # LE PANNEAU DE REGLAGES, JAMAIS EXERCE AVANT CE CONTROLE — correctif
-        # du 2026-10-20. Meme principe que « repeaterCiel » ci-dessus : « 0
-        # delegue instancie » et « aucun avertissement » se confondaient
-        # avant que « ouvrir() » n'appelle « pont.rafraichirReglages() ».
-        # HORS CONSTELLATION, DEUX REPEATER SE PARTAGENT LES REGLAGES : les
-        # tuiles et les curseurs. On additionne tous ceux dont le nom commence
-        # par « repeaterReglages » — un seul existe par mise en page.
-        attendu_reglages = len(FAUX_REGLAGES)
-        vus_reglages = -1
-        for enfant in racine.findChildren(QObject):
-            try:
-                if enfant.objectName().startswith("repeaterReglages"):
-                    vus_reglages = max(0, vus_reglages) + int(enfant.property("count"))
-            except (RuntimeError, AttributeError, TypeError, ValueError):
-                pass
-        if vus_reglages < 0:
-            plaintes.append("le Repeater des reglages est introuvable")
-            vus_reglages = 0
-        if vus_reglages != attendu_reglages:
-            print("ECHEC : %d etoiles de reglage instanciees, %d attendues."
-                  % (vus_reglages, attendu_reglages), file=sys.stderr)
-            plaintes.append("compte d'etoiles de reglage : %d au lieu de %d"
-                             % (vus_reglages, attendu_reglages))
+        # LE PANNEAU DE REGLAGES VIT DESORMAIS DANS LE CHROME (s-chrome) :
+        # ses etoiles se verifient dans verifier-chrome.py.
 
-        # LES PIECES PROPRES AU THEME, COMPTEES COMME LE RESTE. Hors
-        # Constellation, la barre groupe les applications : trois epinglees du
-        # leurre, aucune fenetre ouverte. Et chaque menu doit avoir instancie sa
-        # grille : un menu qui charge sans rien montrer charge sans un mot.
+        # LES PIECES PROPRES AU THEME, COMPTEES COMME LE RESTE. Chaque menu
+        # du bureau doit avoir instancie sa grille : un menu qui charge sans
+        # rien montrer charge sans un mot. Les groupes de la barre
+        # (« groupesBarre ») se verifient cote chrome.
         theme_ici = THEME or "constellation"
         attendus_theme = {"constellation": [("grilleAppsConstellation", 3)],
-                          "windows": [("groupesBarre", 3), ("epinglesDemarrer", 3)],
-                          "android": [("groupesBarre", 3), ("grilleTiroir", 3)]}
+                          "windows": [("epinglesDemarrer", 3)],
+                          "android": [("grilleTiroir", 3)]}
         for nom_obj, attendu_obj in attendus_theme[theme_ici]:
             vu_obj = -1
             for enfant in racine.findChildren(QObject):
@@ -669,8 +574,6 @@ def verifier_un_theme():
             print("  scene QML     : chargee (theme %s), menu ouvert, aucun "
                   "avertissement" % (THEME or "constellation"))
             print("  ciel          : %d etoiles instanciees, dont 3 jaunes" % vus)
-            print("  reglages      : %d etoiles de reglage instanciees"
-                  % vus_reglages)
         app.quit()
 
     QTimer.singleShot(900, ouvrir)

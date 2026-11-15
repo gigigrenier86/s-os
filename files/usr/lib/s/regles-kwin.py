@@ -1,11 +1,18 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-"""Les regles kwin dont S a besoin pour poser ses deux fenetres de service.
+"""Les regles kwin dont S a besoin pour ses fenetres Android.
 
 POURQUOI DES REGLES, ET PAS DES COORDONNEES DANS LE QML. Un client Wayland ne
 se place pas lui-meme : le protocole ne le permet pas, et le compositeur
 decide. Mesure du 2026-08-25 : une fenetre demandant x=1516 y=24 s'est affichee
 AU CENTRE de l'ecran. Ce n'est pas un defaut de Qt.
+
+LE CHROME N'EST PLUS ICI DEPUIS LE 2026-11-14. La barre, la barre laterale et
+la bulle sont devenues des surfaces de couche (zwlr_layer_shell_v1, processus
+s-chrome) : le compositeur les ancre lui-meme, leurs regles de position et de
+taille ont donc disparu. Ne restent que les fenetres Android — centrees et
+dimensionnees ici, puisqu'aucune surface de couche ne peut le faire pour
+elles.
 
 POURQUOI DANS ~/.config ET NON DANS L'IMAGE, ce qui contredit en apparence la
 regle « ce qui doit tenir va dans l'image ». KConfig cascade : le fichier de
@@ -19,8 +26,8 @@ vit dans l'image. Il tourne a chaque ouverture de session, il se repare tout
 seul si quelqu'un efface le fichier, et il n'ecrase jamais les regles que
 l'utilisateur aurait ajoutees.
 
-ET IL EST APPELE PAR CONSTELLATION, PAS PAR LA COQUILLE, parce que les deux
-regles ont besoin de la taille de l'ecran — que seul un programme connecte au
+ET IL EST APPELE PAR CONSTELLATION, PAS PAR LA COQUILLE, parce que la regle a
+besoin de la taille de l'ecran — que seul un programme connecte au
 compositeur connait. La deviner en lisant kscreen-doctor serait une seconde
 source de verite pour une chose que Qt sait deja.
 """
@@ -31,22 +38,6 @@ import os
 import subprocess
 import sys
 
-
-# Les titres sont des CLEFS, pas des decorations : la barre, la bulle et le
-# bureau appartiennent tous a s-constellation et portent donc la meme classe.
-# Le titre est le seul moyen de les distinguer, et il doit correspondre mot
-# pour mot au « title: » de Bulle.qml et de Barre.qml.
-TITRE_BULLE = "S - notification"
-# LA BULLE CHANGE DE PLACE AVEC LE THEME — depuis le 2026-10-20. Un titre par
-# place, une regle par titre : la bulle est cachee entre deux notifications, et
-# une fenetre cachee puis montree est NEUVE pour kwin, qui relit ses regles avec
-# le titre du moment. Rien a reecrire quand on change de theme. Ces titres
-# doivent valoir, mot pour mot, ceux de Bulle.qml.
-TITRE_BULLE_BAS = "S - notification (bas)"     # Windows : au-dessus de la barre
-TITRE_BULLE_HAUT = "S - notification (haut)"   # Android : en haut, au centre
-TITRE_BARRE = "S - barre"
-TITRE_LATERALE = "S - barre laterale"
-
 # LA SEULE FENETRE ANDROID QU'ON TRAITE A PART. Les fenetres d'applis (classe
 # « waydroid.<paquet> ») affichent deja leur vrai nom (YouTube, Gmail...) et
 # le gardent. Mais la fenetre systeme generique -- clavier virtuel, popups --
@@ -55,38 +46,7 @@ TITRE_LATERALE = "S - barre laterale"
 # d'ecran reelle. Son sort : plus bas dans `regles()`, sous
 # "s-android-systeme".
 
-LARGEUR_BULLE = 380
-MARGE_BULLE = 24
-# Windows : la fenetre a une hauteur FIXE et la carte s'y pose en bas (voir
-# Bulle.qml, « hauteurFixe ») — une fenetre qui grandirait vers le bas depuis un
-# coin fixe passerait sous la barre.
-LARGEUR_BULLE_BAS = 364
-HAUTEUR_BULLE_BAS = 220
-MARGE_BULLE_BAS = 12
-LARGEUR_BULLE_HAUT = 400
-MARGE_BULLE_HAUT = 12
 HAUTEUR_BARRE = 52
-# LA FENETRE DE LA BARRE EST PLUS HAUTE QUE LA BARRE, ET LA REGLE DOIT POSER LA
-# FENETRE. Le menu du clic droit est un Popup borne a sa fenetre : il lui faut
-# de la place au-dessus de la bande visible. Donner au menu sa propre fenetre
-# ne marche pas — mesure du 2026-08-27, il se pose tout a gauche de l'ecran,
-# parce qu'un client Wayland ne se positionne pas lui-meme. La fenetre monte
-# donc, et son masque ne laisse sensible que la bande du bas.
-# CE NOMBRE DOIT VALOIR « hauteur + placeMenu » DE Barre.qml. Deux fichiers qui
-# doivent rester d'accord finissent par diverger, d'ou ce rappel.
-HAUTEUR_FENETRE_BARRE = HAUTEUR_BARRE + 420
-# LA LARGEUR EST CELLE DU PANNEAU DEPLOYE, ET LA FENETRE LA GARDE TOUJOURS.
-# Elle ne bouge donc jamais : c'est sa zone SENSIBLE qui retrecit quand elle est
-# repliee, pas sa geometrie. Un client Wayland ne se positionne pas lui-meme
-# (mesure du 2026-08-25, une fenetre demandant x=1516 s'est affichee au centre) ;
-# une languette qui grandirait devrait etre replacee a chaque ouverture, et on
-# la verrait sauter.
-# ELLE DOIT VALOIR « largeur » DE BarreLaterale.qml, PAS « largeurBarre ». La
-# fenetre est plus large que la colonne visible : le nom d'un reglage s'ecrit a
-# gauche de celle-ci, dans le reste de la fenetre. Deux fichiers qui doivent
-# rester d'accord finissent par diverger — ce depot le repete depuis
-# « s-partage » — d'ou ce rappel plutot qu'un simple nombre.
-LARGEUR_LATERALE = 360
 
 # LE RAPPORT QUI DECIDE DE LA MISE EN PAGE D'ANDROID, ET IL N'EST PAS COSMETIQUE.
 #
@@ -137,57 +97,12 @@ def fichier_regles():
 
 
 def regles(largeur, hauteur):
-    """Les deux groupes, calcules pour cet ecran-ci."""
-    bulle = dict(COMMUN)
-    bulle.update({
-        "Description": "S - la bulle de notification, en haut a droite",
-        "title": TITRE_BULLE,
-        "position": "%d,%d" % (max(0, largeur - LARGEUR_BULLE - MARGE_BULLE),
-                               MARGE_BULLE),
-    })
+    """Les groupes Android, calcules pour cet ecran-ci.
 
-    bulle_bas = dict(COMMUN)
-    bulle_bas.update({
-        "Description": "S - la bulle de notification, en bas a droite (Windows)",
-        "title": TITRE_BULLE_BAS,
-        "position": "%d,%d" % (max(0, largeur - LARGEUR_BULLE_BAS - MARGE_BULLE_BAS),
-                               max(0, hauteur - HAUTEUR_BARRE - MARGE_BULLE_BAS
-                                   - HAUTEUR_BULLE_BAS)),
-    })
-    bulle_haut = dict(COMMUN)
-    bulle_haut.update({
-        "Description": "S - la bulle de notification, en haut au centre (Android)",
-        "title": TITRE_BULLE_HAUT,
-        "position": "%d,%d" % (max(0, (largeur - LARGEUR_BULLE_HAUT) // 2),
-                               MARGE_BULLE_HAUT),
-    })
-
-    barre = dict(COMMUN)
-    barre.update({
-        "Description": "S - la barre des taches, en bas",
-        "title": TITRE_BARRE,
-        "position": "0,%d" % max(0, hauteur - HAUTEUR_FENETRE_BARRE),
-        # LA TAILLE EST FORCEE, ET C'EST NECESSAIRE : la barre demande la
-        # largeur de l'ecran, mais kwin peut la retailler a l'ouverture si une
-        # autre regle ou un souvenir de geometrie traine. Une barre des taches
-        # de 800 pixels de large collee a gauche a l'air d'un bogue.
-        "size": "%d,%d" % (largeur, HAUTEUR_FENETRE_BARRE),
-        "sizerule": "2",
-    })
-    laterale = dict(COMMUN)
-    laterale.update({
-        "Description": "S - la barre laterale, au bord droit",
-        "title": TITRE_LATERALE,
-        "position": "%d,0" % max(0, largeur - LARGEUR_LATERALE),
-        # LA TAILLE EST FORCEE POUR LA MEME RAISON QUE CELLE DE LA BARRE : la
-        # fenetre demande toute la hauteur de l'ecran, et un souvenir de
-        # geometrie suffirait a la rendre plus courte — une ligne qui s'arrete
-        # au milieu du bord droit n'a plus l'air d'une poignee, mais d'un
-        # defaut d'affichage.
-        "size": "%d,%d" % (LARGEUR_LATERALE, hauteur),
-        "sizerule": "2",
-    })
-
+    Le chrome (barre, barre laterale, bulle) est parti en surfaces de couche
+    le 2026-11-14 : plus de regle pour lui. Reste Android — la fenetre
+    d'application centree, et la fenetre systeme invisible.
+    """
     # LES FENETRES ANDROID, COLLEES EN HAUT.
     #
     # MESURE DU 2026-08-26 : kwin posait la fenetre de YouTube en 110,26 —
@@ -202,7 +117,7 @@ def regles(largeur, hauteur):
     # « waydroid. » en sous-chaine attrape toutes les applications d'un coup :
     # leur classe est « waydroid.<paquet> ». Et cette regle n'herite PAS de
     # COMMUN — une application Android est une fenetre ordinaire, qui doit
-    # rester dans la barre des taches et sous les fenetres de service de S.
+    # rester dans la barre des taches.
     larg_android, _ = taille_android(largeur, hauteur)
     android = {
         "Description": "S - les fenetres Android, collees en haut",
@@ -271,9 +186,7 @@ def regles(largeur, hauteur):
         "minimizerule": "2",
     }
 
-    return {"s-bulle": bulle, "s-bulle-bas": bulle_bas, "s-bulle-haut": bulle_haut,
-            "s-barre": barre, "s-laterale": laterale,
-            "s-android": android, "s-android-systeme": android_systeme}
+    return {"s-android": android, "s-android-systeme": android_systeme}
 
 
 def poser(largeur, hauteur):

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import org.kde.layershell as LayerShell
 
 // ═══════════════════════════════════════════════════════════════════════════
 // LA BARRE DES TACHES — toujours en bas, toujours visible.
@@ -25,6 +26,19 @@ Window {
     // reconnait par ce texte. Le changer ici sans changer regles-kwin.py la
     // renverrait au milieu de l'ecran.
     title: "S - barre"
+
+    // ══ LA SURFACE DE COUCHE ═══════════════════════════════════════════════
+    // Dans le processus s-chrome, l'integration layer-shell est active : le
+    // compositeur ancre LUI-MEME cette fenetre au bas de l'ecran, pleine
+    // largeur — plus de regle kwin pour la poser, plus de rattrapage quand un
+    // ecran se debranche. Hors layer-shell (la scene du bureau, le
+    // verificateur offscreen), ces declarations sont inertes : la fenetre
+    // reste une fenetre ordinaire, posee par la regle comme avant.
+    LayerShell.Window.layer: LayerShell.Window.LayerTop
+    LayerShell.Window.anchors: LayerShell.Window.AnchorBottom
+                               | LayerShell.Window.AnchorLeft
+                               | LayerShell.Window.AnchorRight
+    LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
     property int hauteur: 52
 
@@ -132,9 +146,9 @@ Window {
 
     function groupesVoulus() {
         var sortie = [], index = {};
-        var ep = (bureau.donnees && bureau.donnees.epingles) ? bureau.donnees.epingles : [];
+        var ep = (Session.bureau.donnees && Session.bureau.donnees.epingles) ? Session.bureau.donnees.epingles : [];
         for (var i = 0; i < ep.length; i++) {
-            var a = bureau.appParId(ep[i]);
+            var a = Session.bureau.appParId(ep[i]);
             if (!a) continue;
             var cleA = "app:" + a.id;
             if (index[cleA] !== undefined) continue;
@@ -144,7 +158,7 @@ Window {
         var liste = barre.ouvertures || [];
         for (var j = 0; j < liste.length; j++) {
             var f = liste[j];
-            var app = bureau.appParId(f.classe) || bureau.appParClasse(f.classe);
+            var app = Session.bureau.appParId(f.classe) || Session.bureau.appParClasse(f.classe);
             var cleF = app ? "app:" + app.id : "fen:" + f.id;
             if (index[cleF] === undefined) {
                 index[cleF] = sortie.length;
@@ -199,9 +213,9 @@ Window {
         if (!g) return;
         if (g.nb === 0) {
             if (g.appId !== "") {
-                bureau.dire(pont.lancer(g.appId));
+                Session.bureau.dire(pont.lancer(g.appId));
                 pont.effacerBadge(g.appId);
-                bureau.relire();
+                Session.bureau.relire();
             }
             return;
         }
@@ -219,7 +233,7 @@ Window {
         var g = groupeDe(cle);
         if (!g) return;
         if (g.nb === 0) {
-            var a = bureau.appParId(g.appId);
+            var a = Session.bureau.appParId(g.appId);
             if (a) menuEpinglee.ouvrirPour(a, ex);
             return;
         }
@@ -239,7 +253,7 @@ Window {
         synchroniserGroupes();
     }
     Connections {
-        target: bureau
+        target: Session.bureau
         function onDonneesChanged() { barre.synchroniserGroupes(); }
     }
     Connections {
@@ -550,10 +564,10 @@ Window {
             // classe de cette fenetre : meme recherche qu'une tuile ouverte
             // emploie deja pour son icone, voir « tuile.app » plus haut.
             readonly property var cibleApp: cible !== null
-                ? (bureau.appParId(cible.classe) || bureau.appParClasse(cible.classe))
+                ? (Session.bureau.appParId(cible.classe) || Session.bureau.appParClasse(cible.classe))
                 : null
-            readonly property bool ciblePosee: cibleApp !== null &&
-                Object.prototype.hasOwnProperty.call(bureau.donnees.placees, cibleApp.id)
+            readonly property bool ciblePosee: cibleApp !== null && Session.bureau
+                && Object.prototype.hasOwnProperty.call(Session.bureau.donnees.placees, cibleApp.id)
 
             // Une fenetre qui disparait pendant que son menu est ouvert
             // laisserait un menu qui ne vise plus rien.
@@ -614,10 +628,10 @@ Window {
                     if (menuFenetre.ciblePosee) {
                         pont.retirerDuBureau(menuFenetre.cibleApp.id);
                     } else {
-                        var p = bureau.placeLibre();
+                        var p = Session.bureau.placeLibre();
                         pont.placer(menuFenetre.cibleApp.id, p.x, p.y);
                     }
-                    bureau.relire();
+                    Session.bureau.relire();
                 }
             }
 
@@ -633,7 +647,7 @@ Window {
                 text: epinglee ? "Retirer de la barre" : "Epingler a la barre"
                 onTriggered: {
                     pont.epingler(menuFenetre.cibleApp.id, !epinglee);
-                    bureau.relire();
+                    Session.bureau.relire();
                 }
             }
 
@@ -756,15 +770,15 @@ Window {
             ArticleMenu {
                 text: "Ouvrir"
                 onTriggered: {
-                    bureau.dire(pont.lancer(menuEpinglee.cible.id));
+                    Session.bureau.dire(pont.lancer(menuEpinglee.cible.id));
                     pont.effacerBadge(menuEpinglee.cible.id);
-                    bureau.relire();
+                    Session.bureau.relire();
                 }
             }
 
             ArticleMenu {
                 text: "Executer en root"
-                onTriggered: bureau.dire(pont.lancerEnRoot(menuEpinglee.cible.id))
+                onTriggered: Session.bureau.dire(pont.lancerEnRoot(menuEpinglee.cible.id))
             }
 
             // « AJOUTER A LA CONSTELLATION » — correctif du 2026-10-20, meme
@@ -772,18 +786,19 @@ Window {
             // fichier. « cible » est deja l'objet app complet pour une
             // epinglee, donc rien a resoudre ici.
             ArticleMenu {
-                readonly property bool posee: menuEpinglee.cible !== null &&
-                    Object.prototype.hasOwnProperty.call(
-                        bureau.donnees.placees, menuEpinglee.cible.id)
+                readonly property bool posee: menuEpinglee.cible !== null
+                    && Session.bureau
+                    && Object.prototype.hasOwnProperty.call(
+                        Session.bureau.donnees.placees, menuEpinglee.cible.id)
                 text: posee ? "Retirer de la Constellation" : "Ajouter a la Constellation"
                 onTriggered: {
                     if (posee) {
                         pont.retirerDuBureau(menuEpinglee.cible.id);
                     } else {
-                        var p = bureau.placeLibre();
+                        var p = Session.bureau.placeLibre();
                         pont.placer(menuEpinglee.cible.id, p.x, p.y);
                     }
-                    bureau.relire();
+                    Session.bureau.relire();
                 }
             }
 
@@ -794,7 +809,7 @@ Window {
                 text: "Retirer de la barre"
                 onTriggered: {
                     pont.epingler(menuEpinglee.cible.id, false);
-                    bureau.relire();
+                    Session.bureau.relire();
                 }
             }
         }
@@ -866,8 +881,8 @@ Window {
                 enabled: menuGroupe.groupe !== null && menuGroupe.groupe.appId !== ""
                 text: "Ouvrir une nouvelle fenetre"
                 onTriggered: {
-                    bureau.dire(pont.lancer(menuGroupe.groupe.appId));
-                    bureau.relire();
+                    Session.bureau.dire(pont.lancer(menuGroupe.groupe.appId));
+                    Session.bureau.relire();
                 }
             }
         }
@@ -1132,11 +1147,16 @@ Window {
 
                 Repeater {
                     objectName: "epinglesBarre"
-                    model: bureau.donnees.epingles
+                    // SESSION, PAS LA CHAINE DE PORTEE : le contenu d'un
+                    // Loader re-instantie au changement de theme ne la voit
+                    // plus (mesure du 2026-11-14). La garde tient le premier
+                    // instant, avant que Chrome.qml ne pose Session.bureau.
+                    model: Session.bureau ? Session.bureau.donnees.epingles : []
                     delegate: Item {
                         id: itemEp
                         required property string modelData
-                        readonly property var app: bureau.appParId(modelData)
+                        readonly property var app: Session.bureau
+                            ? Session.bureau.appParId(modelData) : null
                         visible: app !== null
                         width: visible ? 32 : 0
                         height: 32
@@ -1214,9 +1234,9 @@ Window {
                             id: tapEp
                             onTapped: {
                                 animRebondEp.restart();
-                                bureau.dire(pont.lancer(parent.app.id));
+                                Session.bureau.dire(pont.lancer(parent.app.id));
                                 pont.effacerBadge(parent.app.id);
-                                bureau.relire();
+                                Session.bureau.relire();
                             }
                         }
 
@@ -1288,8 +1308,10 @@ Window {
                         // .desktop) — par classe partagee ensuite, pour les
                         // lanceurs qui reutilisent le meme moteur qu'un autre
                         // (S Web sur Vivaldi). Voir appParClasse.
-                        readonly property var app: bureau.appParId(tuile.classe)
-                                                    || bureau.appParClasse(tuile.classe)
+                        readonly property var app: Session.bureau
+                            ? (Session.bureau.appParId(tuile.classe)
+                               || Session.bureau.appParClasse(tuile.classe))
+                            : null
 
                         // La largeur se partage, avec un plancher et un plafond :
                         // douze fenetres ouvertes ne doivent pas rendre les titres
@@ -1622,7 +1644,7 @@ Window {
             required property bool reduite
             required property string titre
             required property bool epinglee
-            readonly property var app: appId !== "" ? bureau.appParId(appId) : null
+            readonly property var app: appId !== "" ? Session.bureau.appParId(appId) : null
             // Une fenetre qu'aucune application ne revendique : le glyphe d'une
             // fenetre, plutot qu'une boite vide.
             readonly property var appMontree: app ? app : ({ ico: "i-fenetre", src: "linux", img: "" })

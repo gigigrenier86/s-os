@@ -27,12 +27,8 @@ ApplicationWindow {
     id: bureau
 
     // ── LA VEILLE DES FENETRES ────────────────────────────────────────────
-    // Ce que la barre affiche du reglage. La valeur de depart est celle du
-    // pont — « geler » — et elle est corrigee des que le pont parle, ce qu'il
-    // fait a la premiere nouvelle du compositeur.
-    property string veilleMode: (typeof fenetres !== "undefined" && fenetres)
-                                ? fenetres.mode() : "geler"
-    property int fenetresInactives: 0
+    // Le reglage vit dans le pont fenetres ; la barre des taches (s-chrome)
+    // l'affiche et le change par le bus, sans passer par cette scene.
 
     // ── UN POPUP BLOQUANT EST OUVERT ──────────────────────────────────────
     // LE CIEL ET L'ACCUEIL SE DESACTIVENT TANT QU'IL L'EST — correctif du
@@ -70,15 +66,28 @@ ApplicationWindow {
     // recomposer a chaque image. Mesure du 2026-09-19, banc de fluidite, vrai
     // ciel de cette machine : 8,9 % de CPU avec le ciel visible, 8,8 % avec
     // trois fenetres devant (rien ne changeait), 3,1 % avec un plein ecran.
-    // Une fenetre REDUITE ne cache rien : elle ne compte pas.
-    readonly property bool vivant: !barreTaches.ouvertures.some(function (f) {
+    // Une fenetre REDUITE ne cache rien : elle ne compte pas. La liste vient
+    // du rapporteur de kwin, par le pont fenetres — la barre des taches
+    // (s-chrome) la recoit par le bus, le bureau la recoit en memoire.
+    readonly property bool vivant: !ouvertures.some(function (f) {
         return f.reduite !== true;
     })
+
+    // LA HAUTEUR DE LA BARRE, EN UNE SEULE CONSTANTE. La barre elle-meme vit
+    // dans s-chrome (surfaces de couche) depuis le 2026-11-14 ; le ciel du
+    // bureau, lui, doit toujours laisser la place a sa bande de 52 pixels.
+    readonly property int hauteurBarre: 52
 
     visible: true
     visibility: Window.FullScreen
     color: Theme.espace
     title: "Constellation"
+
+    // CONSTELLATION N'EST PAS UNE PAGE, C'EST L'OS. Si le compositeur change
+    // d'ecran (HDMI debranche), le client peut retomber en fenetre : le
+    // rapporteur kwin (fenetres.js) le rattrape aussi, mais cette ligne est
+    // le filet cote client, pour le jour ou le rapporteur n'a pas charge.
+    onScreenChanged: visibility = Window.FullScreen
 
     // --- L'etat, tel que le noyau le rend ---------------------------------
     property var donnees: ({ etoiles: [], usage: ({}), placees: ({}), epingles: [], fichiers: [] })
@@ -134,6 +143,12 @@ ApplicationWindow {
     // objets par identite, pas par valeur.
     property string empreinteDonnees: ""
     property string empreinteOuvertures: ""
+    // LES FENETRES OUVERTES, telles que le rapporteur de kwin les envoie —
+    // la barre des taches (s-chrome) les recoit par le bus, le bureau les
+    // recoit en memoire : « vivant », les halos d'activite des etoiles et
+    // l'etagere des recents les lisent ici. Declaree depuis le 2026-11-14,
+    // quand la scene du bureau a perdu la barre qui les portait avant.
+    property var ouvertures: []
     function relire() {
         // NE JAMAIS RECONSTRUIRE LE CIEL PENDANT UN GLISSEMENT — correctif
         // du 2026-10-20, releve par l'utilisateur : « les etoiles se
@@ -230,7 +245,7 @@ ApplicationWindow {
     // CONSTELLATION VIVANTE — l'etat d'activite, deja live cote kwin.
     // « fenetres.js » pousse « classe », « active », « reduite » a chaque
     // bascule (un vrai signal Qt, jamais une scrutation) — voir
-    // « barreTaches.ouvertures », rempli par « Connections { onChangees }
+    // « ouvertures », rempli par « Connections { onChangees }
     // plus bas. L'appariement fenetre -> etoile se fait par « classe », deja
     // prouve pour Linux (le .desktop = resourceClass, Barre.qml l'utilise
     // deja) et pour Android (android-applications.py pose
@@ -243,7 +258,7 @@ ApplicationWindow {
     // taches manque deja pour Windows).
     function fenetresPour(app) {
         if (!app || !app.id) return [];
-        return barreTaches.ouvertures.filter(function (f) {
+        return ouvertures.filter(function (f) {
             return f.classe === app.id;
         });
     }
@@ -279,6 +294,50 @@ ApplicationWindow {
         mot.text = texte;
         mot.vu = true;
         chrono.restart();
+    }
+
+    // ══ LES GESTES DU CHROME LOINTAIN ═══════════════════════════════════════
+    // La barre des taches vit dans s-chrome, un autre processus : ses boutons
+    // (Demarrer, recherche, recents, navigation Android) arrivent ici par le
+    // service /bureau, qui appelle ces fonctions. Les menus qu'ils ouvrent,
+    // eux, sont dessines DANS cette fenetre — c'est elle qui les porte depuis
+    // toujours, et un menu du bureau doit rester au bureau.
+    function menuDemande() {
+        // TOUJOURS OUVRIR, JAMAIS BASCULER DEPUIS LE BOUTON DE LA BARRE —
+        // correctif du 2026-10-20 : « visible » peut rester vrai pendant
+        // qu'une vraie fenetre recouvre le menu ; un second clic le
+        // refermerait alors sans que personne ne l'ait jamais vu.
+        if (typeof fenetres !== "undefined" && fenetres)
+            fenetres.activerBureau();
+        menuDemarrer.open();
+    }
+    function rechercheDemandee() {
+        if (typeof fenetres !== "undefined" && fenetres)
+            fenetres.activerBureau();
+        menuDemarrer.ouvrirRecherche();
+    }
+    function bureauDemande() {
+        if (typeof fenetres !== "undefined" && fenetres)
+            fenetres.activerBureau();
+    }
+    function retourDemande() {
+        // « Retour » ferme ce qui est ouvert (menu puis etagere), sinon
+        // revient au bureau. Le vrai retour vers une application Android
+        // reste un chantier separe, non verifie.
+        if (menuDemarrer.visible) { menuDemarrer.close(); return; }
+        if (recents.visible) { recents.close(); return; }
+        if (typeof fenetres !== "undefined" && fenetres)
+            fenetres.activerBureau();
+    }
+    function accueilDemande() {
+        if (menuDemarrer.visible) menuDemarrer.close();
+        if (recents.visible) recents.close();
+        if (typeof fenetres !== "undefined" && fenetres)
+            fenetres.activerBureau();
+    }
+    function recentsDemande() {
+        if (recents.visible) recents.close();
+        else recents.ouvrir();
     }
 
     Component.onCompleted: {
@@ -373,7 +432,6 @@ ApplicationWindow {
         if (typeof fenetres !== "undefined" && fenetres)
             fenetres.activerBureau();
         if (menuDemarrer.visible) menuDemarrer.close();
-        laterale.deploye = false;
         personnaliser.open();
     }
 
@@ -388,7 +446,7 @@ ApplicationWindow {
         return Math.max(1, Math.floor((ciel.width - Theme.origineX * 2) / Theme.celluleL));
     }
     function grilleLignes() {
-        return Math.max(1, Math.floor((ciel.height - barreTaches.hauteur - Theme.origineY - 8)
+        return Math.max(1, Math.floor((ciel.height - hauteurBarre - Theme.origineY - 8)
                                       / Theme.celluleH));
     }
     function centreCellule(c, r) {
@@ -585,7 +643,7 @@ ApplicationWindow {
         // LE NOMBRE MAGIQUE « 70 », NOMME — nettoyage du 2026-10-20. Six
         // occurrences, en cinq endroits, utilisaient le meme litteral pour
         // convertir la fraction Y [0,1] d'une etoile en pixels, DISTINCT de
-        // « barreTaches.hauteur » (52, la vraie hauteur de la barre, deja
+        // « hauteurBarre » (52, la vraie hauteur de la barre, deja
         // utilisee plus bas pour detecter un lacher sur elle). On ne les
         // unifie pas ici : chaque etoile deja placee a sa position ecrite
         // sur cette base-la, et changer la valeur deplacerait d'un coup
@@ -651,7 +709,6 @@ ApplicationWindow {
                 ciel.forceActiveFocus();
                 ciel.choisirDans(null);
                 if (menuDemarrer.visible) menuDemarrer.close();
-                if (laterale.deploye) laterale.deploye = false;
             }
         }
 
@@ -971,7 +1028,7 @@ ApplicationWindow {
                     // qu'on sait si l'etoile a ete lachee sur elle — et non
                     // dans la barre, qui ne recoit jamais ce relachement
                     // puisque la souris est tenue par le ciel jusqu'au bout.
-                    if (ny + height > ciel.height - barreTaches.hauteur) {
+                    if (ny + height > ciel.height - hauteurBarre) {
                         pont.epingler(app.id, true);
                         bureau.dire((app.nom || "") + " epinglee a la barre");
                         // On ne memorise PAS la position : l'etoile doit
@@ -1067,156 +1124,23 @@ ApplicationWindow {
         sourceComponent: Component { AccueilAndroid { } }
     }
 
-    // ══ 3. LA BARRE ═══════════════════════════════════════════════════════
-    // ELLE N'EST PLUS DANS CETTE SCENE, ET C'EST LE CHANGEMENT DU 2026-08-25.
-    // Elle y etait, en pilule flottante, et elle disparaissait donc sous la
-    // premiere fenetre ouverte — le bureau reste derriere, c'est sa place.
-    // Une barre des taches qu'il faut degager pour voir n'en est pas une.
-    // Elle vit maintenant dans une fenetre a elle, posee au-dessus des autres
-    // par une regle kwin. Voir Barre.qml.
-    Barre {
-        id: barreTaches
-        // Le mode de veille et le compte des fenetres oubliees descendent
-        // d'ici : la barre affiche, elle ne mesure pas. Voir la Connections
-        // plus bas, qui les rafraichit a chaque nouvelle du compositeur.
-        veille: bureau.veilleMode
-        inactives: bureau.fenetresInactives
-        // Meme regle, et la meme source, que celle de la barre laterale
-        // juste en dessous dans ce fichier : « plein » vient du rapporteur
-        // de kwin, seul a pouvoir le savoir.
-        efface: ouvertures.some(function (f) {
-            return f.plein === true && f.reduite !== true && f.active === true;
-        })
+    // ══ 3. LA BARRE — PARTIE ════════════════════════════════════════════════
+    // ELLE VIT DANS S-CHROME, UN AUTRE PROCESSUS, depuis le 2026-11-14 : des
+    // surfaces de couche (zwlr_layer_shell_v1) ancrees aux bords par le
+    // compositeur — voir Chrome.qml et Barre.qml. Les gestes de la barre qui
+    // ouvrent les menus de CETTE fenetre (Demarrer, recherche, recents)
+    // arrivent par le service /bureau et les fonctions « ...Demande » plus
+    // haut ; le reste (activation, veille, menage) part directement du chrome
+    // vers le pont fenetres, sans passer par ici.
+    // ═══════════════════════════════════════════════════════════════════════
 
-        onActivation: function (ident, estActive) {
-            if (typeof fenetres !== "undefined" && fenetres)
-                fenetres.activer(ident, estActive);
-        }
-        onFermeture: function (ident) {
-            if (typeof fenetres !== "undefined" && fenetres)
-                fenetres.fermer(ident);
-        }
-        onForcerFermeture: function (ident) {
-            if (typeof fenetres !== "undefined" && fenetres)
-                fenetres.forcerFermeture(ident);
-        }
-        onSommeil: function (ident) {
-            if (typeof fenetres !== "undefined" && fenetres)
-                fenetres.endormir(ident);
-        }
-        onMenageDemande: function (jours) {
-            if (typeof fenetres !== "undefined" && fenetres)
-                bureau.dire(fenetres.fermerInactives(jours));
-        }
-        onVeilleChoisie: function (mode) {
-            if (typeof fenetres !== "undefined" && fenetres)
-                bureau.dire(fenetres.reglerMode(mode));
-        }
-        onInactivesDemandees: {
-            // A L'OUVERTURE DU MENU, ET NULLE PART AILLEURS. Le compte depend
-            // de l'heure autant que de la liste — une fenetre franchit les dix
-            // jours sans qu'aucun evenement ne le dise — donc le relire au
-            // moment ou l'etiquette s'affiche est a la fois plus juste et
-            // beaucoup moins cher que de le refaire a chaque frappe.
-            if (typeof fenetres !== "undefined" && fenetres)
-                bureau.fenetresInactives =
-                    fenetres.inactivesDepuis(barreTaches.joursInactivite);
-        }
-        onMenuDemande: {
-            // LE MENU EST DESSINE ICI, DANS LA FENETRE DU BUREAU, qui reste
-            // derriere. On remonte donc le bureau avant d'ouvrir, sinon le
-            // bouton aurait l'air casse : il ouvrirait un menu invisible.
-            if (typeof fenetres !== "undefined" && fenetres)
-                fenetres.activerBureau();
-            // TOUJOURS OUVRIR, JAMAIS BASCULER DEPUIS CE BOUTON — correctif
-            // du 2026-10-20. « menuDemarrer.visible » reste vrai tant que le
-            // menu n'a pas ete explicitement ferme, meme quand la course
-            // cote Python (voir le correctif de _corriger_bureau dans
-            // fenetres.py) a laisse la vraie fenetre le recouvrir sans que
-            // personne ne le voie : un second clic lisait alors ce
-            // « visible » perime et REFERMAIT un menu que personne n'avait
-            // jamais vu — d'ou « il faut cliquer deux fois ». Fermer reste
-            // possible : un clic sur le ciel vide le fait deja
-            // explicitement, un peu plus bas dans ce fichier.
-            menuDemarrer.open();
-        }
-        reglagesOuverts: laterale.deploye
-        onReglagesDemandes: {
-            laterale.deploye = !laterale.deploye;
-        }
-        // LA PASTILLE « RECHERCHER » DE WINDOWS : le menu s'ouvre sur sa
-        // recherche, le curseur deja dedans.
-        onRechercheDemandee: {
-            if (typeof fenetres !== "undefined" && fenetres)
-                fenetres.activerBureau();
-            menuDemarrer.ouvrirRecherche();
-        }
-        // LE COIN « AFFICHER LE BUREAU » DE WINDOWS, tout au bout de la barre.
-        onBureauDemande: {
-            if (typeof fenetres !== "undefined" && fenetres)
-                fenetres.activerBureau();
-        }
-        // LES TROIS BOUTONS DE NAVIGATION DE LA TABLETTE ANDROID.
-        // « Retour » ferme ce qui est ouvert (tiroir puis etagere), sinon
-        // revient au bureau. Le vrai retour vers une application Android
-        // (injecter KEYCODE_BACK dans Waydroid) reste un chantier separe, non
-        // verifie — on ne fait pas semblant qu'il existe.
-        onRetourDemande: {
-            if (menuDemarrer.visible) { menuDemarrer.close(); return; }
-            if (recents.visible) { recents.close(); return; }
-            if (typeof fenetres !== "undefined" && fenetres) fenetres.activerBureau();
-        }
-        // « Accueil » : toujours le bureau, tout ferme.
-        onAccueilDemande: {
-            if (menuDemarrer.visible) menuDemarrer.close();
-            if (recents.visible) recents.close();
-            if (typeof fenetres !== "undefined" && fenetres) fenetres.activerBureau();
-        }
-        // « Applications ouvertes » : l'etagere des fenetres en cours.
-        onRecentsDemande: {
-            if (recents.visible) recents.close();
-            else recents.ouvrir();
-        }
-    }
-
-    // ══ 3 bis. LA BARRE LATERALE ══════════════════════════════════════════
-    BarreLaterale {
-        id: laterale
-        // Elle s'efface entierement pendant un jeu. « plein » vient du
-        // rapporteur de kwin, seul a pouvoir le savoir : un client Wayland ne
-        // voit pas l'etat des fenetres des autres.
-        efface: barreTaches.ouvertures.some(function (f) {
-            return f.plein === true && f.reduite !== true && f.active === true;
-        })
-        onOuverte: pont.rafraichirReglages()
-        onReglageBascule: function (cle, vers) {
-            bureau.dire(pont.reglerRapide(cle, vers));
-        }
-        onReglageValeur: function (cle, valeur) {
-            bureau.dire(pont.reglerRapide(cle, valeur));
-        }
-        onReglageChoix: function (cle, valeur) {
-            bureau.dire(pont.reglerRapide(cle, valeur));
-        }
-        // LA BASCULE DU SON — correctif du 2026-10-20. « cle » vaut
-        // "volume" (la cle de la glissiere) ; le dispatch Python attend
-        // "volume-muet" (reglages.py::regler), separe de "volume" pour ne
-        // jamais confondre un pourcentage et une bascule.
-        onReglageMuet: function (cle) {
-            bureau.dire(pont.reglerRapide(cle + "-muet", true));
-        }
-        onReglageAction: function (cle) {
-            if (cle === "verrouiller") { bureau.dire(pont.session("verrouiller")); return; }
-            bureau.dire(pont.reglerRapide(cle, true));
-        }
-        onPersonnaliserDemande: bureau.ouvrirPersonnaliser()
-    }
-
+    // ══ 3 bis. LA BARRE LATERALE — PARTIE, ELLE AUSSI ════════════════════════
+    // Meme depart que la barre : surfaces de couche dans s-chrome. Les
+    // reglages rapides se lisent et s'appliquent du cote du chrome ; ici ne
+    // restent que les reponses lentes du pont (reglageFait) et le choix
+    // d'image de la boite KDE, qui appartiennent au bureau.
     Connections {
         target: pont
-        function onReglagesPrets(json) {
-            laterale.reglages = JSON.parse(json);
-        }
         // Un reglage lent a rendu « en cours » tout de suite ; sa vraie
         // phrase arrive ici, quand il a fini.
         function onReglageFait(dit) {
@@ -1239,17 +1163,15 @@ ApplicationWindow {
             if (liste === bureau.empreinteOuvertures)
                 return;
             bureau.empreinteOuvertures = liste;
-            barreTaches.ouvertures = JSON.parse(liste);
-        }
-        function onModeChange(mode) {
-            bureau.veilleMode = mode;
+            ouvertures = JSON.parse(liste);
         }
     }
 
     // ══ LES APPLICATIONS OUVERTES — le bouton « recents » d'Android ══
     // Une etagere de cartes qui monte au-dessus de la barre : chaque fenetre
-    // ouverte y a sa carte, un toucher y bascule. Meme source que le dock —
-    // barreTaches.ouvertures — donc jamais deux verites sur « ce qui tourne ».
+    // ouverte y a sa carte, un toucher y bascule. Meme source que les tuiles —
+    // « ouvertures », nourri par le rapporteur de kwin — donc jamais deux
+    // verites sur « ce qui tourne ».
     Popup {
         id: recents
         objectName: "recents"
@@ -1277,7 +1199,7 @@ ApplicationWindow {
             orientation: ListView.Horizontal
             spacing: 8
             clip: true
-            model: barreTaches.ouvertures
+            model: ouvertures
             delegate: Rectangle {
                 required property var modelData
                 width: 92
@@ -2235,42 +2157,12 @@ ApplicationWindow {
     }
     Timer { id: chrono; interval: 2600; onTriggered: mot.vu = false }
 
-    // ══ 6 bis. LA BULLE DE NOTIFICATION ═══════════════════════════════════
-    // Elle vit dans une FENETRE A ELLE, pas dans cette scene, parce que ce
-    // bureau reste derriere les autres fenetres — c'est ce qu'on attend d'un
-    // bureau, et c'est ce qui rendrait une bulle invisible pile quand elle
-    // sert. Voir Bulle.qml pour ce qui a ete mesure.
-    Bulle {
-        id: bulle
-        onActionChoisie: function(ident, cle) {
-            // La bulle ne connait pas le serveur : c'est ici qu'on remonte le
-            // choix. « notifications » vaut null quand le nom du bus etait
-            // deja pris — alors le clic ne fait rien, comme il se doit.
-            if (typeof notifications !== "undefined" && notifications)
-                notifications.agir(ident, cle);
-        }
-    }
-
-    // « notifications » est nul quand le nom du bus etait deja pris. Un
-    // Connections sans cible ne fait rien, et le bureau s'ouvre quand meme :
-    // un bureau sans bulles reste un bureau.
-    Connections {
-        target: typeof notifications !== "undefined" ? notifications : null
-        function onMontrer(id, app, titre, corps, duree, urgence, appId, actions) {
-            bulle.poser(id, app, titre, corps, duree, urgence, actions);
-            // CONSTELLATION VIVANTE — le badge. Une notification qui ne peut
-            // pas etre rattachee a une etoile (Windows, ou un nom Linux
-            // ambigu) ne pose rien : voir appParNotification().
-            var cible = bureau.appParNotification(appId, app);
-            if (cible) {
-                pont.incrementerBadge(cible.id);
-                bureau.relire();
-            }
-        }
-        function onRetirer(id) {
-            bulle.retirer(id);
-        }
-    }
+    // ══ 6 bis. LA BULLE DE NOTIFICATION — PARTIE, ELLE AUSSI ════════════════
+    // Elle vit dans s-chrome depuis le 2026-11-14, en surface de couche :
+    // c'est le chrome qui la nourrit par les signaux D-Bus du serveur de
+    // notifications et qui remonte les actions — voir Chrome.qml. Le badge
+    // des etoiles (incrementerBadge) part du meme endroit, par le service
+    // /bureau.
 
     // ══ 7. LES RACCOURCIS CLAVIER ═════════════════════════════════════════
     Shortcut {

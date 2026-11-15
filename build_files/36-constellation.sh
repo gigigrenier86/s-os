@@ -163,13 +163,42 @@ python3 /ctx/build_files/verifier-constellation.py "$QML" \
     || { echo "ECHEC : la scene de Constellation ne tient pas debout." >&2; exit 1; }
 
 # CE QUE LA SCENE FAIT QUAND KWIN PARLE, PAS SEULEMENT QU'ELLE CHARGE. Une
-# nouvelle de kwin dont un titre change ne doit reconstruire aucune tuile de la
-# barre, et le ciel ne doit animer que s'il n'est cache par aucune fenetre.
-# Mesure du 2026-09-19 : sans ces deux garanties, 40 changements de titre
-# creaient 240 tuiles et trois fenetres devant le ciel laissaient ses 46 etoiles
-# animer pour rien. Le controle COMPTE, il ne chronometre pas.
+# nouvelle de kwin doit nourrir « ouvertures » sans jamais reconstruire les
+# etoiles, et le ciel ne doit animer que s'il n'est cache par aucune fenetre.
+# Mesure du 2026-09-19 : sans cette garantie, le ciel animait pour rien
+# derriere les fenetres. Les tuiles de la barre, elles, se verifient dans
+# verifier-chrome.py depuis le 2026-11-14 (le chrome a sa scene).
 python3 /ctx/build_files/verifier-tuiles.py "$QML" \
-    || { echo "ECHEC : les tuiles de la barre sont reconstruites a chaque nouvelle de kwin, ou le ciel anime cache." >&2; exit 1; }
+    || { echo "ECHEC : les nouvelles de kwin cassent la scene, ou le ciel anime cache." >&2; exit 1; }
+
+# CE QUE LE RAPPORTEUR DOIT FAIRE QUAND UN ECRAN SE DEBRANCHE. Le script kwin
+# ne tourne que dans le compositeur ; un « kwin de carton » lui joue donc le
+# signal screensChanged (banc-fenetres.js) et verifie que le bureau reprend le
+# plein ecran, que la barre et la barre laterale retombent sur les bords de
+# l'ecran restant, que la bulle visible est replacee, que les vraies fenetres
+# restent intouchees, et que le pont est prevenu de reposer les regles pour la
+# nouvelle taille. Sans ce controle, une faute dedans ne se verrait qu'au
+# prochain debranchement de HDMI, chez l'utilisateur.
+python3 /ctx/build_files/verifier-fenetres.py /usr/lib/s/fenetres.js \
+    || { echo "ECHEC : le rapporteur ne rattrape pas la coquille apres un debranchement d'ecran." >&2; exit 1; }
+
+# LE CHROME EN SURFACES DE COUCHE, ETAPE 1. La scene du chrome (barre, barre
+# laterale, bulle) se charge desormais dans son propre processus (s-chrome),
+# avec l'integration layer-shell : on verifie ICI qu'elle tient debout avec
+# des ponts leurres — une faute dedans ne se verrait qu'au premier clic sur
+# la barre, chez l'utilisateur.
+python3 /ctx/build_files/verifier-chrome.py "$QML" \
+    || { echo "ECHEC : la scene du chrome ne tient pas debout." >&2; exit 1; }
+test -s /usr/bin/s-chrome \
+    || { echo "ECHEC : /usr/bin/s-chrome absent — chrome sans surfaces de couche." >&2; exit 1; }
+python3 -c "
+import sys; sys.path.insert(0, '/usr/lib/s')
+import pont_lointain
+assert pont_lointain.FenetresLointain
+assert pont_lointain.BureauLointain
+assert pont_lointain.NotificationLointaine
+" || { echo "ECHEC : /usr/lib/s/pont_lointain.py ne s'importe pas." >&2; exit 1; }
+echo "  chrome         : scene et ponts en place"
 
 # --- Le greeter ne propose plus que S -------------------------------------
 echo "  sessions trouvees :"

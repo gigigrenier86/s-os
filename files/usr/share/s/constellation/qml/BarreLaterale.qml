@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import org.kde.layershell as LayerShell
 
 // La barre laterale de S : une fine ligne au bord droit, qui se deploie en une
 // colonne d'etoiles au contact de la souris.
@@ -115,6 +116,16 @@ Window {
 
     objectName: "barreLaterale"
     title: "S - barre laterale"
+
+    // ══ LA SURFACE DE COUCHE ═══════════════════════════════════════════════
+    // Mene mecanique que la barre : ancre au bord droit, toute la hauteur,
+    // par le compositeur lui-meme quand l'integration layer-shell est active
+    // (processus s-chrome) — inerte partout ailleurs.
+    LayerShell.Window.layer: LayerShell.Window.LayerTop
+    LayerShell.Window.anchors: LayerShell.Window.AnchorTop
+                               | LayerShell.Window.AnchorBottom
+                               | LayerShell.Window.AnchorRight
+    LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
     // « WindowDoesNotAcceptFocus » MANQUAIT ICI, ET NULLE PART AILLEURS DANS
     // CE FICHIER. Barre.qml et Bulle.qml le portent tous les deux — trouve
     // le 2026-09-05 en mesurant, avec un temoin D-Bus, que cliquer un

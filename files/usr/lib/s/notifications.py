@@ -52,6 +52,7 @@ GLib, ou lance avec QT_NO_GLIB — auquel cas le service se tairait en silence,
 et se taire en silence est precisement ce que ce projet refuse.
 """
 
+import json
 import threading
 
 from PySide6.QtCore import QObject, Signal, Slot
@@ -215,12 +216,38 @@ class Service(dbus.service.Object):
     @dbus.service.method(NOM, in_signature="susssasa{sv}i", out_signature="u")
     def Notify(self, app_name, replaces_id, app_icon, summary, body, actions,
                hints, expire_timeout):
-        return self._serveur.poser(app_name, replaces_id, summary, body,
-                                   actions, hints, expire_timeout)
+        ident = self._serveur.poser(app_name, replaces_id, summary, body,
+                                    actions, hints, expire_timeout)
+        # LA BULLE VIT DESORMAIS DANS UN AUTRE PROCESSUS (s-chrome) : chaque
+        # notification part aussi sur le bus, ou le pont lointain l'ecoute.
+        # Avant le chrome en surfaces de couche, il n'y avait qu'un processus
+        # et le signal interne suffisait.
+        try:
+            urgence = int(hints.get("urgency", 1))
+        except (AttributeError, ValueError, TypeError):
+            urgence = 1
+        self.SNotification(ident, app_name, summary, body,
+                           json.dumps(actions), expire_timeout, urgence)
+        return ident
 
     @dbus.service.method(NOM, in_signature="u", out_signature="")
     def CloseNotification(self, id):
         self._serveur.fermer(id, FERMEE_PAR_APPEL)
+
+    # LE CHOIX D'UNE ACTION, REMONTE PAR LA BULLE LOINTAINE. La specification
+    # ne prevoit pas ce sens-la : ActionInvoked part du serveur vers le
+    # poseur, jamais du poseur vers le serveur — or ici le poseur, c'est la
+    # bulle, et elle vit de l'autre cote du bus.
+    @dbus.service.method(NOM, in_signature="is", out_signature="")
+    def SInvokeAction(self, id, action_key):
+        self._serveur.agir(id, action_key)
+
+    # LA NOUVELLE NOTIFICATION, POUR LA BULLE LOINTAINE. Le nom est a S — un
+    # client standard ne la verra pas, c'est voulu : c'est un canal de la
+    # coquille, pas une extension de la specification.
+    @dbus.service.signal(NOM, signature="ussssii")
+    def SNotification(self, id, app, titre, corps, actions, duree, urgence):
+        pass
 
     @dbus.service.method(NOM, in_signature="", out_signature="as")
     def GetCapabilities(self):

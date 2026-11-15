@@ -653,4 +653,87 @@ workspace.windowActivated.connect(function (f) {
     envoyer();
 });
 
+// ═══ UN DEBRANCHEMENT D'ECRAN NE CASSE PAS LA COQUILLE ═══════════════════════
+//
+// BOGUE RAPPORTE PAR L'UTILISATEUR LE 2026-11-14 : debrancher le HDMI laissait
+// Constellation « en fenetre » — le bureau redevenu une fenetre ordinaire — et
+// la barre des raccourcis « nowhere », posee au milieu de l'ecran restant.
+// CONSTELLATION N'EST PAS UNE PAGE, C'EST L'OS : le bureau ne quitte jamais le
+// plein ecran, et son chrome ne quitte jamais les bords de l'ecran qui le
+// porte.
+//
+// LE CHROME N'A PLUS BESOIN DE CE RATTRAPAGE DEPUIS LE 2026-11-14. La barre,
+// la barre laterale et la bulle sont devenues des surfaces de couche
+// (zwlr_layer_shell_v1, processus s-chrome) : c'est le compositeur qui les
+// ancre, et il les re-ancre lui-meme quand un ecran change. Reste ici le seul
+// morceau qui ne peut pas etre une surface de couche — le bureau, qui doit
+// rester une fenetre ordinaire, et qui peut perdre son plein ecran quand kwin
+// le deplace vers l'ecran restant.
+//
+// « screensChanged » est le signal que kwin emet quand un ecran est ajoute,
+// retire ou change de geometrie — verifie dans workspace_wrapper.h de kwin
+// 6.8 (NOTIFY screensChanged, alimente par Workspace::outputsChanged).
+
+function estBureau(f) {
+    return estConstellation(f) && String(f.caption) === "Constellation";
+}
+
+function zoneDuBureau() {
+    // La zone plein ecran de l'ecran qui porte le bureau — l'ancrage des
+    // regles Android, reposees plus bas pour la nouvelle taille.
+    var liste = workspace.windowList();
+    for (var i = 0; i < liste.length; i++) {
+        if (estBureau(liste[i])) {
+            try {
+                var z = workspace.clientArea(KWin.FullScreenArea, liste[i]);
+                if (z) return z;
+            } catch (e) {
+            }
+        }
+    }
+    return null;
+}
+
+function reposerChrome() {
+    var z = zoneDuBureau();
+    var liste = workspace.windowList();
+    for (var i = 0; i < liste.length; i++) {
+        var f = liste[i];
+        // LE BUREAU EST L'OS : jamais en fenetre, jamais ailleurs qu'a plein
+        // ecran. « fullScreen » est inscriptible depuis un script kwin
+        // (Q_PROPERTY WRITE setFullScreen, window.h de kwin 6.8) : le poser a
+        // vrai fait repartir kwin ET le client vers l'etat plein ecran. Si
+        // l'ecriture ne prend pas (version de kwin plus stricte), le filet
+        // est de remplir la zone de l'ecran. Le chrome, lui, n'apparait pas
+        // ici : surfaces de couche, le compositeur le re-ancre tout seul.
+        if (!estBureau(f)) continue;
+        if (!f.fullScreen) {
+            try {
+                f.fullScreen = true;
+            } catch (e3) {
+            }
+        }
+        if (!f.fullScreen && z) {
+            poserGeometrie(f, { x: z.x, y: z.y, width: z.width, height: z.height });
+        }
+    }
+    // LES REGLES kwinrulesrc PORTENT ENCORE LES COORDONNEES DE L'ANCIEN ECRAN.
+    // Le chrome n'en a plus besoin (surfaces de couche), mais la fenetre
+    // Android est centree par regle : le pont les repose pour la nouvelle
+    // taille (regles-kwin.py, qui fait relire kwin).
+    if (z) {
+        callDBus("org.s.Constellation", "/fenetres", "org.s.Constellation",
+                 "Ecran", JSON.stringify({ largeur: z.width, hauteur: z.height }));
+    }
+    envoyer();
+}
+
+try {
+    workspace.screensChanged.connect(reposerChrome);
+} catch (eEcran) {
+    // Un kwin trop vieux pour le signal : les regles posees au demarrage
+    // gardent leur role, et la barre garde son rapporteur — on ne laisse pas
+    // un branchement manque emporter le script entier.
+}
+
 envoyer();

@@ -68,7 +68,7 @@ import notifications  # noqa: E402
 import fenetres as fenetres_mod  # noqa: E402
 import importlib.util as _iu  # noqa: E402
 
-from PySide6.QtCore import QObject, QRect, QUrl, Signal, Slot  # noqa: E402
+from PySide6.QtCore import Q_ARG, QMetaObject, QObject, QRect, QUrl, Signal, Slot  # noqa: E402
 from PySide6.QtGui import QRegion, QWindow  # noqa: E402
 from PySide6.QtGui import QGuiApplication  # noqa: E402
 from PySide6.QtQml import QQmlApplicationEngine  # noqa: E402
@@ -77,6 +77,54 @@ from PySide6.QtQml import QQmlApplicationEngine  # noqa: E402
 QML = os.environ.get("S_QML") or "/usr/share/s/constellation/qml"
 if not os.path.isdir(QML):
     QML = os.path.join(_ICI, "..", "share", "s", "constellation", "qml")
+
+
+class PasseBureau(QObject):
+    """Les gestes du chrome lointain, appeles sur la racine QML.
+
+    Le chrome (s-chrome) demande « ouvre le menu Demarrer » sur le bus ; le
+    service /bureau (fenetres.py) delegue ici, et ce passeur appelle les
+    fonctions QML de la racine — le seul pont entre D-Bus et la scene. Les
+    fonctions sont celles de Constellation.qml (« menuDemande »,
+    « rechercheDemandee », « ouvrirPersonnaliser »...) ; la racine n'existe
+    qu'apres le chargement, donc chaque appel tolere son absence.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.racine = None
+
+    def _appeler(self, nom, *args):
+        if self.racine is None:
+            return
+        try:
+            QMetaObject.invokeMethod(self.racine, nom, *args)
+        except (RuntimeError, TypeError):
+            pass
+
+    def menu_demande(self):
+        self._appeler("menuDemande")
+
+    def recherche_demande(self):
+        self._appeler("rechercheDemandee")
+
+    def bureau_demande(self):
+        self._appeler("bureauDemande")
+
+    def retour_demande(self):
+        self._appeler("retourDemande")
+
+    def accueil_demande(self):
+        self._appeler("accueilDemande")
+
+    def recents_demande(self):
+        self._appeler("recentsDemande")
+
+    def personnaliser_demande(self):
+        self._appeler("ouvrirPersonnaliser")
+
+    def choisir_fond(self, chemin):
+        self._appeler("choisirFond", Q_ARG("QString", str(chemin)))
 
 
 class Pont(QObject):
@@ -804,6 +852,7 @@ def main():
 
     moteur = QQmlApplicationEngine()
     pont = Pont()
+    passe_bureau = PasseBureau()
 
     # LA COQUILLE PUBLIE ELLE-MEME LE SERVICE DE NOTIFICATIONS. Personne ne
     # possedait « org.freedesktop.Notifications » dans une session de S : le
@@ -823,7 +872,7 @@ def main():
     # releve sur la machine. On passe donc par son moteur de scripts, qui est
     # l'interface qu'il ouvre volontairement. Voir /usr/lib/s/fenetres.py.
     liste_fenetres, ennui = fenetres_mod.publier(
-        app, os.path.join(_LIB, "fenetres.js"))
+        app, os.path.join(_LIB, "fenetres.js"), pont=pont, scene=passe_bureau)
     if ennui:
         print("s-constellation : barre sans fenetres — " + ennui, file=sys.stderr)
 
@@ -848,6 +897,11 @@ def main():
     moteur.rootContext().setContextProperty("notifications", serveur)
     moteur.rootContext().setContextProperty("fenetres", liste_fenetres)
     moteur.load(QUrl.fromLocalFile(os.path.join(QML, "Constellation.qml")))
+    # LE PASSEUR RECOIT LA RACINE UNE FOIS LA SCENE CHARGEE : les gestes du
+    # chrome lointain (menu Demarrer, recents, personnaliser) arrivent par
+    # D-Bus et atterrissent sur ses fonctions.
+    if moteur.rootObjects():
+        passe_bureau.racine = moteur.rootObjects()[0]
 
     # ON RELACHE LES PROGRAMMES ENDORMIS AVANT DE PARTIR. La veille arrete les
     # programmes des fenetres rangees (voir /usr/lib/s/veille.py) ; Constellation

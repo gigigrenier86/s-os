@@ -1,4 +1,5 @@
 import QtQuick
+import org.kde.layershell as LayerShell
 
 // ═══════════════════════════════════════════════════════════════════════════
 // LA BULLE — ce que S dit, enfin visible.
@@ -37,6 +38,29 @@ Window {
     // NEUVE pour kwin, qui relit alors ses regles avec le titre du moment.
     title: Theme.estWindows ? "S - notification (bas)"
          : (Theme.estAndroid ? "S - notification (haut)" : "S - notification")
+
+    // ══ LA SURFACE DE COUCHE ═══════════════════════════════════════════════
+    // Une place par theme, comme les titres — mais posee par le compositeur
+    // quand l'integration layer-shell est active (processus s-chrome), plus
+    // par une regle kwin. Les marges sont des liaisons : elles suivent la
+    // taille de l'ecran. Inerte hors layer-shell, comme la barre.
+    LayerShell.Window.layer: LayerShell.Window.LayerTop
+    LayerShell.Window.anchors: Theme.estWindows
+                               ? (LayerShell.Window.AnchorRight
+                                  | LayerShell.Window.AnchorBottom)
+                               : (Theme.estAndroid
+                                  ? LayerShell.Window.AnchorTop
+                                  : (LayerShell.Window.AnchorTop
+                                     | LayerShell.Window.AnchorRight))
+    // Les marges se posent par propriete, une par bord : QML ne construit pas
+    // un QMargins entier (Qt.margins n'existe pas, mesure 2026-11-14).
+    LayerShell.Window.margins.left: 0
+    LayerShell.Window.margins.top: Theme.estWindows ? 0
+                                   : (Theme.estAndroid ? 12 : 24)
+    LayerShell.Window.margins.right: Theme.estWindows ? 12
+                                     : (Theme.estAndroid ? 0 : 24)
+    LayerShell.Window.margins.bottom: Theme.estWindows ? 12 + 52 : 0
+    LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
     // EN WINDOWS, LA FENETRE A UNE HAUTEUR FIXE ET LA CARTE S'Y POSE EN BAS. La
     // regle kwin fixe le coin haut-gauche ; une fenetre qui grandit vers le bas

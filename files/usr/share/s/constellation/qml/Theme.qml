@@ -316,7 +316,14 @@ QtObject {
         if (r.clair_android !== undefined) clairAndroid = r.clair_android === true;
         if (r.ciel_vivant !== undefined) cielVivant = r.ciel_vivant !== false;
         var t = String(r.theme || "constellation");
-        nom = (t === "windows" || t === "android") ? t : "constellation";
+        t = (t === "windows" || t === "android") ? t : "constellation";
+        // UN NOM IDENTIQUE NE SE REPOSE PAS : l'assigner declenchait le
+        // signal « nomChanged » a chaque charge — meme au demarrage, meme
+        // pour le theme par defaut — et re-instantiait les mises en page
+        // des deux scenes pour rien (mesure du 2026-11-14 : le chrome
+        // reconstruisait sa barre au premier relire, avec les erreurs de
+        // portee des delegues que cela entraine).
+        if (t !== nom) nom = t;
     }
 
     // LES QUATRE COULEURS DE S, EN LISTE. Rouge Linux, bleu Windows, vert
