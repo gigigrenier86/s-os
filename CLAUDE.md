@@ -15860,3 +15860,16 @@ layer-shell est active, kwin ancre les surfaces), le pont /fenetres répond
 et la barre est nourrie. La session redeviendra autonome au prochain
 `bootc upgrade` + redémarrage, quand la coquille lancera s-chrome
 elle-même avec son filet.
+
+**Addendum du 2026-11-17 — la preuve complète a mis la construction par
+terre, trois fois.** Le contrôle « lancer s-chrome offscreen dix secondes »
+était juste, mais posé à cru : sous `set -e` (36-constellation.sh),
+`timeout` qui revient **124** — précisément la preuve que le processus
+tient — a fait mourir le script avant que `code=$?` ne puisse l'attraper.
+Trois constructions rouges là-dessus : le push du 15 à 20 h 59 et les deux
+planifiées (16 et 17), toutes « exit status 124 » à l'étape 36. Parade :
+le lancement passe sous la garde d'un `if` — le 124 devient une condition,
+`set -e` ne le voit plus ; seul un arrêt propre de s-chrome avant le délai
+(impossible sans panne) dit ECHEC. Leçon qui vaut pour tout le dépôt : un
+code attendu mais non nul ne se pose jamais à cru dans un script en `set -e`,
+même pour le lire à la ligne suivante.

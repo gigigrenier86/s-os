@@ -213,12 +213,16 @@ assert pont_lointain.NotificationLointaine
 # reconnaissait plus /usr/bin/s-constellation — sans extension — sous
 # Python 3.15 (processus mort au premier pas). La scene, elle, tenait debout,
 # et la construction etait verte. On lance donc ici s-chrome LUI-MEME,
-# offscreen, avec ses vrais ponts : s'il tient dix secondes, timeout le tue
-# (code 124) et c'est la preuve ; s'il sort avant, la construction tombe.
-QT_QPA_PLATFORM=offscreen timeout 10 python3 /usr/bin/s-chrome >/dev/null 2>&1
-code=$?
-[[ $code -eq 124 ]] \
-    || { echo "ECHEC : s-chrome s'est arrete tout seul (code $code) — voir son journal." >&2; exit 1; }
+# offscreen, avec ses vrais ponts, sous la garde d'un « if » : sans elle,
+# le code 124 de timeout (la preuve qu'il tient) ferait mourir le script —
+# « set -e » ne pardonne pas un retour non nul hors condition. Mesure du
+# 2026-11-15 au soir : trois constructions rouges la-dessus, toutes en 124.
+if QT_QPA_PLATFORM=offscreen timeout 10 python3 /usr/bin/s-chrome >/dev/null 2>&1; then
+    echo "ECHEC : s-chrome s'est arrete tout seul avant la fin du delai." >&2
+    exit 1
+fi
+# Sorti du « if », timeout a tue s-chrome (124) : il tenait toujours au bout
+# de dix secondes — c'est la preuve, et le seul code qui ne dit pas ECHEC.
 echo "  chrome         : scene, ponts et processus reels en place"
 
 # --- Le greeter ne propose plus que S -------------------------------------
