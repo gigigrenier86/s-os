@@ -15873,3 +15873,14 @@ le lancement passe sous la garde d'un `if` — le 124 devient une condition,
 (impossible sans panne) dit ECHEC. Leçon qui vaut pour tout le dépôt : un
 code attendu mais non nul ne se pose jamais à cru dans un script en `set -e`,
 même pour le lire à la ligne suivante.
+
+**Addendum du 2026-11-17, soir — l'image corrigée est construite et posée.**
+Le build du correctif est vert (12 min 37 s) et publié sur ghcr. `bootc
+upgrade` lancé sur la machine (pkexec, l'agent polkit a demandé le mot de
+passe à l'écran) : 5,7 Go tirés, déploiement prêt pour le prochain
+démarrage — `ostree-image-signed:docker://ghcr.io/gigigrenier86/s-os:latest`,
+version 44.20261117.da14fa3, digest sha256:2db6640…, 288 couches neuves au
+total (148 ajoutées, 148 retirées). Au prochain redémarrage, la coquille
+lancera s-chrome elle-même — exécutable, chargeur corrigé — avec son filet :
+la barre, la latérale et la bulle reviennent sans geste manuel. D'ici là, la
+session courante garde le chrome lancé à la main le 15.
