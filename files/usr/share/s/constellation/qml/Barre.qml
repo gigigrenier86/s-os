@@ -34,7 +34,12 @@ Window {
     // ecran se debranche. Hors layer-shell (la scene du bureau, le
     // verificateur offscreen), ces declarations sont inertes : la fenetre
     // reste une fenetre ordinaire, posee par la regle comme avant.
-    LayerShell.Window.layer: LayerShell.Window.LayerTop
+    // COUCHE OVERLAY, PAS TOP (mesure du 2026-11-17) : kwin place la fenetre
+    // plein ecran ACTIVE — le bureau, quand aucune autre fenetre n'est ouverte —
+    // au-dessus de la couche Top. Le chrome disparaissait donc exactement quand
+    // on regardait le bureau vide. Overlay reste au-dessus ; un vrai plein ecran
+    // (un jeu) efface deja le chrome par « efface ».
+    LayerShell.Window.layer: LayerShell.Window.LayerOverlay
     LayerShell.Window.anchors: LayerShell.Window.AnchorBottom
                                | LayerShell.Window.AnchorLeft
                                | LayerShell.Window.AnchorRight

@@ -1090,7 +1090,7 @@ class ServiceBureau(dbus.service.Object):
     # ---- Les gestes de la barre, vers la scene du bureau -------------------
     def _geste(self, nom):
         if self._scene is not None:
-            self._scene.__getattr__(nom)()
+            getattr(self._scene, nom)()
 
     @dbus.service.method("org.s.Constellation.Bureau", in_signature="",
                          out_signature="")

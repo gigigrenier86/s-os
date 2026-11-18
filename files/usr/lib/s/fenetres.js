@@ -47,7 +47,7 @@ var enTrainDeBorner = false;
 // barre, posee par le compositeur tout en bas, etait remontee de 52 pixels et
 // laissait un grand vide dessous. Elles se placent seules : on n'y touche pas.
 function estSurfaceDeCouche(f) {
-    return String(f.caption || "") === "" && f.layer === 3;
+    return String(f.caption || "") === "" && f.layer >= 3;
 }
 
 function basUtile(f) {

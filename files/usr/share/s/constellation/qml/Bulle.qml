@@ -44,7 +44,12 @@ Window {
     // quand l'integration layer-shell est active (processus s-chrome), plus
     // par une regle kwin. Les marges sont des liaisons : elles suivent la
     // taille de l'ecran. Inerte hors layer-shell, comme la barre.
-    LayerShell.Window.layer: LayerShell.Window.LayerTop
+    // COUCHE OVERLAY, PAS TOP (mesure du 2026-11-17) : kwin place la fenetre
+    // plein ecran ACTIVE — le bureau, quand aucune autre fenetre n'est ouverte —
+    // au-dessus de la couche Top. Le chrome disparaissait donc exactement quand
+    // on regardait le bureau vide. Overlay reste au-dessus ; un vrai plein ecran
+    // (un jeu) efface deja le chrome par « efface ».
+    LayerShell.Window.layer: LayerShell.Window.LayerOverlay
     LayerShell.Window.anchors: Theme.estWindows
                                ? (LayerShell.Window.AnchorRight
                                   | LayerShell.Window.AnchorBottom)
