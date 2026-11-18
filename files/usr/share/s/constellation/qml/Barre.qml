@@ -302,6 +302,12 @@ Window {
             ? hauteur + placeMenu : hauteur
     visible: !efface
     color: "transparent"
+    // SANS TRANSIENTPARENT: NULL, LA FENETRE RESTE INVISIBLE (mesure du 2026-11-17,
+    // Qt 6.11.2) : une Window declaree dans l'Item racine de Chrome.qml prend
+    // pour parent transitoire la fenetre de cet Item — qui n'existe pas — et
+    // n'est jamais montree, sans un message. C'est la panne « plus de barre
+    // des taches » apres la mise a jour de la base.
+    transientParent: null
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
            | Qt.WindowDoesNotAcceptFocus
 

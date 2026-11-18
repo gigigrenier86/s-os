@@ -15884,3 +15884,10 @@ total (148 ajoutées, 148 retirées). Au prochain redémarrage, la coquille
 lancera s-chrome elle-même — exécutable, chargeur corrigé — avec son filet :
 la barre, la latérale et la bulle reviennent sans geste manuel. D'ici là, la
 session courante garde le chrome lancé à la main le 15.
+
+**Addendum du 2026-11-17, soir — l'image corrigée démarre, et la barre est quand même absente : deux pannes de plus.**
+Le démarrage sur `44.20261117.da14fa3` a bien lancé `s-chrome` (exécutable, chargeur correct), mais *aucune* surface n'apparaissait : zéro `get_layer_surface` dans `WAYLAND_DEBUG`, `isVisible()` faux sur les trois fenêtres, sans un message.
+- **Qt 6.11.2 : une `Window` déclarée dans l'`Item` racine de `Chrome.qml` reste invisible.** Elle prend pour parent transitoire la fenêtre de l'Item, qui n'existe pas. Mesuré avec un QML minimal : `Item { Window { visible: true } }` → `isVisible()` faux ; avec `transientParent: null` → vrai. Corrigé par `transientParent: null` dans `Barre.qml`, `BarreLaterale.qml` et `Bulle.qml`. `verifier-chrome.py` ne le voyait pas (il tourne hors compositeur, avec des fenêtres ordinaires).
+- **`fenetres.js` rognait la barre.** kwin expose les surfaces de couche comme des fenêtres `normalWindow`, de classe `python3.15` (le nom du processus), à titre vide, sur la couche 3. `borner()` les ramenait à la zone utile (écran − 52 px) : la barre se posait à 1028 au lieu de 1080 et laissait un vide dessous. Mesuré par un script kwin témoin (`0,608 1920x420`) et par `WAYLAND_DEBUG` (`configure(1920, 472)` puis `configure(1920, 1028)`). Corrigé par `estSurfaceDeCouche()` (titre vide et `layer === 3`), appelée dans `borner()` et `estAgrandissable()`.
+- **Non prouvé :** le critère `layer === 3` et titre vide est une heuristique mesurée sur cette machine, pas une propriété documentée de kwin. La barre a été vue collée en bas sur la session vivante (copie du dépôt lancée à la main), pas après un vrai redémarrage sur l'image corrigée.
+- **Piège payé deux fois :** `pkill -f` et `kill $(pgrep -f …)` ont tué le shell de la session ; filtrer `$$`.

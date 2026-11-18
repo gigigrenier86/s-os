@@ -40,6 +40,16 @@
 var HAUTEUR_BARRE = 52;
 var enTrainDeBorner = false;
 
+// LES SURFACES DE COUCHE DU CHROME (barre, barre laterale, bulle) NE SONT PAS
+// DES FENETRES ORDINAIRES. Mesure du 2026-11-17 : kwin les expose comme des
+// fenetres « normalWindow » de classe « python3.15 » (le nom du processus), a
+// titre VIDE, sur la couche 3 — et borner() les rognait a la zone utile : la
+// barre, posee par le compositeur tout en bas, etait remontee de 52 pixels et
+// laissait un grand vide dessous. Elles se placent seules : on n'y touche pas.
+function estSurfaceDeCouche(f) {
+    return String(f.caption || "") === "" && f.layer === 3;
+}
+
 function basUtile(f) {
     var z = null;
     try {
@@ -65,6 +75,7 @@ function borner(f) {
     // qu'elle venait de poser. Un garde-fou qui s'applique a son propre garde
     // se mord la queue — et la barre flottait au-dessus du vide.
     if (String(f.resourceClass) === "s-constellation") return;
+    if (estSurfaceDeCouche(f)) return;
     // « normalWindow » est faux pour certaines fenetres de Waydroid, qui
     // n'annoncent pas de type xdg standard. On borne donc tout ce qui n'est ni
     // menu, ni infobulle, ni notification — releve sur la machine, ou YouTube
@@ -160,6 +171,7 @@ function remplirPleinEcran(f) {
 function estAgrandissable(f) {
     if (!f) return false;
     if (!f.normalWindow) return false;
+    if (estSurfaceDeCouche(f)) return false;
     if (f.dialog || f.modal || f.popupWindow || f.tooltip ||
         f.notification || f.dock || f.splash || f.utility) return false;
     if (f.fullScreen) return false;

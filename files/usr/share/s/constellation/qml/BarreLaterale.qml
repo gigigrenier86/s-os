@@ -135,6 +135,12 @@ Window {
     // ce correctif — ce drapeau seul ne suffit pas (Barre.qml le porte deja
     // et se fait quand meme activer par kwin a chaque clic, mesure le meme
     // jour), mais l'absence ici etait une incoherence sans raison connue.
+    // SANS TRANSIENTPARENT: NULL, LA FENETRE RESTE INVISIBLE (mesure du 2026-11-17,
+    // Qt 6.11.2) : une Window declaree dans l'Item racine de Chrome.qml prend
+    // pour parent transitoire la fenetre de cet Item — qui n'existe pas — et
+    // n'est jamais montree, sans un message. C'est la panne « plus de barre
+    // des taches » apres la mise a jour de la base.
+    transientParent: null
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
            | Qt.WindowDoesNotAcceptFocus
     color: "transparent"
