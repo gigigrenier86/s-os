@@ -488,6 +488,20 @@ grep -q 's_windows_rendu_pose' /usr/bin/s-ouvrir-exe \
     || { echo "ECHEC : s-ouvrir-exe ne pose pas le mode de rendu retenu pour le programme." >&2; exit 1; }
 echo "  rendu WPF      : reglable par programme, pose a chaque lancement"
 
+# --- LE RUNTIME .NET QU'UN PROGRAMME EXIGE SE POSE TOUT SEUL (2026-11-19) -------
+# Un programme demandait Microsoft.WindowsDesktop.App 10 ; l'utilisateur avait
+# pose le moteur « dotnet-runtime-10 » (sans fenetres) et la boite revenait.
+# s-windows --runtime-net lit le catalogue de Microsoft, VERIFIE le sha512, puis
+# installe ; s-ouvrir-exe l'appelle des que le cadre lu dans le runtimeconfig.json
+# manque. Les deux gardes : la verification d'empreinte, et l'appel automatique.
+grep -q -- '--runtime-net' /usr/bin/s-windows \
+    || { echo "ECHEC : s-windows n'offre pas --runtime-net." >&2; exit 1; }
+grep -q 'sha512sum' /usr/bin/s-windows \
+    || { echo "ECHEC : s-windows --runtime-net ne verifie plus l'empreinte de l'installateur." >&2; exit 1; }
+grep -qF -- '--runtime-net' /usr/bin/s-ouvrir-exe \
+    || { echo "ECHEC : s-ouvrir-exe ne pose plus le runtime .NET manquant." >&2; exit 1; }
+echo "  runtime .NET   : pose a la demande, empreinte sha512 verifiee"
+
 # --- L'EXTRACTEUR D'ICONES --------------------------------------------------
 command -v wrestool >/dev/null || { echo "ECHEC : wrestool absent." >&2; exit 1; }
 command -v icotool  >/dev/null || { echo "ECHEC : icotool absent." >&2; exit 1; }

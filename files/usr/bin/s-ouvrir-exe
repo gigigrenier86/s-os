@@ -91,12 +91,41 @@ s_windows_charger || s_echec "Le Windows de S est incomplet" \
 # moteur doit etre installe). Verifie sur les deux variantes du meme projet le
 # 2026-08-26 : la variante win-x64 tournait deja avant que .NET soit pose.
 RUNTIMECONFIG="${CIBLE%.*}.runtimeconfig.json"
-if [ -f "$RUNTIMECONFIG" ] && grep -q '"frameworks"' "$RUNTIMECONFIG" \
-   && [ ! -d "$S_WIN_PFX/drive_c/Program Files/dotnet" ]; then
-    VERSION_NET="$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[0-9]+' "$RUNTIMECONFIG" \
-                   | grep -oE '[0-9]+$' | head -1)"
-    s_echec "$NOM a besoin de .NET ${VERSION_NET:-8}" \
-"Ce programme n'embarque pas son moteur. Lance : s-windows --fondations"
+#
+# CE QUI MANQUE SE POSE TOUT SEUL (2026-11-19). Avant, on testait seulement
+# l'existence du dossier « dotnet » — vrai des qu'UN runtime etait la, meme le
+# mauvais. Mesure : un programme demandait Microsoft.WindowsDesktop.App 10, le
+# prefixe n'avait que la version 8 et le moteur 10 SANS fenetres, et le
+# programme affichait la boite « installez .NET » de Windows. On lit donc le nom
+# exact du cadre et sa version majeure dans le runtimeconfig.json, et on compare
+# au dossier qui compte : shared/<cadre>/<majeure>.*
+if [ -f "$RUNTIMECONFIG" ]; then
+    # « framework » (un seul) ou « frameworks » (liste) : une ligne « cadre majeure » chacun.
+    MANQUES="$(python3 -I - "$RUNTIMECONFIG" "$S_WIN_PFX/drive_c/Program Files/dotnet/shared" <<'PY' 2>/dev/null
+import glob, json, os, sys
+try:
+    o = json.load(open(sys.argv[1], encoding="utf-8-sig")).get("runtimeOptions", {})
+except Exception:
+    sys.exit(0)
+cadres = list(o.get("frameworks", []))
+if "framework" in o:
+    cadres.append(o["framework"])
+for c in cadres:
+    nom, ver = c.get("name", ""), str(c.get("version", ""))
+    maj = ver.split(".")[0]
+    if nom in ("Microsoft.WindowsDesktop.App", "Microsoft.NETCore.App") and maj.isdigit():
+        if not glob.glob(os.path.join(sys.argv[2], nom, maj + ".*")):
+            print(nom, maj)
+PY
+)"
+    # WindowsDesktop contient NETCore : si les deux manquent a la meme version,
+    # un seul installateur suffit, et le second appel le trouverait deja pose.
+    while read -r CADRE_NET MAJ_NET; do
+        [ -n "${CADRE_NET:-}" ] || continue
+        "$S_GESTES/s-windows" --runtime-net "$CADRE_NET" "$MAJ_NET" \
+            || s_echec "$NOM a besoin de $CADRE_NET $MAJ_NET" \
+"Le poser a echoue. Detail dans ~/.local/state/S/windows-runtime-net.log"
+    done <<< "$MANQUES"
 fi
 
 # --- Famille 2 : .NET Framework 4.x, et ce n'est PAS la meme chose -----------

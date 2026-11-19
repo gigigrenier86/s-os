@@ -397,6 +397,111 @@ if [ "${1:-}" = "--fondations" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# --runtime-net <cadre> <majeur> : le runtime .NET qu'un programme exige
+# ---------------------------------------------------------------------------
+# NE SE CHERCHE PLUS A LA MAIN. Mesure du 2026-11-19 : un programme demandait
+# « Microsoft.WindowsDesktop.App 10.0.0 », l'utilisateur a installe
+# « dotnet-runtime-10 » — le moteur SANS les fenetres — et la boite est revenue.
+# Deux installateurs, deux noms presque identiques, et rien ne dit lequel est le
+# bon. S sait lire le nom exact du cadre dans le runtimeconfig.json : c'est lui
+# qui choisit l'installateur.
+#
+# ON NE DEVINE NI LE NUMERO DE VERSION NI L'ADRESSE. Microsoft publie, par
+# version majeure, un « releases.json » qui donne la derniere correction ET le
+# sha512 de chaque installateur. On lit ca, on telecharge, on VERIFIE l'empreinte,
+# et on s'arrete net si elle differe — un installateur lance dans le Windows de
+# S ecrit dans son registre.
+#
+#   Microsoft.WindowsDesktop.App  les programmes a fenetres (WPF, WinForms)
+#   Microsoft.NETCore.App         le moteur seul — les programmes en console
+# Le premier contient le second : un seul installateur suffit aux deux.
+if [ "${1:-}" = "--runtime-net" ]; then
+    CADRE="${2:-}"; MAJEUR="${3:-}"
+    case "$CADRE" in
+        Microsoft.WindowsDesktop.App) CLE="windowsdesktop"; FICHIER_RE='windowsdesktop-runtime-.*win-x64\.exe$' ;;
+        Microsoft.NETCore.App)        CLE="runtime";        FICHIER_RE='dotnet-runtime-.*win-x64\.exe$' ;;
+        *) s_echec "Cadre .NET inconnu : ${CADRE:-vide}" \
+             "Attendu : Microsoft.WindowsDesktop.App ou Microsoft.NETCore.App" ;;
+    esac
+    case "$MAJEUR" in
+        ''|*[!0-9]*) s_echec "Version majeure illisible : ${MAJEUR:-vide}" \
+                       "Exemple : s-windows --runtime-net Microsoft.WindowsDesktop.App 10" ;;
+    esac
+    s_windows_pret || s_echec "Le Windows de S n'existe pas encore" \
+        "Lance d'abord : s-windows --tout"
+
+    # Deja pose ? On regarde le dossier du cadre, pas un marqueur : c'est lui que
+    # le lanceur de .NET cherchera.
+    DEJA="$(ls -d "$S_WIN_PFX/drive_c/Program Files/dotnet/shared/$CADRE/$MAJEUR".* 2>/dev/null | head -1)"
+    if [ -n "$DEJA" ]; then
+        _dire_windows ".NET $MAJEUR" "$CADRE $(basename "$DEJA") est deja en place."
+        exit 0
+    fi
+
+    META="https://builds.dotnet.microsoft.com/dotnet/release-metadata/$MAJEUR.0/releases.json"
+    CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/S/runtimes"
+    mkdir -p "$CACHE"
+    TMPJ="$(mktemp "$CACHE/releases.XXXXXX")"
+    curl -fsS --retry 3 --max-time 60 "$META" -o "$TMPJ" \
+        || { rm -f "$TMPJ"; s_echec "Impossible de lire le catalogue .NET $MAJEUR" \
+             "$META — verifie la connexion."; }
+    # url<TAB>sha512<TAB>version, pour le premier installateur x64 qui colle.
+    LIGNE="$(python3 -I - "$TMPJ" "$CLE" "$FICHIER_RE" <<'PY'
+import json, re, sys
+d = json.load(open(sys.argv[1]))
+cle, motif = sys.argv[2], re.compile(sys.argv[3])
+r = d["releases"][0]
+for f in r[cle]["files"]:
+    if f.get("rid") == "win-x64" and motif.search(f.get("url", "")):
+        print(f["url"], f["hash"], r["release-version"], sep="\t")
+        break
+PY
+)"
+    rm -f "$TMPJ"
+    [ -n "$LIGNE" ] || s_echec "Aucun installateur .NET $MAJEUR pour $CADRE" \
+        "Le catalogue de Microsoft n'en propose pas — version trop ancienne ou trop neuve ?"
+    URL="${LIGNE%%$'\t'*}"; RESTE="${LIGNE#*$'\t'}"
+    EMPREINTE="${RESTE%%$'\t'*}"; VERSION="${RESTE#*$'\t'}"
+    case "$URL" in https://builds.dotnet.microsoft.com/*) ;; \
+        *) s_echec "Adresse inattendue dans le catalogue" "$URL" ;; esac
+
+    INSTALLEUR="$CACHE/$(basename "$URL")"
+    if ! [ -f "$INSTALLEUR" ] \
+       || [ "$(sha512sum "$INSTALLEUR" | cut -d' ' -f1)" != "$EMPREINTE" ]; then
+        _dire_windows ".NET $MAJEUR" "Telechargement de $CADRE $VERSION…" system-software-install
+        curl -fL --retry 3 --max-time 900 "$URL" -o "$INSTALLEUR.part" \
+            || { rm -f "$INSTALLEUR.part"; s_echec "Telechargement echoue" "$URL"; }
+        mv -f "$INSTALLEUR.part" "$INSTALLEUR"
+    fi
+    if [ "$(sha512sum "$INSTALLEUR" | cut -d' ' -f1)" != "$EMPREINTE" ]; then
+        rm -f "$INSTALLEUR"
+        s_echec "Empreinte sha512 differente — installation refusee" \
+"Le fichier ne correspond pas a ce que Microsoft publie pour $VERSION. Rien n'a ete installe."
+    fi
+
+    s_windows_verrou
+    REPRISE="$(s_windows_pause)"
+    s_windows_charger || { s_windows_reprendre "$REPRISE"; s_echec \
+        "Le Windows de S est incomplet" \
+        "Proton $(s_windows_version) est introuvable. Lance : s-windows --preparer"; }
+    export WINEPREFIX="$S_WIN_PFX"
+    JOURNAL="$S_ETAT/windows-runtime-net.log"
+    _dire_windows ".NET $MAJEUR" "Pose de $CADRE $VERSION…" system-software-install
+    CODE=0
+    "$WINELOADER" "$INSTALLEUR" /install /quiet /norestart >"$JOURNAL" 2>&1 || CODE=$?
+    "$WINESERVER" -w 2>/dev/null || true
+    s_windows_reprendre "$REPRISE"
+    # 3010 = « redemarrage conseille » : sans objet sous Wine, c'est un succes.
+    # Le verdict se lit sur le disque, pas sur le code de retour : un installateur
+    # WiX peut rendre 0 sans rien ecrire.
+    if ls -d "$S_WIN_PFX/drive_c/Program Files/dotnet/shared/$CADRE/$MAJEUR".* >/dev/null 2>&1; then
+        _dire_windows ".NET $MAJEUR" "$CADRE $VERSION est en place."
+        exit 0
+    fi
+    s_echec "$CADRE $MAJEUR n'a pas pu etre pose (code $CODE)" "Detail dans $JOURNAL"
+fi
+
+# ---------------------------------------------------------------------------
 # --fenetre-noire : le geste nomme d'apres le symptome
 # ---------------------------------------------------------------------------
 # POURQUOI CE NOM. Un utilisateur qui voit une fenetre noire ne cherchera pas
