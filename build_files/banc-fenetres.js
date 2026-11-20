@@ -59,7 +59,8 @@ function fenetre(spec) {
         skipTaskbarChanged: signal(), fullScreenChanged: signal(),
         noBorderChanged: signal(), decorationChanged: signal(),
         frameGeometryChanged: signal(), maximizedChanged: signal(),
-        ecran: spec.ecran
+        ecran: spec.ecran,
+        zoneMax: spec.zoneMax
     };
     Object.defineProperty(f, "frameGeometry", {
         get() { return geometrie; },
@@ -129,7 +130,7 @@ function jouer(bloquerPleinEcran) {
     const workspace = {
         windowList() { return fenetres.slice(); },
         activeWindow: null,
-        clientArea(zone, f) { return f.ecran; },
+        clientArea(zone, f) { return (zone === 2 && f.zoneMax) ? f.zoneMax : f.ecran; },
         raiseWindow() {},
         windowActivated: signal(), windowAdded: signal(),
         windowRemoved: signal(), screensChanged
@@ -221,9 +222,69 @@ function verifierUnDebranchement(bloquerPleinEcran, nom) {
 verifierUnDebranchement(false, "debranchement, kwin qui obeit");
 verifierUnDebranchement(true, "debranchement, kwin muet sur fullScreen");
 
+
+// ── La barre reserve (ou non) sa place ──────────────────────────────────────
+// Depuis le 2026-11-19 la barre porte une zone d'exclusion : kwin retire LUI-MEME
+// ses 52 pixels de la zone de maximisation (mesure sur kwin 6.8.3 : 1080 -> 1028).
+// borner() ne doit alors PAS les retrancher une seconde fois — 976 laisserait une
+// bande vide au-dessus de la barre. Sans zone (chrome pas lance, ancienne image),
+// il doit toujours les retrancher. Les deux mondes rendent le MEME bas : 1028.
+
+const ECRAN_PLEIN = { x: 0, y: 0, width: 1920, height: 1080 };
+const ZONE_RESERVEE = { x: 0, y: 0, width: 1920, height: 1028 };
+
+function jouerZone(zoneMax) {
+    const ecritures = [];
+    const fenetres = [
+        // Une fenetre dont le bas passe sous la barre : a rattraper, une fois.
+        fenetre({
+            internalId: "bas", resourceClass: "vivaldi-stable", caption: "Basse",
+            x: 100, y: 40, width: 1000, height: 1040,
+            ecran: ECRAN_PLEIN, zoneMax, ecritures
+        }),
+        // Une fenetre deja au-dessus de la barre : jamais touchee.
+        fenetre({
+            internalId: "ok", resourceClass: "kate", caption: "Sage",
+            x: 100, y: 40, width: 1000, height: 988,
+            ecran: ECRAN_PLEIN, zoneMax, ecritures
+        })
+    ];
+    const workspace = {
+        windowList() { return fenetres.slice(); },
+        activeWindow: null,
+        clientArea(zone, f) { return (zone === 2 && f.zoneMax) ? f.zoneMax : f.ecran; },
+        raiseWindow() {},
+        windowActivated: signal(), windowAdded: signal(),
+        windowRemoved: signal(), screensChanged: signal()
+    };
+    const contexte = {
+        workspace,
+        KWin: { FullScreenArea: 1, MaximizeArea: 2 },
+        callDBus() {},
+        console
+    };
+    vm.runInNewContext(source, contexte, { filename: chemin });
+    return { fenetres, ecritures };
+}
+
+function verifierLaZone(zoneMax, nom) {
+    const essai = jouerZone(zoneMax);
+    // Bas a 1028 dans les deux mondes : y = 40, hauteur = 1028 - 40 = 988.
+    // Un retranchement double rendrait 936 (bas = 976).
+    if (!presque(geometrieDe(essai, "bas"), 100, 40, 1000, 988))
+        rater(nom + " : la fenetre basse n'est pas ramenee a un bas de 1028 ("
+              + JSON.stringify(geometrieDe(essai, "bas")) + ")");
+    if (geometrieDe(essai, "ok") !== null)
+        rater(nom + " : une fenetre deja au-dessus de la barre a ete touchee");
+}
+
+verifierLaZone(ZONE_RESERVEE, "zone reservee par kwin");
+verifierLaZone(undefined, "aucune zone reservee");
+
 if (echecs.length) {
     console.error("banc fenetres : " + echecs.length + " echec(s)");
     process.exit(1);
 }
-console.log("banc fenetres : le debranchement est rattrape, les deux kwin");
+console.log("banc fenetres : le debranchement est rattrape, les deux kwin ; "
+            + "le bas utile est 1028 avec ou sans zone reservee");
 

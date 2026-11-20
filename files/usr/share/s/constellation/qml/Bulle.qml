@@ -66,6 +66,11 @@ Window {
                                      : (Theme.estAndroid ? 0 : 24)
     LayerShell.Window.margins.bottom: Theme.estWindows ? 12 + 52 : 0
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
+    // -1 : la bulle compte DEJA les 52 pixels de la barre dans sa marge du bas.
+    // Avec la zone par defaut (0), le compositeur la repousserait une seconde
+    // fois au-dessus de la zone reservee — mesure du 2026-11-19, kwin 6.8.3 :
+    // bas a 964 au lieu de 1016, soit 52 pixels trop haut.
+    LayerShell.Window.exclusionZone: -1
 
     // EN WINDOWS, LA FENETRE A UNE HAUTEUR FIXE ET LA CARTE S'Y POSE EN BAS. La
     // regle kwin fixe le coin haut-gauche ; une fenetre qui grandit vers le bas

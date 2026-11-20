@@ -8,6 +8,39 @@ Interface en français.
 
 ---
 
+## 2026-11-19, soir — l'assistant de Flyff caché par la barre, et Dolphin qui bloque le changement de fenêtre : deux causes, deux correctifs, rien de déployé
+
+*Heures locales (EST). Demande : « je n'ai pas pu installer flyff car je n'avais pas accès aux boutons, cachés par la barre des tâches et je ne pouvais plus changer de fenêtre pendant que j'étais sur Dolphin ». Machine bootée sur `44.20261120.b8c0759` depuis 19:50 ; `s-chrome` vivant.*
+
+**Le contexte relevé :** `Flyff_US.exe` (Inno Setup 5.2.3, 1,7 Go) a bel et bien installé `C:\FlyffUS` (5,2 Go, `unins000.dat` écrit à 18:13, raccourci du menu Démarrer posé) : le plantage a donc eu lieu **sur la dernière page de l'assistant**, pas au début. La session a redémarré depuis, aucune fenêtre d'installateur n'était relevable.
+
+**Cause 1 — la barre ne réservait aucune place (mesuré).** kwin 6.8.3 virtuel 1920×1080 sur bus privé, barre de test identique à celle de S (layer-shell, Overlay, 472 px, ancrée en bas), avec puis sans `exclusionZone` :
+
+| | sans zone (l'état livré) | zone = 52 |
+|---|---|---|
+| fenêtre maximisée | bas = **1080** | bas = 1028 |
+| fenêtre de 1000×1040 (type installateur) | 1000×1080, bas = **1080** | bas = 1028 |
+| zone de placement / de maximisation | 1080 | 1028 |
+
+Les 52 derniers pixels de toute fenêtre que `fenetres.js` n'a pas rognée (maximisée, non redimensionnable, plein écran sans bordure) passaient donc sous la barre : exactement les boutons « Suivant / Terminer » d'un assistant. Le commentaire de `Barre.qml` disait « faute de liaison » ; la route était QML, `org.kde.layershell` expose `exclusionZone` et kwin 6.8.3 l'honore (`Window::hasStrut`, `LayerSurfaceV1Interface::exclusiveZone` dans `libkwin`).
+- **Corrigé :** `Barre.qml` `exclusionZone: barre.hauteur` (la bande, pas la fenêtre de 472 px) ; `BarreLaterale.qml` et `Bulle.qml` `exclusionZone: -1`. Mesuré : à zone 0 ces deux surfaces sont **repoussées** par la zone de la barre (latérale 1028 de haut au lieu de 1080 ; bulle 52 px trop haut, bas 964 au lieu de 1016) ; à `-1` leur géométrie est identique à l'actuelle.
+- **`fenetres.js` doit suivre, sinon c'est pire :** `basUtile()` retranchait 52 px de la zone de maximisation. Avec la zone réservée, kwin les a déjà retirés → **976**, une bande vide de 52 px au-dessus de la barre (mesuré, ancien `fenetres.js` + zone 52 : toutes les fenêtres à bas = 976). `basUtile()` ne retranche plus que si la zone de maximisation est encore égale au plein écran (chrome pas lancé, chrome tombé, ancienne image). Mesuré, nouveau `fenetres.js` + zone 52 : toutes les fenêtres, maximisée comprise, à bas = **1028**.
+- **Garde :** `banc-fenetres.js` joue les deux mondes (zone réservée / non réservée, même bas attendu 1028) ; éprouvé dans les deux sens — contre l'ancien `fenetres.js` il échoue (hauteur 936, « fenêtre déjà au-dessus de la barre touchée »). Gardes `grep` dans `36-constellation.sh` sur les trois QML.
+
+**Cause 2 — `QT_WAYLAND_SHELL_INTEGRATION=layer-shell` fuyait vers tout ce que la barre lance (mesuré pour la fuite ; le lien avec Dolphin est une déduction).** `s-chrome` posait la variable dans son `os.environ` ; `noyau.lancer()` appelle `gio launch`/`Popen` **sans `env=`**, donc tout programme lancé depuis une épinglée héritait de l'intégration layer-shell. Un client Qt de test lancé avec la variable : `0,0 1920×1080 layer=3`, titre vide, sans cadre ; sans elle : `610,267 700×546 layer=2`, titre `T-normale`. Une application Qt ainsi lancée (Dolphin, Konsole, Kate) devient une surface de couche plein écran, au-dessus des fenêtres ordinaires qu'on ne peut donc plus remonter par la barre — ce qui colle à « je ne pouvais plus changer de fenêtre pendant que j'étais sur Dolphin ». Relevé sur la session vivante : les sous-processus de VS Code (hôte d'extensions, terminaux, `claude`, `agy`) et de Vivaldi portent la variable.
+- **Corrigé :** `s-chrome` fait `os.environ.pop("QT_WAYLAND_SHELL_INTEGRATION", None)` juste après `QGuiApplication(...)`. **Mesuré que c'est sans risque :** retirée *avant toute fenêtre*, la barre montrée 1,5 s plus tard est quand même une surface de couche (layer 9), de même que les fenêtres créées plus tard (latérale, bulle) ; un enfant lancé ensuite voit `[absent]`. Qt choisit l'intégration au démarrage de l'application, pas à la première fenêtre. Garde `grep` dans `36-constellation.sh`.
+
+**Piège de banc, payé et à retenir :** mon propre shell portait la variable (hérité de VS Code) — mes premières fenêtres de test sont donc ressorties « 1920×1080, couche 3, sans titre », ce qui m'a d'abord fait croire à un défaut du banc. Lancer les clients de test avec `env -u QT_WAYLAND_SHELL_INTEGRATION`. Banc : `kwin_wayland --virtual --width 1920 --height 1080 --socket <nom> --no-lockscreen` sous `dbus-run-session` avec `XDG_RUNTIME_DIR` et `XDG_CONFIG_HOME` jetables, script kwin de relevé qui appelle `callDBus` vers un nom sans propriétaire, `dbus-monitor` comme témoin (même patron que `grimoire/kwin-capturer-la-coquille.sh`).
+
+**Ce qui n'est PAS établi :**
+- **La fenêtre de l'assistant de Flyff elle-même n'a pas été vue.** Rejouer `Flyff_US.exe` pour relever sa géométrie a été refusé par le classificateur de permissions de Claude Code (binaire tiers) ; je ne l'ai pas contourné. Le lien « boutons cachés = bas sous la barre » est démontré sur des fenêtres de test (maximisée, haute et non redimensionnable) sous le vrai kwin, pas sur la fenêtre Wine réelle.
+- **Le Dolphin de l'utilisateur n'a pas été observé.** La fuite est mesurée, l'effet sur un programme Qt aussi ; que ce Dolphin-là ait été lancé depuis la barre (ou depuis VS Code) avec la variable n'est pas établi. Qui a lancé VS Code et Vivaldi avec la variable n'est pas établi non plus. *Hypothèse non vérifiée :* leur `/proc/<pid>/environ` ne la montre pas alors que leurs enfants l'ont — compatible avec un `environ` réécrit par Chromium pour le titre du processus.
+- **Rien n'a tourné sur le vrai chrome.** Les mesures utilisent une barre de test aux mêmes réglages ; la vraie barre (menus, masque de zone sensible `bornerBarre`, `efface` pendant un plein écran) n'a pas été relancée. Que la zone se libère bien quand `efface` démasque la barre n'est pas mesuré. `verifier-chrome.py`, `verifier-constellation.py`, `verifier-tuiles.py`, `banc-fenetres.js` et le balayage par motif (45 contrôles) passent.
+- **Les fenêtres Wine réelles et les fenêtres Android** n'ont pas été mesurées avec la zone réservée (`taille_android` calcule déjà 1080 − 52 ; cohérent, non vérifié).
+- **Rien n'est commité ni déployé.** La session vivante (le chrome et tout l'arbre VS Code) garde la variable jusqu'au prochain démarrage sur l'image corrigée ; d'ici là, un programme Qt lancé depuis une épinglée peut encore se comporter comme décrit.
+
+---
+
 ## 2026-11-13 — changement de tour : la Seagate devient installateur de S + copie du dossier personnel
 
 *Heures locales (EST). Demande : « je vais changer de tour d'ordinateur et transférer la ram de celle-ci dans la nouvelle, fais moi un gros formatage de la seagate, une copie conforme de S présentement et un bootable pour installer S comme neuf ». Réponses de l'utilisateur aux questions : le contenu de la Seagate (114 Go de jeux) s'efface ; la copie = système + dossier personnel ; l'installateur = la Seagate elle-même.*

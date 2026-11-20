@@ -11,12 +11,13 @@ import org.kde.layershell as LayerShell
 // pour voir n'est pas une barre — elle vit ici dans une fenetre a elle,
 // posee au-dessus des autres, comme la bulle.
 //
-// CE QUE LE PROTOCOLE NE PERMET PAS, ET QU'IL FAUT DIRE. Sous Wayland, un
-// client ne reserve pas d'espace a l'ecran : cela demande zwlr_layer_shell_v1
-// ou org_kde_plasma_shell, deux protocoles que kwin annonce mais qu'aucune
-// liaison Python de cette image ne sait parler. Une fenetre maximisee passe
-// donc SOUS la barre au lieu de s'arreter au-dessus. C'est le prix, il est
-// connu, et il vaut mieux qu'une barre qu'on ne voit jamais.
+// L'ESPACE RESERVE (corrige le 2026-11-19). Cet en-tete disait qu'une fenetre
+// maximisee passait SOUS la barre faute de liaison pour zwlr_layer_shell_v1 —
+// vrai du 2026-08-25, faux depuis que la barre est une surface de couche : la
+// route etait QML (org.kde.layershell), et « exclusionZone » (plus bas) fait
+// reserver la bande par kwin. Tant qu'elle manquait, fenetres.js rognait les
+// fenetres une a une, ce qui ne marche ni sur une maximisee ni sur une fenetre
+// qui refuse de retrecir — d'ou les boutons d'installateur caches.
 // ═══════════════════════════════════════════════════════════════════════════
 
 Window {
@@ -44,6 +45,22 @@ Window {
                                | LayerShell.Window.AnchorLeft
                                | LayerShell.Window.AnchorRight
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
+    // LA BARRE RESERVE SA PLACE. Sans zone d'exclusion, kwin traite tout l'ecran
+    // comme utilisable : une fenetre maximisee, ou une fenetre haute posee au
+    // centre, finissait SOUS la barre et ses boutons du bas devenaient
+    // inaccessibles (signale par l'utilisateur sur l'assistant d'installation de
+    // Flyff, 2026-11-19). Mesure sur kwin 6.8.3, kwin virtuel 1920x1080 :
+    //
+    //                          sans zone      zone = 52
+    //   fenetre maximisee      bas = 1080     bas = 1028
+    //   fenetre de 1000x1040   bas = 1080     bas = 1028
+    //   zone de placement      1080           1028
+    //
+    // C'est la hauteur de la BANDE visible, pas celle de la fenetre (472, qui
+    // porte aussi les menus) : la zone se compte depuis le bord ancre, ici le bas.
+    // Le plein ecran n'est pas concerne (il ignore les zones reservees), et la
+    // zone disparait avec la surface quand « efface » la masque.
+    LayerShell.Window.exclusionZone: barre.hauteur
 
     property int hauteur: 52
 

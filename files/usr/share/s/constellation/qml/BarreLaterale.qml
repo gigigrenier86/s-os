@@ -131,6 +131,12 @@ Window {
                                | LayerShell.Window.AnchorBottom
                                | LayerShell.Window.AnchorRight
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
+    // -1 : « ne te pousse pas hors des zones reservees des autres ». Depuis que
+    // la barre reserve ses 52 pixels (Barre.qml), une surface a zone 0 est
+    // repoussee par le compositeur — mesure du 2026-11-19, kwin 6.8.3 : 1028
+    // de haut au lieu de 1080. Le masque de zone sensible de « bornerLaterale »
+    // compte ses marges depuis le bas de l'ecran ; la geometrie ne doit pas bouger.
+    LayerShell.Window.exclusionZone: -1
     // « WindowDoesNotAcceptFocus » MANQUAIT ICI, ET NULLE PART AILLEURS DANS
     // CE FICHIER. Barre.qml et Bulle.qml le portent tous les deux — trouve
     // le 2026-09-05 en mesurant, avec un temoin D-Bus, que cliquer un

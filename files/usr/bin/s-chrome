@@ -68,6 +68,20 @@ def main():
     # « s-constellation » — changer ici casserait les trois.
     QGuiApplication.setDesktopFileName("s-constellation")
     app = QGuiApplication(sys.argv)
+    # LA VARIABLE NE DOIT PAS SURVIVRE A CETTE LIGNE. Qt choisit l'integration
+    # de shell au DEMARRAGE de l'application, pas a la premiere fenetre — mesure
+    # du 2026-11-19 sur kwin 6.8.3, variable retiree avant toute fenetre : la
+    # barre montree 1,5 s plus tard est quand meme une surface de couche
+    # (layer 9, ancree), comme les fenetres creees plus tard (laterale, bulle).
+    # Gardee dans os.environ, elle etait HERITEE par tout ce que la barre
+    # lance — « noyau.lancer » passe par gio/Popen sans « env= ». Un programme
+    # Qt lance d'une epinglee (Dolphin, Konsole, Kate) devenait alors lui aussi
+    # une surface de couche : 1920x1080, couche 3, sans titre ni cadre, au-dessus
+    # des fenetres ordinaires qu'on ne pouvait plus remonter, et son bas sous la
+    # barre. Mesure : un client Qt de test lance avec la variable rend
+    # « 0,0 1920x1080 layer=3 », sans elle « 610,267 700x546 layer=2 ». VS Code
+    # et Vivaldi, lances d'ici, portaient la variable dans leurs sous-processus.
+    os.environ.pop("QT_WAYLAND_SHELL_INTEGRATION", None)
     app.setApplicationName("Constellation")
     app.setOrganizationName("S")
 

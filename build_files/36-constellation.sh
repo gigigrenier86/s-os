@@ -92,6 +92,25 @@ grep -qF 'os.environ["QML_DISK_CACHE"] = "none"' /usr/bin/s-constellation \
     || { echo "ECHEC : s-constellation ne coupe plus le cache disque de QML — un ancien cache perime pourrait servir a la place du QML deploye." >&2; exit 1; }
 grep -qF 'os.environ["QML_DISK_CACHE"] = "none"' /usr/bin/s-chrome \
     || { echo "ECHEC : s-chrome ne coupe plus le cache disque de QML — meme peril que s-constellation." >&2; exit 1; }
+# LA VARIABLE LAYER-SHELL NE DOIT PAS FUIR VERS CE QUE LA BARRE LANCE. Qt choisit
+# l'integration au demarrage de l'application (mesure du 2026-11-19, kwin 6.8.3) :
+# la retirer de l'environnement juste apres QGuiApplication ne change rien pour
+# la barre, et evite que tout programme Qt lance depuis une epinglee (Dolphin,
+# Konsole, Kate) devienne une surface de couche plein ecran, non gerable, dont
+# le bas passe sous la barre. Sans cette ligne la construction reste verte :
+# c'est une panne d'usage, que rien d'autre ne voit.
+grep -qF 'os.environ.pop("QT_WAYLAND_SHELL_INTEGRATION", None)' /usr/bin/s-chrome \
+    || { echo "ECHEC : s-chrome ne retire plus QT_WAYLAND_SHELL_INTEGRATION de son environnement — tout programme Qt lance depuis la barre redeviendrait une surface de couche plein ecran." >&2; exit 1; }
+# LA BARRE RESERVE SA PLACE, ET LES DEUX AUTRES SURFACES LA LUI LAISSENT. Sans
+# zone d'exclusion, une fenetre maximisee ou haute finit sous la barre (bas 1080
+# au lieu de 1028). Avec elle, les surfaces a zone 0 sont repoussees (laterale
+# 1028 de haut, bulle 52 px trop haut) : -1 les laisse ou elles sont.
+grep -qF 'LayerShell.Window.exclusionZone: barre.hauteur' /usr/share/s/constellation/qml/Barre.qml \
+    || { echo "ECHEC : Barre.qml ne reserve plus sa place (exclusionZone) — les fenetres maximisees repasseraient sous la barre." >&2; exit 1; }
+for qml in BarreLaterale Bulle; do
+    grep -qF 'LayerShell.Window.exclusionZone: -1' "/usr/share/s/constellation/qml/$qml.qml" \
+        || { echo "ECHEC : $qml.qml n'ignore plus la zone reservee de la barre (exclusionZone -1) — kwin la repousserait de 52 pixels." >&2; exit 1; }
+done
 rm -rf /usr/bin/__pycache__ /usr/lib/s/__pycache__ /root/.cache 2>/dev/null || true
 echo "  syntaxe       : session, coquille, coquille native et noyau analyses"
 

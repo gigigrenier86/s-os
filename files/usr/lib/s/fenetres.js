@@ -50,6 +50,20 @@ function estSurfaceDeCouche(f) {
     return String(f.caption || "") === "" && f.layer >= 3;
 }
 
+// LE BAS UTILE, QUE LA BARRE AIT RESERVE SA PLACE OU NON.
+//
+// Depuis le 2026-11-19 la barre porte une zone d'exclusion (Barre.qml) : kwin
+// retire lui-meme ses 52 pixels de la zone de maximisation et de placement.
+// Mesure sur kwin 6.8.3 (kwin virtuel 1920x1080) :
+//
+//                        sans zone   avec zone = 52
+//   zone de maximisation   1080         1028
+//   plein ecran            1080         1080
+//
+// Retrancher HAUTEUR_BARRE de la zone de maximisation REDUIRAIT donc DEUX FOIS
+// (976) : chaque fenetre laisserait une bande vide de 52 pixels au-dessus de la
+// barre. On ne retranche que si la zone de maximisation est encore egale au
+// plein ecran — chrome pas encore lance, chrome tombe, ou ancienne image.
 function basUtile(f) {
     var z = null;
     try {
@@ -57,14 +71,20 @@ function basUtile(f) {
     } catch (e) {
         z = null;
     }
-    if (!z) {
-        try {
-            z = workspace.clientArea(KWin.FullScreenArea, f);
-        } catch (e2) {
-            return -1;
-        }
+    var plein = null;
+    try {
+        plein = workspace.clientArea(KWin.FullScreenArea, f);
+    } catch (e1) {
+        plein = null;
     }
-    return z.y + z.height - HAUTEUR_BARRE;
+    if (!z) {
+        z = plein;
+        if (!z) return -1;
+    }
+    var bas = z.y + z.height;
+    if (plein && Math.round(bas) >= Math.round(plein.y + plein.height))
+        bas -= HAUTEUR_BARRE;
+    return bas;
 }
 
 function borner(f) {
