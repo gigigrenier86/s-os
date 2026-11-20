@@ -33,20 +33,31 @@ mkdir -p "$DEST" "$TRAVAIL"
 #
 # MEME DISCIPLINE QU'AVANT, AU MOT PRES : le condensat publie par l'amont
 # fait foi, jamais un octet installe sans qu'il corresponde.
-LISTE="$(curl -fsSL --retry 3 https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest)"
-# LE TAG SE LIT PAR UNE CHAINE DE LECTURE, PAS PAR UN TUBE — CORRIGE LE
-# 2026-09-21 APRES UNE CONSTRUCTION MORTE EN CODE 141. Avec « set -o pipefail »,
-# « printf | grep -m1 | cut » echoue des que grep, sa premiere ligne trouvee,
-# ferme le tube pendant que printf ecrit encore : SIGPIPE, 128 + 13 = 141, et
-# « set -e » emporte la construction entiere. Mesure sur cette machine, la
-# commande exacte rejouee 1 500 fois : 21 echecs sans charge (1,4 %), 47 sous
-# charge (3,1 %), tous en 141. Un runner charge par podman la rejoue donc
-# une construction sur trente, sans que rien n'ait change dans le depot.
-# « <<< » place l'ecriture hors du tube : plus de producteur qu'un lecteur
-# puisse couper, et grep n'a plus que « cut » derriere lui.
-TAG="$(grep -m1 '"tag_name"' <<< "$LISTE" | cut -d'"' -f4 || true)"
-[ -n "$TAG" ] \
-    || { echo "ECHEC : aucune version de GE-Proton dans la reponse de l'API GitHub." >&2; exit 1; }
+# LA VERSION SE LIT SUR LA REDIRECTION WEB, PAS SUR L'API — CORRIGE LE 2026-11-20
+# APRES DEUX CONSTRUCTIONS MORTES EN CODE 22 (run 44632941464, deux tentatives).
+# L'appel anonyme a api.github.com/.../releases/latest a recu un 403 : l'API
+# limite les appels sans jeton par adresse, et les machines de GitHub Actions se
+# partagent leurs adresses. « curl --retry » ne rejoue PAS un 403 (il ne juge
+# « transitoires » que les delais et les 5xx), donc rien ne rattrapait. Le meme
+# script avait pourtant passe a 14 h 38 UTC le meme jour : une panne qui tombe
+# un matin au hasard, sans qu'un seul fichier du depot ait change.
+#
+# « github.com/<depot>/releases/latest » est une page web, pas l'API : elle
+# redirige vers « .../releases/tag/<version> », et la derniere composante du
+# chemin final EST la version. Mesure du 2026-11-20 : « GE-Proton11-12 », la
+# meme valeur que « tag_name » dans l'API, sans aucun jeton. Les telechargements
+# plus bas passent deja par github.com/.../releases/download, jamais par l'API.
+# Pas de tube ici : aucun risque de SIGPIPE (voir le defaut du 2026-09-21).
+PAGE_FINALE="$(curl -fsSIL --retry 5 --retry-delay 5 --retry-all-errors \
+    -o /dev/null -w '%{url_effective}' \
+    https://github.com/GloriousEggroll/proton-ge-custom/releases/latest)"
+TAG="${PAGE_FINALE##*/}"
+# On ne bati pas une adresse de telechargement sur une redirection inattendue
+# (page de connexion, de limite de debit...) : le format du tag est verifie.
+case "$TAG" in
+    GE-Proton[0-9]*) ;;
+    *) echo "ECHEC : la redirection de GE-Proton ne donne pas une version : '$PAGE_FINALE'" >&2; exit 1 ;;
+esac
 URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${TAG}"
 
 curl -fsSL --retry 3 -o "$TRAVAIL/proton.tar.gz" "${URL}/${TAG}-x86_64.tar.gz"
