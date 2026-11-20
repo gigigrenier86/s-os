@@ -351,6 +351,26 @@ fi
 # trois autres soient acquis meme s'il echoue.
 FONDATIONS="vcrun2022 dotnetdesktop8 webview2 dotnet48"
 
+# --fondations-manquantes : ce qui manque, lu dans la comptabilite de winetricks
+# (« winetricks.log » du prefixe), jamais devine a la presence d'un fichier —
+# vcruntime140.dll existe aussi en version integree a Wine, et un releve par
+# fichier a deja repondu « oui » sur un prefixe ou winetricks n'avait JAMAIS
+# tourne (voir le releve plus bas). Une ligne, vide si rien ne manque.
+#
+# POURQUOI CE GESTE EXISTE (2026-11-19) : rien n'appelait --fondations. Sur une
+# machine neuve, le premier logiciel Windows trouvait un Windows vide — ni
+# .NET, ni VC++, ni WebView2 — et l'utilisateur tombait dessus avant nous.
+# s-ouvrir-exe le demande desormais avant d'ouvrir un programme.
+if [ "${1:-}" = "--fondations-manquantes" ]; then
+    _journal="$(readlink -f "$S_WIN_PFX" 2>/dev/null)/winetricks.log"
+    _manque=""
+    for verbe in $FONDATIONS; do
+        grep -qx "$verbe" "$_journal" 2>/dev/null || _manque="$_manque $verbe"
+    done
+    echo "${_manque# }"
+    exit 0
+fi
+
 if [ "${1:-}" = "--fondations" ]; then
     s_windows_pret || s_echec "Le Windows de S n'existe pas encore" \
         "Lance d'abord : s-windows --tout"

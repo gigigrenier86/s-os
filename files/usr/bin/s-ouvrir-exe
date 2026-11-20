@@ -67,6 +67,34 @@ s_windows_charger || s_echec "Le Windows de S est incomplet" \
     "L'environnement de Proton n'a pas ete releve. Lance : s-windows --preparer"
 
 # ---------------------------------------------------------------------------
+# LES FONDATIONS, POSEES UNE FOIS, AVANT LE PREMIER PROGRAMME
+# ---------------------------------------------------------------------------
+# Wine fournit un Windows VIDE. Rien n'appelait « s-windows --fondations » :
+# sur une machine neuve, le premier logiciel trouvait ni .NET, ni VC++, ni
+# WebView2, et l'utilisateur tombait dessus avant nous (2026-11-19). On les
+# pose donc ICI, avant d'ouvrir le programme, avec une phrase qui dit combien
+# de temps ca prend — attendre dix minutes une seule fois, en le sachant, vaut
+# mieux qu'un programme qui disparait sans un mot.
+#
+# UNE SEULE TENTATIVE PAR MACHINE. Un verbe de winetricks peut echouer pour de
+# bon (empreinte changee chez Microsoft, reseau absent) : le retenter a chaque
+# double-clic couterait dix minutes a chaque fois. Le marqueur est ecrit apres
+# la tentative, reussie ou non ; l'echec se dit dans la bulle de --fondations,
+# et « s-windows --fondations » reste la pour reessayer a la main.
+#
+# Le verrou est deja tenu ici : s-windows l'herite (S_VERROU_WINDOWS) et ne le
+# reprend pas, comme pour --preparer.
+MARQUE_FONDATIONS="$S_ETAT/windows-fondations-tentees"
+if [ ! -e "$MARQUE_FONDATIONS" ]; then
+    MANQUE="$("$S_GESTES/s-windows" --fondations-manquantes 2>/dev/null || true)"
+    if [ -n "$MANQUE" ]; then
+        s_dire "Windows de S" "Premiere fois : pose de ce que les logiciels Windows exigent (.NET, VC++, WebView2) — environ dix minutes, une seule fois. Ton programme s'ouvrira ensuite." system-software-install
+        "$S_GESTES/s-windows" --fondations "$MANQUE" || true
+    fi
+    date -Is > "$MARQUE_FONDATIONS" 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------------------
 # CE QUI MANQUE SE DIT AVANT, PAS APRES
 # ---------------------------------------------------------------------------
 # LA REGLE DU PROJET APPLIQUEE A L'ECHEC : « le pire resultat n'est pas

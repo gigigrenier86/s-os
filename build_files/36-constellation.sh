@@ -99,6 +99,8 @@ grep -qF 'os.environ["QML_DISK_CACHE"] = "none"' /usr/bin/s-chrome \
 # Konsole, Kate) devienne une surface de couche plein ecran, non gerable, dont
 # le bas passe sous la barre. Sans cette ligne la construction reste verte :
 # c'est une panne d'usage, que rien d'autre ne voit.
+grep -qF 'fondations-manquantes' /usr/bin/s-ouvrir-exe \
+    || { echo "ECHEC : s-ouvrir-exe ne pose plus les fondations Windows avant le premier programme — une machine neuve ouvrirait ses logiciels dans un Windows vide." >&2; exit 1; }
 grep -qF 'os.environ.pop("QT_WAYLAND_SHELL_INTEGRATION", None)' /usr/bin/s-chrome \
     || { echo "ECHEC : s-chrome ne retire plus QT_WAYLAND_SHELL_INTEGRATION de son environnement — tout programme Qt lance depuis la barre redeviendrait une surface de couche plein ecran." >&2; exit 1; }
 # LA BARRE RESERVE SA PLACE, ET LES DEUX AUTRES SURFACES LA LUI LAISSENT. Sans
@@ -243,6 +245,29 @@ fi
 # Sorti du « if », timeout a tue s-chrome (124) : il tenait toujours au bout
 # de dix secondes — c'est la preuve, et le seul code qui ne dit pas ECHEC.
 echo "  chrome         : scene, ponts et processus reels en place"
+
+# OU FINISSENT LES FENETRES QUAND LE CHROME EST LA — dans un VRAI kwin.
+# Le 2026-11-19, les boutons d'un assistant d'installation etaient caches sous
+# la barre (elle ne reservait aucune place) : ni la scene hors compositeur, ni
+# le kwin de carton ne pouvaient le voir. verifier-kwin.py lance un
+# kwin_wayland --virtual sur un bus prive, y charge le vrai fenetres.js, le
+# vrai s-chrome et trois fenetres de test, et exige qu'elles finissent juste
+# au-dessus de la barre. Eprouve dans les deux sens : sans la zone reservee, ou
+# avec l'ancien fenetres.js qui la retranchait deux fois, il echoue.
+# Code 77 = kwin virtuel indisponible dans cet environnement : rien n'a ete
+# mesure, et on le DIT au lieu de se taire. Sous la garde d'un « if » pour
+# que « set -e » ne tue pas le script sur ce code attendu.
+if python3 /ctx/build_files/verifier-kwin.py; then
+    :
+else
+    code_kwin=$?
+    if [ "$code_kwin" -eq 77 ]; then
+        echo "  AVERTISSEMENT  : banc kwin SAUTE — la geometrie des fenetres n'est PAS verifiee dans cette construction."
+    else
+        echo "ECHEC : dans un vrai kwin, des fenetres passent sous la barre ou laissent une bande vide (code $code_kwin)." >&2
+        exit 1
+    fi
+fi
 
 # --- Le greeter ne propose plus que S -------------------------------------
 echo "  sessions trouvees :"

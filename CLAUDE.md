@@ -8,6 +8,27 @@ Interface en français.
 
 ---
 
+## 2026-11-19, nuit — attraper ces bogues avant l'utilisateur : un vrai kwin dans la construction, et les fondations Windows posées d'office
+
+*Heures locales (EST). Le correctif de la soirée (`cb2a875`) est construit, publié et signé (CI `44655515279` verte, `44.20261120.cb2a875`, `sha256:f8cd1597…`, `cosign verify` code 0) — **pas déployé**. La machine a redémarré à 20:38 sur l'ancienne image (`b8c0759`). Le but de S, dit ce soir par l'utilisateur : « mon propre OS avec lequel je peux tout faire sans me casser la tête » — d'où ces deux chantiers, qu'il a choisis (« 1 et 2 »).*
+
+**1. `build_files/verifier-kwin.py`, branché dans `36-constellation.sh` (mesuré).** Lance un `kwin_wayland --virtual` 1920×1080 sur un bus privé et des dossiers jetables, y charge le **vrai** `fenetres.js`, le **vrai** `s-chrome` (ses vrais ponts, l'intégration layer-shell) et trois fenêtres de test (petite, maximisée, haute et non redimensionnable — le profil d'un assistant), relève les géométries par le témoin D-Bus, et exige : zone maximisable de kwin à 1028, les trois fenêtres à 1028, la barre collée en bas (1080). 19 s.
+- **Éprouvé dans les deux sens** : dépôt tel quel → vert ; `--sans-zone` (la ligne `exclusionZone` retirée de Barre.qml) → « la zone maximisable s'arrête à 1080 » ; `--fenetres-js <celui de b8c0759>` → « T-… finit à 976 : une bande vide de 52 px ». Relevé vert : barre `0,608 1920x472 layer=9`, latérale `1560,0 360x1080`, fenêtres `0,0 1920x1028`.
+- **Éprouvé en conteneur root sans session ni GPU** (`fedora:45` avec le `/usr` de S monté en lecture seule, rien de mieux possible : `--rootfs /:O` refusé sur composefs, `--rootfs /` refusé par crun) → vert. **Piège trouvé là, et la CI l'aurait payé : `kwin_wayland` porte `cap_sys_nice=ep`**, et un conteneur sans privilèges refuse alors de l'exécuter (`Operation not permitted`). Le banc lance une **copie** du binaire, qui perd la capacité (inutile à un kwin virtuel).
+- Code 77 = kwin virtuel indisponible : la construction l'**annonce** (« banc kwin SAUTÉ ») sans échouer. Une mesure faite et mauvaise, ou un s-chrome qui meurt sous Wayland, fait échouer la construction.
+- Deux défauts du banc trouvés en le faisant tourner : son nettoyage tuait `dbus-run-session`, son propre parent (code 247 sur une mesure réussie) ; et le portail XDG, activé tout seul par le bus privé, noyait la sortie — le rapport passe par un fichier, le bavardage n'est montré qu'en cas d'échec et filtré.
+
+**2. Les fondations Windows posées avant le premier programme (mesuré par doublure).** Relevé : sur cette machine elles sont toutes posées (`winetricks.log` : vcrun2022, dotnetdesktop8, webview2, dotnet48 ; plus le .NET 10 de ce soir). Mais **rien n'appelait `s-windows --fondations`** : `s-ouvrir-exe` n'appelait que `--preparer`. Sur une machine neuve, le premier logiciel trouvait un Windows vide. Désormais `s-windows --fondations-manquantes` lit la comptabilité de winetricks, et `s-ouvrir-exe` pose ce qui manque **une fois**, avec une bulle (« environ dix minutes, une seule fois »), avant d'ouvrir le programme ; un marqueur (`$S_ETAT/windows-fondations-tentees`) empêche de recommencer à chaque double-clic si un verbe échoue. Garde `grep` dans `36-constellation.sh`.
+- Éprouvé : cette machine → rien ne manque ; préfixe sans journal → les quatre ; préfixe partiel → `dotnetdesktop8 dotnet48` ; le bloc de `s-ouvrir-exe`, extrait tel quel avec un `s-windows` de doublure, pose au premier passage et plus jamais ensuite.
+- **Les polices Segoe ne sont pas enchaînées** : elles s'empruntaient à un Windows monté, et il n'y en a plus (limite 6, corrigée ce soir).
+
+**Ce qui n'est PAS établi :**
+- **`verifier-kwin.py` n'a jamais tourné sur un runner GitHub.** Le conteneur `fedora:45` en est l'approximation la plus proche faite ici ; la prochaine CI dira s'il mesure ou s'il saute (chercher « banc kwin » dans le journal, avec `gh api --allow-escape-sequences …/jobs/<id>/logs`).
+- **Aucune vraie pose de fondations sur un préfixe neuf** n'a été rejouée (dix minutes, plusieurs Go, 12 Go libres sur `/var`) — seul le chemin de décision l'est, par doublure.
+- Le banc ne voit ni vrais menus de la barre, ni fenêtre Wine réelle, ni GPU.
+
+---
+
 ## 2026-11-19, soir — l'assistant de Flyff caché par la barre, et Dolphin qui bloque le changement de fenêtre : deux causes, deux correctifs, rien de déployé
 
 *Heures locales (EST). Demande : « je n'ai pas pu installer flyff car je n'avais pas accès aux boutons, cachés par la barre des tâches et je ne pouvais plus changer de fenêtre pendant que j'étais sur Dolphin ». Machine bootée sur `44.20261120.b8c0759` depuis 19:50 ; `s-chrome` vivant.*
@@ -13668,6 +13689,16 @@ OS qui démarre.
    activé. Ce qui se paie : Windows sera lent, sur un plateau USB — le prix
    exact que S payait, échangé de place. Voir
    [`banc/le-demenagement.md`](banc/le-demenagement.md).
+   **DÉPASSÉ, dit par l'utilisateur le 2026-11-19 : il n'y a plus de Windows du
+   tout.** La Seagate a été effacée le 2026-11-13 (installateur de S + copie du
+   dossier personnel) et n'est même plus branchée — « c'est trop lent ». Il n'y a
+   donc **aucun repli Windows** pour ce que Wine ne fera jamais (limite 1 :
+   anti-triche noyau, pilotes) : ces programmes sont hors de portée, point. Et
+   la raison d'origine ne tient plus non plus : PC Boost se compile depuis Linux
+   (`dotnet publish -p:EnableWindowsTargeting=true`, éprouvé le 2026-08-27).
+   *Faute de Claude Code le 2026-11-19 : il a proposé un bouton « Redémarrer
+   sous Windows » en s'appuyant sur cette limite, sans la recouper avec la
+   section du 2026-11-13.*
 7. **L'UHD 630 borne le périmètre « jeux »** au rétro, à l'indé et à l'émulation.
    Lineage 2, moteur de 2003, y est à l'aise. Rien de moderne. Ça n'a rien à voir
    avec Linux — c'est vrai sous Windows aussi. **Nuance du 2026-11-03 :** un jeu Unreal Engine 5 entièrement
